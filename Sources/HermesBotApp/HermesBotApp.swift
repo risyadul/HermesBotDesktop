@@ -42,7 +42,7 @@ struct HermesBotApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var termSource: DispatchSourceSignal?
+    private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setvbuf(stdout, nil, _IOLBF, 0)
@@ -54,12 +54,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
         default: break
         }
-        // SIGTERM → the same graceful path as Quit (close sessions, stop only an owned backend).
-        signal(SIGTERM, SIG_IGN)
-        let src = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        src.setEventHandler { NSApp.terminate(nil) }
-        src.resume()
-        termSource = src
+        // SIGTERM and SIGINT (Ctrl+C in the launching terminal) → the same graceful path as Quit
+        // (close sessions, stop only an owned backend). A repeated signal while cleanup runs is a
+        // no-op (`cleanupStarted`). An owned backend is spawned in its own process group, so the
+        // terminal's SIGINT does not reach it before cleanup has used it.
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            src.setEventHandler { NSApp.terminate(nil) }
+            src.resume()
+            signalSources.append(src)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

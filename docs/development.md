@@ -41,6 +41,7 @@ Tests/HermesBotAppTests/    app regressions: Try Again reconnects after a failed
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate (real window, needs a GUI session)
 scripts/run-app-evidence.sh  scripted app run with a watchdog
+scripts/sigint-regression.sh Ctrl+C cleanup check against a fake backend (scripts/fixtures/)
 ```
 
 Look, tokens and motion: [DESIGN.md](../DESIGN.md), mirrored in `Sources/HermesBotApp/DesignSystem.swift`.
@@ -80,7 +81,11 @@ User-facing variables are in the README. These exist for scripted runs and tests
 - A spawned backend (`hermes serve --host 127.0.0.1 --port 0 --isolated` on `~/.hermes`, log at
   `~/Library/Logs/HermesBotApp/serve.log`) gets `HERMES_PARENT_PID`. It is stopped with SIGTERM on quit. If
   the app crashes, the backend exits through its parent-death watchdog.
-- Quit (⌘Q, last window closed) and SIGTERM run the graceful cleanup. SIGINT (Ctrl+C in a terminal) does not.
+- Quit (⌘Q, last window closed), SIGTERM and SIGINT (Ctrl+C in the launching terminal) all run the same
+  graceful cleanup, once; a repeated signal during cleanup is ignored. The spawned backend runs in its own
+  process group (Foundation `Process`), so the terminal's Ctrl+C reaches only the app, which then uses the
+  backend for cleanup and stops it with SIGTERM. SIGKILL skips cleanup.
+  Regression check: `scripts/sigint-regression.sh` (needs tmux and a GUI session; exit 0 = pass).
 - Session tokens are read from the 0600 rendezvous file (attach) or minted per start (spawn). They are never
   logged or written to repo/evidence files.
 

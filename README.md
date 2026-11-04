@@ -69,8 +69,8 @@ have **not been tested** with this app yet.
    ```
 5. **First chat:** pick a bot in the sidebar and send a message. For Group Chat, press **+**, choose 2–6
    bots, and send the opening message.
-6. **Quit with ⌘Q** so cleanup runs (see the data section above). Pressing Ctrl+C in the terminal skips
-   cleanup: the app exits without deleting its 1:1 sessions.
+6. **Quit** with ⌘Q, by closing the window, or with Ctrl+C in the terminal you launched it from. All three
+   run the same cleanup (see the data section above). Force-killing the app (`kill -9`) skips it.
 
 ## Configuration
 
