@@ -11,7 +11,19 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 
 **Status: early / pre-release.** Build from source only; no signed release binary yet.
 
-<!-- TODO before publishing: screenshot (light + dark). -->
+<p align="center">
+  <img src="docs/screenshots/screenshot-dark.png" alt="Hermes Bot macOS Group Chat (Dark Mode)" width="700">
+  <br>
+  <em>Native app with demo/mock data (Group Chat in Dark Mode)</em>
+</p>
+<details>
+<summary>View Light Mode screenshot</summary>
+<p align="center">
+  <img src="docs/screenshots/screenshot-light.png" alt="Hermes Bot macOS Group Chat (Light Mode)" width="700">
+  <br>
+  <em>Native app with demo/mock data (Group Chat in Light Mode)</em>
+</p>
+</details>
 
 ## Before you start: what this app does to your Hermes data
 
@@ -100,9 +112,11 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
 
 ## Contributing
 
-See [docs/development.md](docs/development.md) for layout, tests (`swift test`, no live backend needed),
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md) for layout, tests (`swift test`, no live backend needed),
 harness CLIs and protocol notes ([gateway contract](docs/gateway-contract.md),
-[groups contract](docs/groups-contract.md)). <!-- TODO: CONTRIBUTING.md, SECURITY.md, issue templates -->
+[groups contract](docs/groups-contract.md)).
+
+Security issues: please report privately, see [SECURITY.md](SECURITY.md).
 
 ## License
 

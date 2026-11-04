@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/risyadul/HermesBotDesktop/security/advisories/new
+    about: Report privately; do not open a public issue.
+  - name: Hermes Agent issues
+    url: https://github.com/NousResearch/hermes-agent/issues
+    about: Problems with Hermes Agent itself (models, profiles, tools) belong upstream.
