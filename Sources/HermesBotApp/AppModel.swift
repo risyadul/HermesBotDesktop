@@ -91,6 +91,9 @@ final class AppModel: ObservableObject {
         // K9: a watched card finished or is blocked (AppModel+Kanban.swift).
         kanban.onCardEvent = { [weak self] event in self?.kanbanCardChanged(event) }
         botActivity.onScreen = { [weak self] in self?.mainWindowOnScreen == true ? self?.selectedBot : nil }
+        // A bot created or deleted elsewhere (Hermes Desktop, the CLI) shows up in the activity pass first.
+        botActivity.rosterNames = { [weak self] in self.map { Set($0.bots.map(\.name)) } }
+        botActivity.onRosterChanged = { [weak self] in Task { await self?.refreshBots() } }
         botSections.filer = { [weak self] bot, id, name in self?.botMeta.setSection(bot, id: id, sectionName: name) }
         // Sections other apps made (or renamed) follow the bots' `ui_meta` (A5).
         metaWatch = botMeta.$meta.sink { [weak self] meta in

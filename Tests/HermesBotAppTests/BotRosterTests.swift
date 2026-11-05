@@ -70,6 +70,28 @@ final class BotRosterTests: XCTestCase {
         XCTAssertEqual(h.readThrough["a"], 150, "monotonic")
     }
 
+    /// A bot created in Hermes Desktop: the activity pass lists it before the app's roster has it, and the
+    /// app reloads the roster (once per differing set), so the new bot appears without reconnecting.
+    func testAPassListingOtherBotsAsksForARosterRefreshOnce() {
+        let h = hub(defaults())
+        var roster: Set<String> = ["a"]
+        var asked = 0
+        h.rosterNames = { roster }
+        h.onRosterChanged = { asked += 1 }
+        h.apply(["a": activity(100)])
+        XCTAssertEqual(asked, 0, "same names: nothing to do")
+        h.apply(["a": activity(100), "new": activity(120)])
+        XCTAssertEqual(asked, 1, "a bot the roster lacks")
+        h.apply(["a": activity(110), "new": activity(130)])
+        XCTAssertEqual(asked, 1, "still differing the same way: the refresh is already asked for")
+        roster = ["a", "new"]
+        h.apply(["a": activity(110), "new": activity(130)])
+        h.apply(["new": activity(130)])
+        XCTAssertEqual(asked, 2, "a bot deleted elsewhere refreshes too")
+        h.apply([:])
+        XCTAssertEqual(asked, 2, "an empty pass (no answer yet) is not a roster")
+    }
+
     func testOnScreenBotIsMarkedReadOnEveryPass() {
         let h = hub(defaults())
         h.onScreen = { "a" }

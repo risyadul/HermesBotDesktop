@@ -21,6 +21,12 @@ final class BotActivityHub: ObservableObject {
     /// The bot whose Bot Chat is on screen (its activity is seen as it happens).
     var onScreen: () -> String? = { nil }
     var log: (String) -> Void = { AppModel.shared.log($0) }
+    /// The bot names the app's roster holds (`AppModel.bots`); nil = no roster to compare with.
+    var rosterNames: () -> Set<String>? = { nil }
+    /// A pass listed other bots than the roster (one created or deleted in Hermes Desktop or the CLI): the
+    /// app reloads its roster, so the new bot appears without a reconnect. Asked once per differing set.
+    var onRosterChanged: (() -> Void)?
+    private var rosterRequestedFor: Set<String>?
 
     static let readKey = "hba.botReadThrough"
     static let interval: TimeInterval = 10
@@ -56,6 +62,18 @@ final class BotActivityHub: ObservableObject {
         for (bot, a) in listed where marks[bot] == nil && a.lastActive > 0 { marks[bot] = a.lastActive }
         if let shown = onScreen(), let stamp = listed[shown]?.lastActive, stamp > (marks[shown] ?? 0) { marks[shown] = stamp }
         saveMarks(marks)
+        checkRoster(Set(listed.keys))
+    }
+
+    private func checkRoster(_ names: Set<String>) {
+        guard !names.isEmpty, let roster = rosterNames() else { return }
+        if names == roster {
+            rosterRequestedFor = nil
+        } else if names != rosterRequestedFor {
+            rosterRequestedFor = names
+            log("bot activity: profiles.list names differ from the roster → refreshing it")
+            onRosterChanged?()
+        }
     }
 
     /// The bot's Bot Chat was opened: everything up to its latest activity is seen. Monotonic.
