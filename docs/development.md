@@ -37,12 +37,16 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   SlashCommands.swift         commands.catalog (curated like Desktop) + invocation classification
   ToolActivity.swift          tool.start/progress/complete payloads
   PluginREST.swift            /api/plugins/<name>/ REST client (session token header, loopback, no redirects;
-                              multipart upload + download with size caps)
+                              streamed answers capped: 8 MB JSON, downloads per call; multipart upload; `+` in
+                              query values sent as %2B)
   KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models
   BotActivityAPI.swift        bot-activity plugin calls + install/enable/remove via plugins.manage (pinned ref);
                               BotActivityFeed.swift: paging merge, cursor, member phases
-  BackgroundServe.swift       opt-in LaunchAgent keeping `hermes serve` running (plist, launchctl)
+  BackgroundServe.swift       opt-in LaunchAgent keeping `hermes serve` running (plist, launchctl; job state
+                              parsed from `launchctl print`: running / loaded-not-running / not loaded)
   GatewayStatus.swift         kanban dispatcher (`hermes gateway`) state + start; CommandRunner.swift: no-shell runner
+                              (output read while running and capped, cancellation terminates, no wait on a
+                              pipe a grandchild still holds)
 Sources/BotChatHarness/     CLI: attach/spawn → profiles.list → one streamed 1:1 turn → cleanup
 Sources/SpikeHarness/       CLI: the M0 groups.* round trip (isolated home): RoundTrip, GroupsAPI+Spike
                             (M0-only raw calls: profiles, create, disband, Member)
@@ -61,8 +65,13 @@ Sources/HermesBotApp/       SwiftUI app:
   ServerRequestCards.swift    approval/clarify/secret cards; RequestCardModels.swift: their labels and answers
   MediaViews.swift            MEDIA files: inline images, file chips, click-time safety check
   SidebarView.swift           Group Chats + Bots + Boards sidebar, row style, connection footer
-  KanbanHub.swift             board list for the sidebar, per-board models, dispatcher status (K8)
-  KanbanBoardModel.swift      one board: polling, lanes, optimistic actions + rollback, details (KanbanService)
+  KanbanHub.swift             board list for the sidebar, per-board models (pruned when unlisted), polling paused
+                              while no window is on screen (setActive), dispatcher polling while a board shows
+  DispatcherStatusModel.swift the one dispatcher status model (board chip + Settings), generation-guarded (K8)
+  BackgroundServeSettingsModel.swift  Settings → Background: confirmations (path, env override, Switch Now /
+                              At Next Launch, turning off while attached); SettingsSections.swift: the views
+  KanbanBoardModel.swift      one board: polling (suspendable), lanes, optimistic actions + rollback, details,
+                              `.gone` when the board is deleted or archived while open (KanbanService)
   KanbanBoardView.swift       board pane: header, lanes, cards, card menus, dispatcher chip
   KanbanTaskInspector.swift   card details inspector (attachments, message worker / requeue), New Task sheet;
                               KanbanSidebar.swift: Boards rows
