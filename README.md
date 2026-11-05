@@ -235,7 +235,8 @@ have **not been tested** with this app yet.
   another Hermes app started is never steered from here: Return queues instead. If the bot cannot take a
   correction, the message is queued, so nothing you typed is lost. Files and slash commands are never used
   to steer (files are queued; slash commands run at once).
-- **Approval mode:** the ⚡ menu under the composer shows the bot's approval mode: **Manual** (ask before
+- **Approval mode:** the ⚡ **Approvals** menu under the composer (for example "Approvals: Off") shows the
+  bot's approval mode: **Manual** (ask before
   actions that need approval), **Smart** (Hermes assesses each action and asks when needed) or **Off** (no
   approval prompts). It is the bot's profile setting, so it applies to all of that bot's chats.
 - **Model and reasoning effort:** the row under the composer shows the chat's model and reasoning effort;

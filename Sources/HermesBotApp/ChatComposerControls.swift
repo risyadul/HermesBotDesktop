@@ -5,14 +5,18 @@ import SwiftUI
 /// Each is a quiet caption-size control that tints on hover; the menus list what `model.options` reports.
 struct ComposerControls: View {
     @ObservedObject var chat: ChatModel
-    /// Narrow row: the effort menu shows its symbol only (the level stays in its tooltip).
+    /// Narrow row: the effort and approval menus show their symbol only (the level stays in the tooltip).
     var compact = false
+    /// The approval menu reads "Off" instead of "Approvals: Off" (a narrow composer).
+    var shortApprovals = false
 
     var body: some View {
         HStack(spacing: DS.Space.s1) {
             ModelMenu(chat: chat)
             if chat.showsReasoning { ReasoningMenu(chat: chat, compact: compact) }
-            if let mode = chat.approvalMode { ApprovalModeMenu(chat: chat, mode: mode, compact: compact) }
+            if let mode = chat.approvalMode {
+                ApprovalModeMenu(chat: chat, mode: mode, compact: compact, short: shortApprovals)
+            }
             if let usage = chat.contextUsage { ContextGauge(chat: chat, usage: usage) }
         }
         .disabled(!chat.canChangeControls)
@@ -149,6 +153,7 @@ struct ApprovalModeMenu: View {
     @ObservedObject var chat: ChatModel
     let mode: ApprovalMode
     var compact = false
+    var short = false
 
     var body: some View {
         Menu {
@@ -162,13 +167,19 @@ struct ApprovalModeMenu: View {
                 }
             }
         } label: {
-            MenuLabel(symbol: mode == .off ? "bolt.fill" : "bolt", text: mode.label, showsText: !compact)
+            MenuLabel(symbol: mode == .off ? "bolt.fill" : "bolt", text: Self.title(mode, short: short), showsText: !compact)
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .buttonStyle(ComposerControlStyle())
         .help(Self.help(mode))
         .accessibilityLabel(Self.help(mode))
+    }
+
+    /// The pill's text: "Approvals: Off" (a bare "⚡ Off" read as if something were switched off; live UI test
+    /// 2026-11-06, round 5), or just the mode in a narrow composer.
+    nonisolated static func title(_ mode: ApprovalMode, short: Bool) -> String {
+        short ? mode.label : "Approvals: \(mode.label)"
     }
 
     nonisolated static func help(_ mode: ApprovalMode) -> String {

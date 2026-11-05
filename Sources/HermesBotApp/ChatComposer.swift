@@ -141,13 +141,15 @@ struct ChatComposer: View {
         .composerSurface(focused: focused)
     }
 
-    /// Controls, key hints and the chat's status. Narrower rows drop the hints first, then the effort
-    /// label; the model name and the status text truncate last.
+    /// Controls, key hints and the chat's status. Narrower rows drop the hints first, then shorten "Approvals:
+    /// Off" to "Off", then drop the effort and approval labels; the model name and the status text truncate last.
     private var statusRow: some View {
-        ViewThatFits(in: .horizontal) {
-            statusLine(compact: false, hints: true)
-            statusLine(compact: false, hints: false)
-            statusLine(compact: true, hints: false)
+        let styles = Self.statusStyles(narrowField: !fieldLayout.micInRow)
+        return ViewThatFits(in: .horizontal) {
+            statusLine(styles[0])
+            statusLine(styles[1])
+            statusLine(styles[2])
+            statusLine(styles[3])
         }
         .animation(motion ? DS.Motion.ease : nil, value: chat.busy)
         .animation(motion ? DS.Motion.ease : nil, value: chat.activity)
@@ -163,13 +165,29 @@ struct ChatComposer: View {
         IconButton(symbol: "stop.circle", label: "Stop the reply") { chat.stop() }
     }
 
-    private func statusLine(compact: Bool, hints showHints: Bool) -> some View {
+    /// One way to lay out the status row, widest first (`statusStyles`).
+    struct StatusStyle: Equatable {
+        var compact = false
+        var hints = false
+        var shortApprovals = false
+    }
+
+    /// The status row's layouts in the order `ViewThatFits` tries them. A narrow composer (`ComposerFieldLayout`
+    /// moved the mic out of the field row) uses the short approval label throughout.
+    nonisolated static func statusStyles(narrowField: Bool) -> [StatusStyle] {
+        [StatusStyle(hints: true, shortApprovals: narrowField),
+         StatusStyle(shortApprovals: narrowField),
+         StatusStyle(shortApprovals: true),
+         StatusStyle(compact: true, shortApprovals: true)]
+    }
+
+    private func statusLine(_ style: StatusStyle) -> some View {
         let layout = fieldLayout
         return HStack(spacing: DS.Space.s3) {
             if chat.busy && !layout.stopInRow { stopButton }
             if !layout.micInRow { micButton }
-            ComposerControls(chat: chat, compact: compact)
-            if showHints { hints }
+            ComposerControls(chat: chat, compact: style.compact, shortApprovals: style.shortApprovals)
+            if style.hints { hints }
             Spacer(minLength: 0)
             status
         }

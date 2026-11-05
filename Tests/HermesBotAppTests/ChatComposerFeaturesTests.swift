@@ -297,6 +297,25 @@ final class ChatComposerFeaturesTests: XCTestCase {
         XCTAssertEqual(store.draft(for: "b"), "nothing secret here")
     }
 
+    /// Live UI test 2026-11-06 (round 5): the approval pill read "⚡ Off", as if something were off. It says
+    /// "Approvals: Off" and falls back to the bare mode only in a narrow composer or a row too tight for it.
+    func testTheApprovalPillNamesTheSetting() {
+        let table: [(ApprovalMode, Bool, String)] = [
+            (.off, false, "Approvals: Off"), (.manual, false, "Approvals: Manual"), (.smart, false, "Approvals: Smart"),
+            (.off, true, "Off"), (.manual, true, "Manual"), (.smart, true, "Smart"),
+        ]
+        for (mode, short, expected) in table { XCTAssertEqual(ApprovalModeMenu.title(mode, short: short), expected) }
+
+        let wide = ChatComposer.statusStyles(narrowField: false)
+        XCTAssertEqual(wide.first, .init(hints: true, shortApprovals: false), "a roomy row: the long label and the hints")
+        XCTAssertEqual(wide[1], .init(shortApprovals: false), "the hints leave before the label shortens")
+        XCTAssertEqual(wide[2], .init(shortApprovals: true))
+        XCTAssertEqual(wide.last, .init(compact: true, shortApprovals: true), "last: symbols only")
+        let narrow = ChatComposer.statusStyles(narrowField: true)
+        XCTAssertEqual(narrow.count, wide.count)
+        XCTAssertTrue(narrow.allSatisfy(\.shortApprovals), "a narrow composer (mic out of the field row) uses the short form")
+    }
+
     func testTheAppStoreIsOffUnderTests() {
         XCTAssertNil(ChatDraftStore.app, "tests never write the real defaults")
     }

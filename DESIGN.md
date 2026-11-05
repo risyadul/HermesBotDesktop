@@ -756,9 +756,10 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   (a reply runs that this chat cannot steer, or files are attached) or Save (a queued message is being
   edited). The row below leads with the chat's controls in `caption`, muted, hover tint: the model
   (name truncates in the middle, 150 pt cap), the reasoning effort (brain symbol + level, symbol only on a
-  narrow row), the approval mode (B14: `bolt` symbol, `bolt.fill` for Off, + Manual / Smart / Off; the menu
-  lists each with Desktop's one-line description) and the context gauge (28 × 4 pt ink bar on a hairline track + percentage, `~` when
-  estimated; click for the breakdown popover). Key hints drop first when the row is narrow. Status on the
+  narrow row), the approval mode (B14: `bolt` symbol, `bolt.fill` for Off, + "Approvals: Manual" / "Approvals:
+  Smart" / "Approvals: Off", the bare mode in a narrow composer or a tight row, symbol only narrower still; the
+  menu lists each with Desktop's one-line description) and the context gauge (28 × 4 pt ink bar on a hairline track + percentage, `~` when
+  estimated; click for the breakdown popover). Key hints drop first when the row is narrow, then the approval label shortens. Status on the
   right: an action in flight, then "Compacting the conversation…", then "<bot> is replying".
 - `queue-panel` (Bot Chat): above the composer, `surface` fill, card radius: a caption header ("2 queued",
   "· paused" after Stop, with Resume), then one row per message (two lines, `meta`) with Edit, Send now and
