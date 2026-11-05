@@ -6,11 +6,14 @@ import SwiftUI
 struct KanbanSidebarRows<Row: View>: View {
     @ObservedObject var hub: KanbanHub
     let connected: Bool
+    /// The sidebar filter (A3); the placeholder line still reflects every board.
+    var matches: (KanbanSidebarRow) -> Bool = { _ in true }
     @ViewBuilder let row: (KanbanSidebarRow) -> Row
 
     var body: some View {
-        let rows = hub.rows
-        if let text = KanbanHub.sidebarPlaceholder(connected: connected, availability: hub.availability, rows: rows.count) {
+        let all = hub.rows
+        let rows = all.filter(matches)
+        if let text = KanbanHub.sidebarPlaceholder(connected: connected, availability: hub.availability, rows: all.count) {
             Text(text)
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                 .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)

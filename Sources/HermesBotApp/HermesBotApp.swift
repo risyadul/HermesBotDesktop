@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setvbuf(stdout, nil, _IOLBF, 0)
         // Pasted images left behind by a crash or a kill (no quit purge ran): nothing can reference them.
         PasteboardAttachments.purge()
+        // Notifications (D1): the UserNotifications delegate must be in place before a click that launched the
+        // app is delivered. Nothing is requested from the user until the first notification (lazy authorization).
+        MainActor.assumeIsolated { _ = AppModel.shared.notifications }
         // `swift run` launches a bare executable: make it a regular foreground app with a window.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)

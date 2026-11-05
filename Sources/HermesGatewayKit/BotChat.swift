@@ -10,6 +10,8 @@ public struct Bot: Sendable, Identifiable, Hashable {
     public let provider: String?
     public let isDefault: Bool
     public let skillCount: Int?
+    /// Pin / Hide as stored in `ui_meta["hermes-bots"]` when the roster was listed (BotUIMeta.swift).
+    public let uiMeta: BotUIMeta
 
     public var title: String { (displayName?.isEmpty == false ? displayName : nil) ?? name }
 
@@ -22,6 +24,7 @@ public struct Bot: Sendable, Identifiable, Hashable {
         provider = v["provider"]?.string
         isDefault = v["is_default"]?.bool ?? false
         skillCount = v["skill_count"]?.int
+        uiMeta = BotUIMeta(row: v)
     }
 
     /// `profiles.list {include_sessions: false}` → bots in server order.

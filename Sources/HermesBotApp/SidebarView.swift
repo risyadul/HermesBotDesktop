@@ -4,17 +4,36 @@ import SwiftUI
 
 struct SidebarView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var botMeta: BotMetaModel
     @ObservedObject private var avatars = AvatarStore.shared
     @Namespace private var selectionSpace
     @FocusState private var focused: Bool
+    @FocusState private var filterFocused: Bool
     @Environment(\.motionEnabled) private var motion
+    /// The filter field's text (A3); not remembered across launches.
+    @State private var query = ""
+    /// "Hidden (n)" expanded; session-only, like Desktop's reveal toggle.
+    @State private var hiddenExpanded = false
 
+    init(model: AppModel) {
+        _model = ObservedObject(wrappedValue: model)
+        _botMeta = ObservedObject(wrappedValue: model.botMeta)
+    }
+
+    private var shownRooms: [RoomSummary] { model.rooms.filter { SidebarFilter.matches($0, query: query) } }
+    private var roster: BotRoster {
+        BotRoster(bots: model.bots, meta: botMeta.meta, query: query, hiddenExpanded: hiddenExpanded)
+    }
+    private var shownBoards: [KanbanSidebarRow] { model.kanban.rows.filter { SidebarFilter.matches($0, query: query) } }
+
+    /// What the arrow keys walk: the rows on screen, in drawing order.
     private var order: [SidebarItem] {
-        model.rooms.map { .room($0.roomId) } + model.bots.map { .bot($0.name) } + model.kanban.rows.map { .board($0.slug) }
+        shownRooms.map { .room($0.roomId) } + roster.rows.map { .bot($0.name) } + shownBoards.map { .board($0.slug) }
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            filterField
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s0) {
                     sectionHeader("Group Chats") {
@@ -31,7 +50,12 @@ struct SidebarView: View {
                             .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                             .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
                     }
-                    ForEach(model.rooms) { room in
+                    if SidebarFilter.isActive(query) && order.isEmpty {
+                        Text("No matches")
+                            .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                            .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
+                    }
+                    ForEach(shownRooms) { room in
                         row(.room(room.roomId)) { roomRow(room) }
                     }
                     sectionHeader("Bots") { EmptyView() }
@@ -40,11 +64,23 @@ struct SidebarView: View {
                             .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                             .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
                     }
-                    ForEach(model.bots) { bot in
-                        row(.bot(bot.name)) { botRow(bot) }
+                    if let error = botMeta.lastError {
+                        Text(error)
+                            .font(DS.Typeface.meta).foregroundStyle(DS.Palette.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
+                    }
+                    let roster = roster
+                    ForEach(roster.visible) { bot in botRowButton(bot) }
+                    if roster.showHiddenSection {
+                        hiddenHeader(roster)
+                        if roster.showHiddenRows {
+                            ForEach(roster.hidden) { bot in botRowButton(bot) }
+                        }
                     }
                     sectionHeader("Boards") { EmptyView() }
-                    KanbanSidebarRows(hub: model.kanban, connected: model.phase.isConnected) { board in
+                    KanbanSidebarRows(hub: model.kanban, connected: model.phase.isConnected,
+                                      matches: { SidebarFilter.matches($0, query: query) }) { board in
                         row(.board(board.slug)) { KanbanBoardRowContent(row: board) }
                     }
                 }
@@ -56,6 +92,78 @@ struct SidebarView: View {
             .onMoveCommand(perform: move)
             Hairline()
             footer
+        }
+    }
+
+    /// A3: the standard filter field (a rounded text field, as on the Kanban board); never bound to ⌘F, which
+    /// stays free for Find in chat. Return or ↓ selects the first match and moves to the list; Escape clears.
+    private var filterField: some View {
+        TextField("Filter", text: $query, prompt: Text("Filter"))
+            .textFieldStyle(.roundedBorder)
+            .focused($filterFocused)
+            .onSubmit(selectFirstMatch)
+            .onKeyPress(.downArrow) {
+                selectFirstMatch()
+                return .handled
+            }
+            .onExitCommand { query = "" }
+            .accessibilityLabel("Filter group chats, bots and boards")
+            .help("Filter group chats, bots and boards by name, @handle or model")
+            .padding(.horizontal, DS.Space.s4).padding(.top, DS.Space.s2).padding(.bottom, DS.Space.s1)
+    }
+
+    private func selectFirstMatch() {
+        guard let first = order.first else { return }
+        select(first)
+        filterFocused = false
+        focused = true
+    }
+
+    /// "Hidden (n)": collapsed by default; a filter shows the matching hidden bots without expanding it.
+    private func hiddenHeader(_ roster: BotRoster) -> some View {
+        Button { hiddenExpanded.toggle() } label: {
+            HStack(spacing: DS.Space.s1) {
+                Image(systemName: roster.showHiddenRows ? "chevron.down" : "chevron.right")
+                    .font(DS.Typeface.meta)
+                Text("Hidden (\(roster.hiddenTotal))").font(DS.Typeface.captionStrong)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(DS.Palette.muted)
+            .frame(minHeight: DS.Size.sectionHeader)
+            .padding(.horizontal, DS.Space.s2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(SidebarFilter.isActive(query))
+        .accessibilityLabel("Hidden bots, \(roster.hiddenTotal)")
+        .accessibilityValue(roster.showHiddenRows ? "expanded" : "collapsed")
+    }
+
+    private func botRowButton(_ bot: Bot) -> some View {
+        row(.bot(bot.name)) { botRow(bot) }
+            .contextMenu { botMenu(bot) }
+    }
+
+    /// A1: Open, Pin/Unpin, Hide/Unhide, Copy @handle (`BotRowMenu`).
+    @ViewBuilder private func botMenu(_ bot: Bot) -> some View {
+        let meta = botMeta[bot.name]
+        let saving = botMeta.isSaving(bot.name)
+        ForEach(BotRowMenu.items(meta), id: \.self) { item in
+            switch item {
+            case .open:
+                Button(BotRowMenu.title(item)) { select(.bot(bot.name)) }
+                Divider()
+            case .pin, .unpin:
+                Button(BotRowMenu.title(item)) { botMeta.setPinned(bot.name, item == .pin) }.disabled(saving)
+            case .hide, .unhide:
+                Button(BotRowMenu.title(item)) { botMeta.setHidden(bot.name, item == .hide) }.disabled(saving)
+                Divider()
+            case .copyHandle:
+                Button(BotRowMenu.title(item)) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(BotRowMenu.handle(bot), forType: .string)
+                }
+            }
         }
     }
 
@@ -107,6 +215,12 @@ struct SidebarView: View {
                 }
             }
             Spacer(minLength: 0)
+            if botMeta[bot.name].pinned {
+                Image(systemName: "pin.fill")
+                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                    .help("Pinned to the top")
+                    .accessibilityLabel("Pinned")
+            }
             if let chat = model.chats[bot.name] { BotChatBadge(chat: chat) }
         }
     }

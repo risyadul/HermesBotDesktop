@@ -21,6 +21,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var groupsAvailable = true
     /// Kanban boards, board models and the dispatcher status of the current connection (KanbanHub.swift).
     let kanban = KanbanHub()
+    /// Pin / Hide per bot, saved to the profile's `ui_meta` (A2, BotMetaModel.swift).
+    let botMeta = BotMetaModel()
+    /// Native notifications and the Dock badge (D1, D2: Notifications/).
+    let notifications: NotificationCoordinator
     var selectedBot: String? { if case .bot(let n)? = selection { return n }; return nil }
     private(set) var backend: Backend?
     private var disconnectToken: UUID?
@@ -38,6 +42,11 @@ final class AppModel: ObservableObject {
 #endif
 
     init() {
+        let poster = UserNotificationPoster.makeIfAvailable()
+        notifications = NotificationCoordinator(poster: poster)
+        poster?.onRoute = { [weak self] route in self?.handleNotification(route) }
+        notifications.botHidden = { [weak self] name in self?.botMeta[name].hidden ?? false }
+        notifications.rooms.log = { [weak self] line in self?.log(line) }
         // A board deleted or archived elsewhere leaves the selection (its pane would show a dead board).
         kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
     }
@@ -75,9 +84,13 @@ final class AppModel: ObservableObject {
     func chat(for bot: Bot) -> ChatModel {
         if let c = chats[bot.name] { return c }
         let c = ChatModel(bot: bot, opener: Self.canonicalOpener(backend))
+        c.onTurnEvent = { [weak self] type, chat in
 #if DEBUG
-        c.onTurnEvent = { [weak self] type, chat in self?.turnEvent(type, chat) }
+            self?.turnEvent(type, chat)
 #endif
+            self?.notifications.turnEvent(type, chat)
+        }
+        notifications.track(c)
         chats[bot.name] = c
         return c
     }
@@ -165,6 +178,8 @@ final class AppModel: ObservableObject {
                     try Task.checkCancellation()  // quitting: `release` stops what was just connected
                     self.modeText = b.mode.description
                     self.bots = try await Bot.list(b)
+                    self.botMeta.load(self.bots)
+                    self.botMeta.saver = BotMetaModel.saver(b.client)
                     self.log("profiles.list → \(self.bots.map(\.name))")
                 },
                 release: { b in
@@ -173,6 +188,7 @@ final class AppModel: ObservableObject {
                     self.unsubscribeDisconnect(b)
                     self.backend = nil
                     self.bots = []
+                    self.botMeta.reset()
                     self.modeText = ""
                     let owned = b.owned
                     await Task.detached { b.shutdown() }.value
@@ -185,6 +201,7 @@ final class AppModel: ObservableObject {
             guard backend === b else { return }
             phase = .connected
             kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) })
+            if groupsAvailable, let groups { notifications.rooms.start(source: groups) }
 #if DEBUG
             autochat()
             autoroom()
@@ -217,6 +234,8 @@ final class AppModel: ObservableObject {
         for c in chats.values { c.close() }
         chats = [:]
         kanban.disconnect()
+        notifications.reset()
+        botMeta.reset()
         rooms = []
         bots = []
         modeText = ""
@@ -249,6 +268,7 @@ final class AppModel: ObservableObject {
         guard let groups else { return }
         do {
             rooms = try await groups.allRooms()
+            notifications.rooms.setRooms(rooms)
             log("groups.list → \(rooms.count) room(s)")
         } catch { log("groups.list failed: \(Redaction.describe(error))") }
     }
@@ -257,9 +277,12 @@ final class AppModel: ObservableObject {
         if let m = roomModels[id] { return m }
         guard let room = rooms.first(where: { $0.roomId == id }), let groups else { return nil }
         let m = RoomModel(room: room, api: groups)
+        m.onSync = { [weak self] model, new in
 #if DEBUG
-        m.onSync = { [weak self] model, new in self?.roomSynced(model, new) }
+            self?.roomSynced(model, new)
 #endif
+            self?.notifications.rooms.ingest(room: model.room, events: new, driver: model.driver, latestSeq: model.timeline.cursor)
+        }
         m.onDisbanded = { [weak self] model in self?.roomDisbanded(model.id) }
         roomModels[id] = m
         return m
@@ -272,6 +295,7 @@ final class AppModel: ObservableObject {
         rooms.removeAll { $0.roomId == id }
         roomModels[id] = nil
         activityModels.removeValue(forKey: id)?.shutdown()
+        notifications.rooms.setRooms(rooms)
         log("room \(id) disbanded → removed from the sidebar")
     }
 
@@ -293,6 +317,7 @@ final class AppModel: ObservableObject {
             log("groups.create → \(room.roomId) members=\(room.members.map(\.handle))")
             rooms.removeAll { $0.roomId == room.roomId }
             rooms.insert(room, at: 0)
+            notifications.rooms.setRooms(rooms)
             selection = .room(room.roomId)
             return nil
         } catch {
@@ -312,6 +337,7 @@ final class AppModel: ObservableObject {
         for m in roomModels.values { m.shutdown() }
         for m in activityModels.values { m.shutdown() }
         kanban.disconnect()
+        notifications.reset()
 #if DEBUG
         await disbandCreatedRooms()
 #endif
