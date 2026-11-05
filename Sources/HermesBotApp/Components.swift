@@ -1,8 +1,9 @@
 import AppKit
+import HermesGatewayKit
 import SwiftUI
 
-// Shared components from DESIGN.md "Components": buttons, empty state, round divider, message body
-// (markdown + fenced code), working dots, status dot, composer box.
+// Shared components from DESIGN.md "Components": buttons, empty state, round divider, working dots,
+// status dot, composer box. The message body (markdown + fenced code) is in MessageBody.swift.
 
 // MARK: - buttons
 
@@ -233,89 +234,6 @@ struct StatusDot: View {
     }
 }
 
-// MARK: - message body
-
-/// Message text: inline markdown per paragraph, fenced code as `code-block` with horizontal scroll.
-/// Falls back to the plain string when markdown parsing fails, so no text is ever lost.
-struct MessageBody: View {
-    let text: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s2) {
-            ForEach(Array(Self.blocks(text).enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .prose(let s):
-                    Text(Self.inline(s))
-                        .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
-                        .lineSpacing(DS.Typeface.proseLineSpacing)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                case .code(let s):
-                    CodeBlock(text: s)
-                }
-            }
-        }
-        // Model text is untrusted: a rendered link opens only as a web page, never a file, share or app scheme.
-        .environment(\.openURL, OpenURLAction { url in Self.opensLink(url) ? .systemAction : .discarded })
-    }
-
-    /// Only http and https links in model output are opened (file:, smb:, custom schemes are dropped).
-    nonisolated static func opensLink(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(), url.host?.isEmpty == false else { return false }
-        return scheme == "http" || scheme == "https"
-    }
-
-    enum Block: Equatable { case prose(String), code(String) }
-
-    static func blocks(_ text: String) -> [Block] {
-        var out: [Block] = [], prose: [Substring] = [], code: [Substring] = [], inCode = false
-        func flushProse() {
-            let s = prose.joined(separator: "\n").trimmingCharacters(in: .newlines)
-            if !s.isEmpty { out.append(.prose(s)) }
-            prose = []
-        }
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                if inCode { out.append(.code(code.joined(separator: "\n"))); code = [] } else { flushProse() }
-                inCode.toggle()
-            } else if inCode { code.append(line) } else { prose.append(line) }
-        }
-        if inCode { out.append(.code(code.joined(separator: "\n"))) }
-        flushProse()
-        return out.isEmpty ? [.prose(text)] : out
-    }
-
-    static func inline(_ s: String) -> AttributedString {
-        // List markers read better as bullets; the rest is CommonMark inline (bold, italic, code, links).
-        let bulleted = s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
-            let t = line.drop(while: { $0 == " " })
-            if t.hasPrefix("- ") || t.hasPrefix("* ") { return String(line.prefix(line.count - t.count)) + "•  " + t.dropFirst(2) }
-            return String(line)
-        }.joined(separator: "\n")
-        var a = (try? AttributedString(markdown: bulleted, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(s)
-        for run in a.runs where run.inlinePresentationIntent?.contains(.code) == true {
-            a[run.range].font = DS.Typeface.code
-            a[run.range].backgroundColor = DS.Palette.surface
-        }
-        return a
-    }
-}
-
-struct CodeBlock: View {
-    let text: String
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Text(text)
-                .font(DS.Typeface.code).foregroundStyle(DS.Palette.ink)
-                .lineSpacing(DS.Typeface.codeLineSpacing)
-                .textSelection(.enabled)
-                .fixedSize()
-                .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.gutter)
-        }
-        .background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
-    }
-}
-
 // MARK: - composer
 
 /// `composer`: surface box, graphite focus ring, primary Send. The send gate stays with the caller:
@@ -346,12 +264,31 @@ struct ComposerBox: View {
                 .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.leading, DS.Space.s3).padding(.trailing, DS.Space.s2).padding(.vertical, DS.Space.s2)
-        .background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                .strokeBorder(focus.wrappedValue ? DS.Palette.ring : DS.Palette.hairline,
-                              lineWidth: focus.wrappedValue ? DS.Stroke.focus : DS.Stroke.hairline)
-        )
+        .composerSurface(focused: focus.wrappedValue)
+    }
+}
+
+extension View {
+    /// `composer` surface: surface fill, hairline border that becomes the graphite focus ring.
+    func composerSurface(focused: Bool) -> some View {
+        background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(focused ? DS.Palette.ring : DS.Palette.hairline,
+                                  lineWidth: focused ? DS.Stroke.focus : DS.Stroke.hairline)
+            )
+    }
+
+    /// `action-card` chrome in the `attention` role (Group Chat approvals, Bot Chat request cards): padding,
+    /// card width, attention fill and ring, card shadow. Callers add the content inset after their own
+    /// backgrounds (the Group Chat ripple sits between).
+    func attentionCard() -> some View {
+        padding(.horizontal, DS.Space.s4).padding(.vertical, DS.Space.s3)
+            .frame(maxWidth: DS.Size.cardWidth, alignment: .leading)
+            .background(DS.Palette.attentionSoft, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                .strokeBorder(DS.Palette.attentionRing, lineWidth: DS.Stroke.ring))
+            .dsShadow(DS.Elevation.card)
     }
 }
 

@@ -24,7 +24,7 @@ final class BotChatLayoutTests: XCTestCase {
                 List { Text("hba-layout sidebar row") }
                     .navigationSplitViewColumnWidth(min: DS.Size.sidebarMin, ideal: DS.Size.sidebarWidth, max: DS.Size.sidebarMax)
             } detail: {
-                BotChatView(chat: chat, backend: nil)
+                BotChatView(chat: chat)
                     .frame(minWidth: DS.Size.detailMin, maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(minWidth: DS.Size.windowMinWidth, minHeight: DS.Size.windowMinHeight)
@@ -52,7 +52,7 @@ final class BotChatLayoutTests: XCTestCase {
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: Host(chat: ChatModel(bot: bot)))
+        window.contentViewController = NSHostingController(rootView: Host(chat: ChatModel(bot: bot, opener: { _ in FakeChatLink() })))
         window.setContentSize(size)
         window.orderFrontRegardless()
         defer { window.orderOut(nil) }

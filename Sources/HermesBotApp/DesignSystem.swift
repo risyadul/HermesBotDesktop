@@ -91,6 +91,13 @@ enum DS {
     }
 
     enum Size {
+        /// `media-thumb` / `media-chip` (DESIGN.md Components): inline image bounds (aspect fit, never
+        /// upscaled), file chip maximum width, and the decode size (2x the bounds, sharp on Retina).
+        static let mediaThumb = CGSize(width: 320, height: 240)
+        static let mediaChipMax: CGFloat = 320
+        static let mediaDecodePixels: CGFloat = 640
+        /// Approval / sudo command box: taller commands scroll inside it (indicator always visible).
+        static let commandMaxHeight: CGFloat = 220
         static let sidebarWidth: CGFloat = 260
         static let sidebarMin: CGFloat = 220
         /// The sidebar column is the setting + 8 (measured, macOS 26). 272 + 8 + `detailMin` 540 fills the

@@ -549,6 +549,11 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `note-bar`: the room's latest action result or error in plain words ("Approved once. The bot
   continues.", "Stop failed: …") above the composer; the raw log line is the tooltip. Errors use danger;
   a success note has a dismiss button.
+- `media-thumb` / `media-chip`: files a bot sends as `MEDIA:<path>` tags, under the message text in Bot
+  Chat and Group Chat. Images show inline as a thumbnail (fits 320×240 pt, never upscaled, chip radius);
+  other files show as a chip (kind symbol, file name, size; max width 320 pt). Nothing opens without a
+  click, and every Open / Reveal re-checks the path (`MediaSafety`): a missing or refused file shows a
+  disabled chip with the reason. Context menu: Open, Reveal in Finder, Copy Path.
 - `round-divider`: hairline, caption label, hairline; the two rules take equal widths so the label is
   centred on the timeline. Labels are plain words: "Discussion settled", "Discussion ended · round limit
   reached", "Stopped", "Renamed to …" (the backend `reason_code` stays in the log, not on screen).

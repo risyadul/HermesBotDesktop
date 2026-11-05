@@ -3,15 +3,15 @@ import HermesGatewayKit
 import SwiftUI
 
 // App shell: attach-first to a running Hermes backend (or spawn `hermes serve --isolated`), list the
-// user's bots (`profiles.list`), chat 1:1 with one bot with a streamed reply (M1:
-// `session.create` → `session.title` → `prompt.submit` → `message.start/delta/complete`), and Group
+// user's bots (`profiles.list`), chat 1:1 in each bot's canonical "Bot Chat" (shared with Hermes Desktop:
+// resumed on select, streamed replies, tool rows, approvals/questions, attachments, slash commands;
+// detached, never deleted, on quit), and Group
 // Chat (M2, RoomModel.swift + RoomView.swift: `groups.list/create/send/state/log/stop/retry/approve/disband`,
 // room updates by polling). The M0 groups.* round-trip lives on in `spike-harness`.
-// Files: AppModel (connection, bots, rooms, quit cleanup), ChatModel, SidebarView, BotChatView,
-// BotInspector; debug-only scripted runs in EvidenceDriver.swift.
+// Files: AppModel (connection, bots, rooms, quit cleanup), ChatModel (+Slash, +Requests), SidebarView,
+// BotChatView, ChatComposer, BotInspector; debug-only scripted runs in EvidenceDriver.swift.
 //
 // Environment:
-//   HERMES_BOT_APP_KEEP_SESSIONS=1                 keep chat sessions on quit (default: close + delete)
 //   HERMES_BOT_APP_APPEARANCE=light|dark           force the appearance (evidence of both designed modes)
 // plus Backend.Options env (HERMES_BOT_APP_LOCK_DIR, HERMES_BOT_APP_FORCE_SPAWN, HERMES_BOT_APP_NO_SPAWN).
 // Look and motion: DESIGN.md (tokens in DesignSystem.swift).
@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setvbuf(stdout, nil, _IOLBF, 0)
+        // Pasted images left behind by a crash or a kill (no quit purge ran): nothing can reference them.
+        PasteboardAttachments.purge()
         // `swift run` launches a bare executable: make it a regular foreground app with a window.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -51,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default: break
         }
         // SIGTERM and SIGINT (Ctrl+C in the launching terminal) → the same graceful path as Quit
-        // (close sessions, stop only an owned backend). A repeated signal while cleanup runs is a
+        // (detach chats, stop only an owned backend). A repeated signal while cleanup runs is a
         // no-op (`cleanupStarted`). An owned backend is spawned in its own process group, so the
         // terminal's SIGINT does not reach it before cleanup has used it.
         for sig in [SIGTERM, SIGINT] {
@@ -65,9 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// Close/delete our chat sessions, then stop the backend only if we spawned it. If we crash
-    /// instead, `close_on_disconnect` reaps live sessions and the spawned backend's
-    /// HERMES_PARENT_PID watchdog exits it.
+    /// Detach the Bot Chats (they stay in Hermes), then stop the backend only if we spawned it. If we
+    /// crash instead, the spawned backend's HERMES_PARENT_PID watchdog exits it.
     ///
     /// Not `.terminateLater`: that parks the run loop in a modal mode, and the MainActor
     /// continuations of the async cleanup (and the SIGTERM source on the main queue) never ran,
@@ -76,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// Cleanup has an overall deadline (`quitDeadline`): a stuck backend (an RPC that never answers)
     /// must not hang ⌘Q, Ctrl+C or SIGTERM. Past it the app exits anyway; an owned backend is stopped
-    /// first, and live sessions are reaped by `close_on_disconnect`.
+    /// first.
     static let quitDeadline: TimeInterval = 5
     private var cleanupDone = false
     private var cleanupStarted = false
@@ -103,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func finishTermination() {
         guard !cleanupDone else { return }
         cleanupDone = true
+        PasteboardAttachments.purge()  // pasted images never outlive the app
         NSApp.terminate(nil)
     }
 }
@@ -146,7 +148,7 @@ struct RootView: View {
     @ViewBuilder private var detail: some View {
         ZStack {
             if let name = model.selectedBot, let bot = model.bots.first(where: { $0.name == name }) {
-                BotChatView(chat: model.chat(for: bot), backend: model.backend)
+                BotChatView(chat: model.chat(for: bot))
                     .id(name).transition(paneTransition)
             } else if case .room(let id)? = model.selection, let room = model.roomModel(id) {
                 RoomView(model: room).id(id).transition(paneTransition)

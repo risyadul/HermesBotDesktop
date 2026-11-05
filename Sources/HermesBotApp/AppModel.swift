@@ -37,14 +37,23 @@ final class AppModel: ObservableObject {
         print("[app \(String(format: "%7.3f", Date().timeIntervalSince(started)))] \(s)")
     }
 
+    /// The bot's canonical Bot Chat model, one per bot for the life of the connection. It opens (resume,
+    /// or create on confirmed absence) when its view appears.
     func chat(for bot: Bot) -> ChatModel {
         if let c = chats[bot.name] { return c }
-        let c = ChatModel(bot: bot)
+        let c = ChatModel(bot: bot, opener: Self.canonicalOpener(backend))
 #if DEBUG
         c.onTurnEvent = { [weak self] type, chat in self?.turnEvent(type, chat) }
 #endif
         chats[bot.name] = c
         return c
+    }
+
+    static func canonicalOpener(_ backend: Backend?) -> ChatOpener {
+        { bot in
+            guard let backend else { throw GatewayClient.ClientError.notConnected }
+            return try await BotChatSession.openCanonical(backend, bot: bot)
+        }
     }
 
     /// Also the Try Again action. A failed attempt keeps no connection (`ConnectFlow`), and a lost
@@ -121,6 +130,7 @@ final class AppModel: ObservableObject {
         unsubscribeDisconnect(b)
         for m in roomModels.values { m.shutdown() }
         roomModels = [:]
+        for c in chats.values { c.close() }
         chats = [:]
         rooms = []
         bots = []
@@ -217,7 +227,10 @@ final class AppModel: ObservableObject {
 #if DEBUG
         await disbandCreatedRooms()
 #endif
-        for c in chats.values { for n in await c.close() { log(n) } }
+        // Bot Chats are the bots' canonical chats (shared with Hermes Desktop): detach only, never
+        // `session.close` / `session.delete`.
+        for c in chats.values { c.close() }
+        if !chats.isEmpty { log("bot chats detached: \(chats.keys.sorted())") }
         if let b = backend {
             let owned = b.owned
             await Task.detached { b.shutdown() }.value
@@ -231,7 +244,7 @@ final class AppModel: ObservableObject {
     }
 
     /// Quit deadline passed with `shutdown()` still waiting on the backend: stop an owned backend
-    /// directly (briefly) so it does not outlive the app; sessions are reaped by `close_on_disconnect`.
+    /// directly (briefly) so it does not outlive the app. Bot Chats need nothing: they are only detached.
     func abandonShutdown(after seconds: TimeInterval) {
         log("cleanup still running after \(Int(seconds)) s: quitting anyway")
         if let owned = backend?.owned {

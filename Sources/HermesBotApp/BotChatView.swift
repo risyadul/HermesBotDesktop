@@ -4,32 +4,39 @@ import SwiftUI
 
 struct BotChatView: View {
     @ObservedObject var chat: ChatModel
-    let backend: Backend?
     @ObservedObject private var avatars = AvatarStore.shared
-    @State private var draft = ""
-    @FocusState private var composerFocused: Bool
     /// Persisted inspector visibility. The inspector binds to the @State copy below: an @AppStorage write
     /// reaches the view outside the toggle's transaction, so the no-animation path still slid the panel.
     @AppStorage("hba.botInspector") private var storedInspector = true
     @State private var showInspector = UserDefaults.standard.object(forKey: "hba.botInspector") as? Bool ?? true
+    @State private var dropTargeted = false
     @Environment(\.motionEnabled) private var motion
 
     private var identity: BotIdentity { avatars.identity(profile: chat.bot.name, title: chat.bot.title) }
 
     var body: some View {
         VStack(spacing: 0) {
-            if chat.lines.isEmpty {
-                emptyChat
-            } else {
-                transcript
+            switch chat.phase {
+            case .idle, .loading: loadingChat
+            case .failed(let message): failedChat(message)
+            case .ready:
+                if chat.lines.isEmpty && chat.requests.isEmpty { emptyChat } else { transcript }
             }
-            composer
+            ChatComposer(chat: chat, identity: identity)
         }
         // The chat column takes the width the sidebar and inspector leave. Any intrinsic minimum here is
         // inflated by the inspector split (on top of the sidebar inset) and widens it past the window,
         // clipping the inspector at the 820 pt minimum (InspectorLayoutTests).
         .frame(minWidth: 0, maxWidth: .infinity)
         .background(DS.Palette.window)
+        .overlay { if dropTargeted { dropHighlight } }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard chat.isReady, !files.isEmpty else { return false }
+            chat.addAttachments(files)
+            return true
+        } isTargeted: { dropTargeted = $0 && chat.isReady }
+        .task { chat.open() }
         .navigationTitle(chat.bot.title)
         .navigationSubtitle("@\(chat.bot.name)" + (chat.bot.model.map { " · \($0)" } ?? ""))
         .toolbar {
@@ -61,14 +68,19 @@ struct BotChatView: View {
                         ForEach(lines[..<tail]) { line in transcriptRow(line) }
                     }
                     ForEach(lines[tail...]) { line in transcriptRow(line) }
+                    ServerRequestCards(chat: chat, identity: identity)
                 }
                 .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.s4).padding(.bottom, DS.Space.s3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .animation(motion ? DS.Motion.spring : nil, value: chat.lines.map(\.id))
+                .animation(motion ? DS.Motion.spring : nil, value: chat.requests.map(\.id))
             }
             .defaultScrollAnchor(.bottom)
             .onChange(of: chat.lines.last?.text) { _, _ in
                 if let id = chat.lines.last?.id { proxy.scrollTo(id, anchor: .bottom) }
+            }
+            .onChange(of: chat.requests.last?.id) { _, id in
+                if let id { proxy.scrollTo("request-\(id)", anchor: .bottom) }
             }
         }
     }
@@ -78,7 +90,7 @@ struct BotChatView: View {
             .transition(motion ? .arrive(from: line.role == .user ? .bottomTrailing : .bottomLeading) : .identity)
     }
 
-    /// `empty-state` (new 1:1 chat variant): centred in the pane, the bot's own avatar instead of a symbol.
+    /// `empty-state` (new Bot Chat variant): centred in the pane, the bot's own avatar instead of a symbol.
     /// No `.fixedSize(vertical:)` on these texts (unlike text inside a ScrollView): the split view measures
     /// the pane at a near-zero width, where a fixed-height text wraps one glyph per line and becomes the
     /// whole window's minimum height, pushing the sidebar, the inspector and the composer off screen
@@ -93,9 +105,7 @@ struct BotChatView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: DS.Size.proseNarrow)
             }
-            Text(ProcessInfo.processInfo.environment["HERMES_BOT_APP_KEEP_SESSIONS"] == "1"
-                 ? "Separate from group chats. The session is kept when the app quits."
-                 : "Separate from group chats. The session is deleted when the app quits.")
+            Text(Self.sharedChatNote)
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: DS.Size.proseNarrow)
@@ -104,36 +114,35 @@ struct BotChatView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s2) {
-            // Return goes through `send()` too (`.onSubmit` ignores the Button's disabled state), so
-            // the gate lives in `send()`/`ChatModel.submit`, not in `.disabled`.
-            ComposerBox(placeholder: "Message \(chat.bot.title)", draft: $draft, canSend: canSend,
-                        onSend: send, focus: $composerFocused)
-            HStack(spacing: DS.Space.s3) {
-                KeyHint(keys: "Return", label: "send")
-                Spacer()
-                if chat.busy {
-                    HStack(spacing: DS.Space.s2) {
-                        WorkingDots(color: identity.nameColor)
-                        Text("\(chat.bot.title) is replying").font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-                    }
-                    .transition(.opacity)
-                }
-            }
-            .animation(motion ? DS.Motion.ease : nil, value: chat.busy)
+    /// The Bot Chat is the bot's one continuous chat, kept by Hermes (never deleted on quit).
+    nonisolated static let sharedChatNote = "This is the bot's one ongoing chat, shared with Hermes Desktop and kept when the app quits. Group chats are separate."
+
+    private var loadingChat: some View {
+        EmptyStateView(symbol: "bubble.left.and.text.bubble.right", title: "Opening \(chat.bot.title)'s Bot Chat",
+                       message: "Loading the conversation from Hermes.") {
+            ProgressView().controlSize(.small).accessibilityLabel("Loading")
         }
-        .padding(.horizontal, DS.Space.s4).padding(.top, DS.Space.s2).padding(.bottom, DS.Space.s3)
     }
 
-    private var canSend: Bool {
-        backend != nil && !chat.busy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private func failedChat(_ message: String) -> some View {
+        EmptyStateView(symbol: "exclamationmark.triangle", title: "Can't open the Bot Chat", message: message) {
+            Button("Retry") { chat.open() }
+                .buttonStyle(DSButtonStyle(kind: .primary))
+                .accessibilityLabel("Retry opening the Bot Chat")
+        }
     }
 
-    /// Clears the draft only when the model accepted it: Return while a turn runs keeps the draft.
-    private func send() {
-        guard let backend else { return }
-        if chat.submit(draft, backend: backend, title: "hba-app-\(Int(Date().timeIntervalSince1970))") { draft = "" }
+    private var dropHighlight: some View {
+        RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+            .strokeBorder(DS.Palette.ring, style: StrokeStyle(lineWidth: DS.Stroke.keyboardFocus, dash: [DS.Space.s2, DS.Space.s1]))
+            .background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay {
+                Label("Drop files to attach", systemImage: "paperclip")
+                    .font(DS.Typeface.bodyStrong).foregroundStyle(DS.Palette.ink)
+            }
+            .padding(DS.Space.s2)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder private func bubble(_ line: ChatLine) -> some View {
@@ -152,6 +161,10 @@ struct BotChatView: View {
             }
             .font(DS.Typeface.meta).foregroundStyle(DS.Palette.danger)
             .padding(.leading, DS.Size.contentInset)
+        case .tool:
+            ToolActivityRow(line: line)
+        case .system:
+            SystemNoteRow(text: line.text)
         }
     }
 }
@@ -177,7 +190,7 @@ struct StreamingText: View {
                 Caret(color: caret)
             }
         } else {
-            MessageBody(text: text)
+            MessageBody(text: text).equatable()
         }
     }
 }

@@ -100,6 +100,8 @@ struct SidebarView: View {
                     Text(sub).font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).lineLimit(1)
                 }
             }
+            Spacer(minLength: 0)
+            if let chat = model.chats[bot.name] { BotChatBadge(chat: chat) }
         }
     }
 
@@ -190,6 +192,50 @@ struct RoomLiveDot: View {
             StatusDot(color: DS.Palette.primary, live: true)
                 .help("A round is running")
                 .accessibilityLabel("Round running")
+        }
+    }
+}
+
+/// A bot's Bot Chat state in its sidebar row, for every bot with an open chat (the on-screen one too): a
+/// count of the request cards waiting on an answer (attention role), else a breathing dot while a reply runs.
+struct BotChatBadge: View {
+    @ObservedObject var chat: ChatModel
+
+    enum Kind: Equatable {
+        case none, replying
+        case waiting(Int)
+    }
+
+    static func kind(requests: Int, busy: Bool) -> Kind {
+        if requests > 0 { return .waiting(requests) }
+        return busy ? .replying : .none
+    }
+
+    static func accessibilityLabel(_ kind: Kind, bot: String) -> String? {
+        switch kind {
+        case .none: return nil
+        case .replying: return "\(bot) is replying"
+        case .waiting(let n): return n == 1 ? "\(bot) needs your answer" : "\(bot) needs your answer (\(n) requests)"
+        }
+    }
+
+    var body: some View {
+        let kind = Self.kind(requests: chat.requests.count, busy: chat.busy)
+        let label = Self.accessibilityLabel(kind, bot: chat.bot.title) ?? ""
+        switch kind {
+        case .none:
+            EmptyView()
+        case .replying:
+            StatusDot(color: DS.Palette.primary, live: true).help(label).accessibilityLabel(label)
+        case .waiting(let n):
+            Text("\(n)")
+                .font(DS.Typeface.captionStrong).foregroundStyle(DS.Palette.ink)
+                .padding(.horizontal, DS.Space.s1 + DS.Space.s0).padding(.vertical, DS.Space.s0 / 2)
+                .background(DS.Palette.attentionSoft, in: Capsule())
+                .overlay(Capsule().strokeBorder(DS.Palette.attentionRing, lineWidth: DS.Stroke.hairline))
+                .help(label)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
         }
     }
 }

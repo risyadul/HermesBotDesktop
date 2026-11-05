@@ -37,12 +37,17 @@ extension AppModel {
         guard let spec = env["HERMES_BOT_APP_AUTOCHAT"], let bar = spec.firstIndex(of: "|") else { return }
         evidence.autoQuit = env["HERMES_BOT_APP_AUTOQUIT"] == "1"
         let name = String(spec[..<bar]), prompt = String(spec[spec.index(after: bar)...])
-        guard let bot = bots.first(where: { $0.name == name }), let backend else { log("autochat: no bot \(name)"); return }
+        guard let bot = bots.first(where: { $0.name == name }), backend != nil else { log("autochat: no bot \(name)"); return }
         selection = .bot(bot.name)
+        let chat = chat(for: bot)
+        chat.open()
         Task {
             try? await Task.sleep(nanoseconds: 800_000_000)  // let the chat view appear
+            while chat.phase == .loading { try? await Task.sleep(nanoseconds: 100_000_000) }
             snapshot("1-selected")
-            chat(for: bot).submit(prompt, backend: backend, title: "hba-app-\(Int(Date().timeIntervalSince1970))")
+            guard chat.isReady else { log("autochat: Bot Chat did not open: \(chat.phase)"); return }
+            chat.draft = prompt
+            log("autochat: send accepted=\(chat.submit())")
         }
     }
 

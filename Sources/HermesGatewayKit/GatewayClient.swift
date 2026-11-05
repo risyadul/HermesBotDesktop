@@ -36,6 +36,9 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
     }
 
     public typealias EventHandler = @Sendable (_ type: String, _ payload: JSONValue?, _ raw: JSONValue) -> Void
+    /// A server→client request: `id` exactly as sent (`"srq-<12hex>"`, `tui_gateway/server_requests.py:84-86`),
+    /// echoed back by `respond` / `respondError`.
+    public typealias RequestHandler = @Sendable (_ id: JSONValue, _ method: String, _ params: JSONValue) -> Void
 
     private let url: URL
     private let offeredProtocols: [String]
@@ -54,6 +57,7 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
     private var sessionInvalidated = false
     // Handlers are written by consumers and read on URLSession's queue: always under `lock`.
     private var _onEvent: EventHandler?
+    private var _onRequest: RequestHandler?
     private var _onDisconnect: (@Sendable (_ reason: String) -> Void)?
     private var _onWire: (@Sendable (_ outbound: Bool, _ line: String) -> Void)?
     private var _negotiatedProtocol: String?
@@ -66,12 +70,22 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
         get { lock.withLock { _onEvent } }
         set { lock.withLock { _onEvent = newValue } }
     }
+    /// Server→client requests (frames with `id` and a `method` other than `"event"`). Unset → every
+    /// request is answered `-32601` so the agent is not left waiting for its deadline.
+    public var onRequest: RequestHandler? {
+        get { lock.withLock { _onRequest } }
+        set { lock.withLock { _onRequest = newValue } }
+    }
     /// Called once when the socket is gone (server drop, transport failure or `close()`), with a
     /// token-free reason. Pending calls fail with the same error.
     public var onDisconnect: (@Sendable (_ reason: String) -> Void)? {
         get { lock.withLock { _onDisconnect } }
         set { lock.withLock { _onDisconnect = newValue } }
     }
+    /// Outbound calls whose params carry the user's answers (`clarify.lock`, `approval.respond`): the wire
+    /// tap shows id + method only, like server→client request frames and every `respond` result.
+    static let redactedParamMethods: Set<String> = ["clarify.lock", "approval.respond"]
+
     /// Optional wire tap (direction, compact JSON) for evidence logs. Tokens never appear in frames.
     public var onWire: (@Sendable (_ outbound: Bool, _ line: String) -> Void)? {
         get { lock.withLock { _onWire } }
@@ -161,7 +175,8 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
         let id = lock.withLock { () -> Int in defer { nextId += 1 }; return nextId }
         let frame: JSONValue = ["jsonrpc": "2.0", "id": .number(Double(id)), "method": .string(method), "params": params]
         let line = frame.compactJSON()
-        onWire?(true, line)
+        onWire?(true, Self.redactedParamMethods.contains(method)
+                ? #"{"id":\#(id),"method":\#(JSONValue.string(method).compactJSON()),"params":<omitted>}"# : line)
         return try await withCheckedThrowingContinuation { cont in
 #if DEBUG
             beforeRegister?()
@@ -176,6 +191,34 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
                 if let err, let self { self.resolve(id: id, .failure(self.sanitize(err))) }
             }
             scheduleTimeout(timeout, method) { [weak self] err in self?.resolve(id: id, .failure(err)) }
+        }
+    }
+
+    /// Answers a server→client request: `{"jsonrpc":"2.0","id":<same id>,"result":…}`. A response is any
+    /// frame with `id` + `result|error` and no `method` (`tui_gateway/server_requests.py:364-366`). The
+    /// wire tap never sees the result: it can carry a sudo password or a secret value.
+    public func respond(id: JSONValue, result: JSONValue) async throws {
+        try await sendResponse(["jsonrpc": "2.0", "id": id, "result": result],
+                               tap: #"{"id":\#(id.compactJSON()),"result":<omitted>}"#)
+    }
+
+    /// Declines a server→client request: `{"jsonrpc":"2.0","id":<same id>,"error":{"code","message"}}`.
+    public func respondError(id: JSONValue, code: Int, message: String) async throws {
+        let frame: JSONValue = ["jsonrpc": "2.0", "id": id,
+                                "error": ["code": .number(Double(code)), "message": .string(message)]]
+        try await sendResponse(frame, tap: frame.compactJSON())
+    }
+
+    private func sendResponse(_ frame: JSONValue, tap: String) async throws {
+        let (live, terminal) = lock.withLock { (task, terminalError) }
+        if let terminal { throw terminal }
+        guard let t = live else { throw ClientError.notConnected }
+        onWire?(true, tap)
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            t.send(.string(frame.compactJSON() + "\n")) { [weak self] err in
+                if let err { cont.resume(throwing: self?.sanitize(err) ?? ClientError.closed("client gone")) }
+                else { cont.resume() }
+            }
         }
     }
 
@@ -231,6 +274,16 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
                                                   message: err["message"]?.string ?? "", data: err["data"])))
             } else {
                 resolve(id: id, .success(value["result"] ?? .null))
+            }
+            return
+        }
+        if let method = value["method"]?.string, method != "event", let id = value["id"], id != .null {
+            // Request params can quote commands, file contents or a secret prompt: id + method only.
+            onWire?(false, #"{"id":\#(id.compactJSON()),"method":\#(JSONValue.string(method).compactJSON()),"params":<omitted>}"#)
+            if let h = onRequest {
+                h(id, method, value["params"] ?? [:])
+            } else {
+                Task { try? await self.respondError(id: id, code: -32601, message: "method not found: \(method)") }
             }
             return
         }
