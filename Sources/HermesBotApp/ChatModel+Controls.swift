@@ -152,7 +152,7 @@ extension ChatModel {
                 self.log("session.usage failed: \(Self.message(error, bot: self.bot))")
             }
             for delay in [0] + self.usageRetryDelays {
-                if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                if delay > 0 { try? await self.usageSleep(delay) }
                 guard !Task.isCancelled, !self.closed, self.session === s, self.contextUsage == nil else { return }
                 do {
                     let b = try await s.contextBreakdown()

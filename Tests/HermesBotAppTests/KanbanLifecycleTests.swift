@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import HermesBotApp
@@ -171,22 +172,26 @@ final class KanbanLifecycleTests: XCTestCase {
 
     func testInactiveHubPausesTheListBoardsAndDispatcherAndResumes() async throws {
         let api = fake()
-        let hub = KanbanHub(sleep: Self.fast)
+        let clock = ManualSleep()
+        let hub = KanbanHub(sleep: clock.sleep)
         hub.connect(api: api)
         try await waitUntil { hub.availability == .available }
         let board = try XCTUnwrap(hub.model(for: "main"))
         board.start()
         hub.watchDispatcher(true)
         XCTAssertTrue(hub.isPolling && board.isPolling && hub.isWatchingDispatcher)
+        // The board list, the dispatcher and the card watcher each ran once and now wait on the clock.
+        try await waitUntil { clock.pending == 3 }
 
         hub.setActive(false)
         XCTAssertFalse(hub.isPolling, "board list paused")
         XCTAssertFalse(board.isPolling, "board paused")
         XCTAssertTrue(board.wantsPolling, "but still wanted")
         XCTAssertFalse(hub.isWatchingDispatcher, "dispatcher paused")
-        try await Task.sleep(nanoseconds: 40_000_000)  // let in-flight fetches land
+        XCTAssertEqual(clock.pending, 1, "only the card watcher still waits (it keeps notifications going)")
         let (lists, polls) = (api.count("boards"), api.count("board"))
-        try await Task.sleep(nanoseconds: 80_000_000)
+        clock.advance()  // a loop that survived the pause would fetch now
+        try await waitUntil { clock.pending == 1 }  // the watcher polled and parked again
         XCTAssertEqual(api.count("boards"), lists, "no board list fetch while hidden")
         XCTAssertEqual(api.count("board"), polls, "no board fetch while hidden")
 
@@ -204,6 +209,26 @@ final class KanbanLifecycleTests: XCTestCase {
         XCTAssertFalse(board.isPolling, "a board the view stopped does not come back on resume")
         hub.watchDispatcher(false)
         XCTAssertFalse(hub.isWatchingDispatcher, "no board on screen: no dispatcher polling")
+        hub.disconnect()
+    }
+
+    /// The board list refreshes every 30 s; an unchanged answer must not re-render the sidebar.
+    func testAnUnchangedBoardListPublishesNothing() async throws {
+        let api = fake()
+        let hub = KanbanHub(sleep: Self.hour)
+        hub.connect(api: api)
+        try await waitUntil { hub.availability == .available }
+        var changes = 0
+        let sub = hub.objectWillChange.sink { changes += 1 }
+        defer { sub.cancel() }
+        await hub.refreshBoards()
+        XCTAssertEqual(changes, 0, "same boards, still available: no publish")
+        api.with { $0.boardsError = PluginREST.Failure.transport("down") }
+        await hub.refreshBoards()
+        let afterFailure = changes
+        XCTAssertGreaterThan(afterFailure, 0)
+        await hub.refreshBoards()
+        XCTAssertEqual(changes, afterFailure, "the same failure again publishes nothing")
         hub.disconnect()
     }
 

@@ -108,6 +108,8 @@ final class ChatModel: ObservableObject, Identifiable {
     var usageTask: Task<Void, Never>?
     /// Seconds between `session.context_breakdown` retries while the backend has no agent for the chat yet.
     var usageRetryDelays: [Double] = [1, 4, 12]
+    /// Waits between those retries (tests inject a manual clock).
+    var usageSleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
     /// Client-side checks for a picked file (tests inject a fake; production stats the file).
     var checkFile: (URL) throws -> ChatAttachments.Checked = { try ChatAttachments.check($0) }
     /// Pasted images sent with the running turn: deleted once it settles (the backend reads them during it).

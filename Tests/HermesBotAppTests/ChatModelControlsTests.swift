@@ -67,10 +67,12 @@ final class ChatModelControlsTests: XCTestCase {
     /// Live UI test 2026-11-06 (round 2): the gauge stayed absent until a turn reported usage, because a resumed
     /// chat's `session.usage` carries no context figures until a turn runs in that backend. The open now falls
     /// back to the read-only `session.context_breakdown` estimate, as Desktop's status bar does.
-    private func opening(_ l: FakeChatLink, retries: [Double] = [0.05, 0.05]) async throws -> ChatModel {
+    private func opening(_ l: FakeChatLink, retries: [Double] = [0.05, 0.05],
+                         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in }) async throws -> ChatModel {
         let m = ChatModel(bot: bot, opener: { _ in l })
         m.log = { _ in }
         m.usageRetryDelays = retries
+        m.usageSleep = sleep
         m.open()
         try await waitUntil { m.isReady }
         return m
@@ -90,26 +92,40 @@ final class ChatModelControlsTests: XCTestCase {
 
     func testOpenRetriesAZeroedBreakdownThenGivesUp() async throws {
         let l = FakeChatLink()  // no agent yet: the breakdown has no context_max
-        let m = try await opening(l)
-        try await waitUntil { l.reads.filter { $0 == "breakdown" }.count == 2 }
+        let clock = ManualSleep()
+        let m = try await opening(l, sleep: clock.sleep)
+        try await waitUntil { clock.pending == 1 }  // first read done, waiting for the first retry
+        clock.advance()
+        try await waitUntil { clock.pending == 1 }  // second read done, waiting for the next one
+        XCTAssertEqual(l.reads.filter { $0 == "breakdown" }.count, 2)
         l.breakdownResult = ContextBreakdown(categories: [], usage: ContextUsage(used: 10, max: 100, percent: 10, estimated: true))
-        try await waitUntil { m.contextUsage != nil }
+        clock.advance()
+        await m.usageTask?.value
         XCTAssertEqual(m.contextUsage?.percent, 10, "the agent was built meanwhile: the next retry fills the gauge")
 
         let quiet = FakeChatLink()
-        let n = try await opening(quiet)
-        try await Task.sleep(nanoseconds: 300_000_000)
+        let waits = ManualSleep()
+        let n = try await opening(quiet, retries: [1, 4], sleep: waits.sleep)
+        for _ in 0..<2 {
+            try await waitUntil { waits.pending == 1 }
+            waits.advance()
+        }
+        await n.usageTask?.value  // the retry loop has ended
         XCTAssertNil(n.contextUsage)
         XCTAssertEqual(quiet.reads.filter { $0 == "breakdown" }.count, 3, "one read, then one per retry delay, then it stops")
+        XCTAssertEqual(waits.requested, [1, 4], "waited once per retry delay, in order")
     }
 
     func testOpenStopsRetryingOnceATurnReportsUsage() async throws {
         let l = FakeChatLink()
-        let m = try await opening(l, retries: [0.2, 0.2])
-        try await waitUntil { l.reads.contains("breakdown") }
+        let waits = ManualSleep()
+        let m = try await opening(l, retries: [0.2, 0.2], sleep: waits.sleep)
+        try await waitUntil { waits.pending == 1 }  // first read done, parked before the first retry
         m.apply(.usage(ContextUsage(used: 5, max: 50, percent: 10)))
-        try await Task.sleep(nanoseconds: 500_000_000)
+        waits.advance()
+        await m.usageTask?.value
         XCTAssertEqual(l.reads.filter { $0 == "breakdown" }.count, 1, "no retry after a figure arrived")
+        XCTAssertEqual(waits.requested, [0.2], "it stopped at the first wake-up")
         XCTAssertEqual(m.contextUsage?.percent, 10)
     }
 
@@ -121,9 +137,12 @@ final class ChatModelControlsTests: XCTestCase {
         XCTAssertEqual(m.currentProvider, "openrouter")
         XCTAssertEqual(m.reasoningEffort, "medium", "effort carries over")
         try await waitUntil { l.calls.contains("model:big --provider openrouter --session") }
-        m.selectModel(provider: "openrouter", model: "big")
-        try await Task.sleep(nanoseconds: 30_000_000)
-        XCTAssertEqual(l.calls.filter { $0.hasPrefix("model:") }.count, 1, "re-picking the current model sends nothing")
+        m.selectModel(provider: "openrouter", model: "big")  // re-pick: refused synchronously
+        m.selectModel(provider: "anthropic", model: "m2")  // a real pick after it marks the end of the sequence
+        try await waitUntil { l.calls.contains("model:m2 --provider anthropic --session") }
+        XCTAssertEqual(l.calls.filter { $0.hasPrefix("model:") },
+                       ["model:big --provider openrouter --session", "model:m2 --provider anthropic --session"],
+                       "re-picking the current model sends nothing")
     }
 
     func testARefusedPickRollsBackWithANote() async throws {
@@ -137,13 +156,16 @@ final class ChatModelControlsTests: XCTestCase {
 
     func testANewerInfoIsNotRolledBack() async throws {
         let l = link()
+        // The refusal waits for the test's go: the newer info is applied strictly before the rollback runs.
+        let go = DispatchSemaphore(value: 0)
         l.switchResult = { _, _, _ in
-            Thread.sleep(forTimeInterval: 0.1)
+            go.wait()
             throw GatewayClient.RPCError(code: 5001, message: "no", data: nil)
         }
         let m = try await ready(l)
         m.selectModel(provider: "anthropic", model: "m2")
         m.apply(.info(SessionInfoSnapshot(model: "other", provider: "x")))
+        go.signal()
         try await waitUntil { m.lines.contains { $0.role == .system } }
         XCTAssertEqual(m.currentModel, "other", "the backend's newer report wins over the rollback")
     }
