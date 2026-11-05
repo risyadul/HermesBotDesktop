@@ -490,7 +490,11 @@ toolbar. Minimum window 820 × 520.
   maximum is what still fits at the 820 pt minimum next to a 280 pt sidebar column, so dragging it
   wide, or shrinking a window with a wide inspector, never pushes it past the window edge.
 - **Kanban board:** toolbar (board name + task count, New Task, card details toggle), a header row
-  (board switcher when there are two or more boards, filter field 220 pt, dispatcher chip), a note bar
+  (board switcher when there are two or more boards, filter field 220 pt, the filter menu: profile, Show
+  archived, Group Running by profile, its symbol filled while a profile or archived is on; Workers as
+  `button-secondary`, opening a 560 × 420 sheet of worker rows on `surface` with an amber heartbeat line after
+  two minutes without one; dispatcher chip; Running grouped by profile shows a caption per group: 18 pt
+  avatar, @name, count), a note bar
   (failed action in danger, the server's create warning in attention), then the lanes in server order
   as a horizontally scrolling row of 248 pt `surface` columns (card radius) with label + count; an empty
   archive lane is hidden and the dispatcher-only lanes (running, review, scheduled) show a lock and

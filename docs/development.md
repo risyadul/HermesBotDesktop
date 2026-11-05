@@ -39,7 +39,11 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   PluginREST.swift            /api/plugins/<name>/ REST client (session token header, loopback, no redirects;
                               streamed answers capped: 8 MB JSON, downloads per call; multipart upload; `+` in
                               query values sent as %2B)
-  KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models
+  KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models;
+                              KanbanWorkers.swift: K5 /workers/active, /runs/{id}[/inspect|/terminate]
+  Routines.swift              A15 cron.manage: RoutineJob/RoutineList, Desktop's naming ([bot:<name>]), prompt
+                              (plain in the bot's own store, v2 delegation when the scope is unproven), add
+                              payload, tag-filter fallback; `{success: false}` replies throw
   BotActivityAPI.swift        bot-activity plugin calls; install/enable/remove via plugins.manage (pinned ref,
                               provenance check); BotActivityProfileSwitch: per-profile `plugins enable/disable`;
                               BotActivityFeed.swift: paging merge, cursor, member phases
@@ -83,6 +87,13 @@ Sources/HermesBotApp/       SwiftUI app:
   KanbanBoardModel.swift      one board: polling (suspendable), lanes, optimistic actions + rollback, details,
                               `.gone` when the board is deleted or archived while open (KanbanService)
   KanbanBoardView.swift       board pane: header, lanes, cards, card menus, dispatcher chip
+  KanbanBoardFilters.swift    K4 filter menu: profile (client-side), Show archived (include_archived),
+                              Group Running by profile (@AppStorage hba.kanbanGroupRunning)
+  KanbanWorkersModel.swift    K5 Workers sheet state: polling /workers/active while open, inspect, terminate,
+                              reclaim; KanbanWorkersView.swift: the sheet
+  RoutinesModel.swift         A15 one bot's routines (20 s refresh while open, optimistic pause/resume, legacy
+                              auto-pause, create); RoutinePresentation.swift: schedule picker + texts;
+                              RoutinesView.swift: sheet opened from the Bot Chat toolbar (RoutinesToolbarButton)
   KanbanTaskInspector.swift   card details inspector (attachments, message worker / requeue), New Task sheet;
                               KanbanSidebar.swift: Boards rows
   KanbanAttachments.swift     card attachments on disk: upload read + size cap, download name sanitising,
@@ -178,6 +189,8 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
 - Bot Chat test sessions made by the harness are titled `hba-…` and deleted after each run (the app's own
   canonical "Bot Chat" is never deleted). The app changes no profile or bot config except Pin / Hide, which
   write only `pinned` / `hidden` inside `ui_meta["hermes-bots"]` (the user's action; tests use a fake gateway).
+- Routines and kanban workers are tested with fakes only (`FakeCron` records `cron.manage` params,
+  `FakeKanbanService` the worker calls): tests never send a real `cron.manage` mutation, terminate or reclaim.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend

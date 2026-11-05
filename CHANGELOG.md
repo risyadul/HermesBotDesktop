@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Routines per bot: **Routines** in a Bot Chat's toolbar lists the bot's scheduled tasks (Hermes cron jobs) with
+  pause/resume, delete (asks first) and details (schedule, next and last run, last result, delivery, errors).
+  New Routine has Hermes Desktop's schedule picker (once in N, hourly, daily, weekdays, weekly, monthly,
+  interval, raw schedule), Stop after N runs, results to the run history or the bot's Bot Chat, and
+  continuity; routines are stored exactly as Hermes Desktop stores them. A note says when routines stop with
+  the app because it started Hermes.
+- Kanban filters: one profile at a time, Show archived, and Group Running by profile.
+- Kanban workers: the board's **Workers** list shows which bot runs which card, for how long and its last
+  heartbeat; inspect a run (run record, worker process, log), terminate it or reclaim the task (both ask first).
 - Sidebar filter: a field at the top of the sidebar narrows group chats, bots and boards by name, @handle,
   member, description or model. Return or ↓ jumps to the first match; Esc clears it. ⌘F stays free.
 - Right-click a bot for Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot and Copy @handle. Pinned

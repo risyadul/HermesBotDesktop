@@ -48,7 +48,11 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   enables it for every bot. Turning it off from the same panel disables it in every bot profile and removes it
   from Hermes; the bots' copies stay on disk, inactive. Bots are your existing Hermes profiles.
 - **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
-  Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use.
+  Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use. **Terminate Run** and **Reclaim
+  Task** (Workers) stop a running worker process.
+- **Routines are real.** Routines you create, pause, resume or delete change that bot's Hermes cron jobs, the
+  same ones Hermes Desktop's Routines and `hermes cron` show. When it lists a bot's routines, the app pauses
+  any old-style delegated routine Hermes Desktop marks unsafe, as Hermes Desktop does.
 - **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
   elsewhere is rejected.
 - Setting `HERMES_HOME` does **not** isolate the app today; it always uses `~/.hermes`.
@@ -122,6 +126,15 @@ have **not been tested** with this app yet.
   `~/Library/Application Support/HermesBotApp/Room Attachments/<room>/` and the message names the copies'
   paths; the room's bots open them with their file tools. This app shows them as attachments; Hermes Desktop
   shows the paths as text. The copies are deleted when you disband the room.
+- **Routines:** **Routines** in a Bot Chat's toolbar lists the bot's scheduled tasks (Hermes cron jobs). Switch
+  one off to pause it, on to resume it, delete it (asks first), or click it for its schedule, next and last
+  run, last result, where results go and any error. **New Routine** asks for a name, the instruction and when
+  to run it: once in N minutes/hours/days, every hour, every day at a time, weekdays, a weekday, a day of the
+  month, every N minutes/hours/days, or a raw schedule (`every 2h`, `0 9 * * *`); repeating schedules can stop
+  after N runs. Results stay in the run history or go to the bot's Bot Chat, where the bot answers them;
+  **Continuity** lets each run see the previous run's output. Routines are stored like Hermes Desktop's (named
+  `[bot:<name>] …` in the bot's own cron store), so both apps show the same ones. They fire only while Hermes
+  runs: if this app started Hermes, quitting stops them (see [Keeping Hermes running](#keeping-hermes-running)).
 
 ## Sidebar
 
@@ -189,6 +202,12 @@ worker log, and create, move, assign, prioritize, comment on and archive cards.
   it up in its current turn within a few seconds. **Requeue with note** posts the note and restarts the task
   from scratch with it.
 
+- **Filters:** the filter button next to the search field shows one profile's cards at a time, shows archived
+  cards (an Archived lane), and groups the Running lane by profile (remembered).
+- **Workers:** **Workers** in the board header lists the cards being worked on right now: which bot runs which
+  card, for how long and its last heartbeat (amber after two minutes without one). **Inspect Run** shows the
+  run, the worker process and its log. **Terminate Run** and **Reclaim Task** stop the worker and put the card
+  back to Ready for the dispatcher; both ask first.
 - **Boards that go away:** if a board is deleted or archived while you have it open, it says so, stops
   refreshing and refuses changes; **Go to Another Board** opens one that still exists. It also leaves the
   sidebar at the next board list refresh.
