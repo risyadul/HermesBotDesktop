@@ -514,6 +514,8 @@ toolbar. Minimum window 820 × 520.
 - **Group Chat Activity panel** (the room inspector, 200–260 pt): tool titles wrap to two lines with the
   count and duration kept beside them, and the "Turn finished · 4.2s" divider label never shrinks (its
   trailing rule gives way).
+- **Settings window:** 420 pt wide and as tall as its content, so every section (General, Background,
+  Kanban dispatcher) is on screen without scrolling; it follows rows that come and go.
 - **Empty states** are centred in the pane, never pinned to the composer by a bottom-anchored scroll.
 - **Window resize:** the detail pane flexes; bubbles and messages wrap within their max widths; the
   ribbon scrolls horizontally instead of wrapping; nothing clips at the 820 pt minimum. The sidebar

@@ -5,12 +5,6 @@ import SwiftUI
 // Settings sections for roadmap E1 (Background) and K8 (Kanban dispatcher). Models:
 // BackgroundServeSettingsModel.swift, DispatcherStatusModel.swift (shared with the board chip). Layout: native grouped Form (DESIGN.md).
 
-extension DS.Size {
-    /// Settings window: wide enough for the explanatory footnotes, tall enough for all three sections.
-    static let settingsHeight: CGFloat = 560
-    static let settingsMinHeight: CGFloat = 420
-}
-
 extension SettingsTone {
     var color: Color {
         switch self {
