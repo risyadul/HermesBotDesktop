@@ -1,5 +1,6 @@
 import AppKit
 import HermesGatewayKit
+import QuickLookUI
 import SwiftUI
 
 // App shell: attach-first to a running Hermes backend (or spawn `hermes serve --isolated`), list the
@@ -33,7 +34,16 @@ struct HermesBotApp: App {
                     Toggle("Animate Interface Changes", isOn: $motion)
                 }
                 CommandGroup(after: .newItem) { DesktopImportCommand(model: AppModel.shared) }
+                AppCommands(model: AppModel.shared)  // D5, D9, D10, D13 (AppCommands.swift)
             }
+        // D9: a Bot Chat or a room in its own window, on the same models (PaneWindows.swift).
+        WindowGroup("Hermes Bot", id: DetachedPane.sceneId, for: SidebarItem.self) { $item in
+            DetachedPaneView(model: AppModel.shared, item: item).modifier(MotionGate())
+                .environment(\.openURL, OpenURLAction { url in MessageBody.opensLink(url) ? .systemAction : .discarded })
+        }
+            .defaultSize(DS.Size.windowDefault)
+            .windowToolbarStyle(.unified)
+            .commandsRemoved()
         Settings { SettingsView() }
     }
 }
@@ -48,7 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PasteboardAttachments.purge()
         // Notifications (D1): the UserNotifications delegate must be in place before a click that launched the
         // app is delivered. Nothing is requested from the user until the first notification (lazy authorization).
-        MainActor.assumeIsolated { _ = AppModel.shared.notifications }
+        MainActor.assumeIsolated {
+            _ = AppModel.shared.notifications
+            QuickLookController.shared.installKeyMonitor()  // D8: Space previews the file under the pointer
+        }
         // `swift run` launches a bare executable: make it a regular foreground app with a window.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -83,6 +96,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    // D8: the app delegate is the Quick Look panel's controller (QuickLook.swift).
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { QuickLookController.shared.begin(panel) }
+    }
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { QuickLookController.shared.end(panel) }
+    }
 
     /// Detach the Bot Chats (they stay in Hermes), then stop the backend only if we spawned it. If we
     /// crash instead, the spawned backend's HERMES_PARENT_PID watchdog exits it.
@@ -152,7 +174,7 @@ struct RootView: View {
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height + $0.safeAreaInsets.top + $0.safeAreaInsets.bottom }) {
             windowHeight = $0
         }
-        .task { await model.connectAtLaunch() }
+        .task { await model.connectOnce() }
         .task(id: model.bots.map(\.name)) { AvatarStore.shared.load(bots: model.bots, backend: model.backend) }
         // Not `.sheet`: its slide and dimmer fade ignore the motion gate (MotionSheet.swift).
         // Closed any way (Cancel, Escape, Create, the window): a Desktop-archive prefill goes with it.
@@ -173,6 +195,24 @@ struct RootView: View {
         }
         // K9: Create Task from Message (KanbanIntegrations.swift).
         .modifier(KanbanComposePresenter(hub: model.kanban, bots: model.bots.map(\.name), motion: motion))
+        // D5 / D10: ⌘K and ⇧⌘F (CommandPaletteView.swift); D13: Save as Template (RoomTemplates.swift).
+        .motionSheet(isPresented: Binding(get: { model.palette != nil }, set: { if !$0 { model.palette = nil } }),
+                     motion: motion) {
+            if let mode = model.palette {
+                CommandPaletteView(model: model, mode: mode, onClose: { model.palette = nil })
+            }
+        }
+        .motionSheet(isPresented: Binding(get: { model.templateSource != nil }, set: { if !$0 { model.templateSource = nil } }),
+                     motion: motion) {
+            if let room = model.templateSource {
+                SaveRoomTemplateView(room: room, onSave: { name, prompt in
+                    switch model.roomTemplates.save(name: name, members: room.members.map(\.profile), prompt: prompt) {
+                    case .success: return nil
+                    case .failure(let e): return e.message
+                    }
+                }, onClose: { model.templateSource = nil })
+            }
+        }
     }
 
     /// One pane at a time: the outgoing pane leaves in the same frame (the selection changes outside any

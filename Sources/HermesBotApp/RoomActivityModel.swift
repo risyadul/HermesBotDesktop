@@ -165,10 +165,13 @@ final class RoomActivityModel: ObservableObject {
     private(set) var generation = 0
     private(set) var droppedStale = 0
     private var shutDown = false
-    /// The panel shows this room (`start()` … `stop()`).
-    private var wanted = false
-    /// The window is on screen and the app not hidden (`setVisible`).
-    private(set) var visible = true
+    /// The panels showing this room (`start()` … `stop()`; D9: one per window) and whether their windows are
+    /// on screen (`setVisible`).
+    private var viewers = PaneViewers()
+    /// Some panel shows this room.
+    private var wanted: Bool { !viewers.isEmpty }
+    /// A panel's window is on screen and the app not hidden.
+    var visible: Bool { viewers.anyVisible }
 
     init(roomId: String, members: [RoomMember], source: any BotActivitySource, installer: any BotActivityInstaller,
          profiles: any BotActivityProfileToggle, gate: BotActivityActionGate = .shared,
@@ -193,17 +196,19 @@ final class RoomActivityModel: ObservableObject {
 
     /// The panel is on screen for this room: poll now, then every `interval` (backing off on errors), while
     /// the window is visible.
-    func start() {
-        wanted = true
+    func start(viewer: ObjectIdentifier = PaneViewers.anonymous) {
+        viewers.add(viewer)
         guard visible else { return }
         startLoop()
     }
 
-    /// The window was occluded / the app hidden (false), or is back (true): polling pauses and resumes.
-    func setVisible(_ v: Bool) {
-        guard v != visible else { return }
-        visible = v
-        if v {
+    /// A panel's window was occluded / the app hidden (false), or is back (true): polling pauses while no
+    /// panel showing this room is on screen, and resumes when one is.
+    func setVisible(_ v: Bool, viewer: ObjectIdentifier = PaneViewers.anonymous) {
+        let before = visible
+        viewers.setVisible(v, viewer)
+        guard visible != before else { return }
+        if visible {
             if wanted { startLoop() }
         } else {
             halt()
@@ -233,8 +238,9 @@ final class RoomActivityModel: ObservableObject {
     }
 
     /// Panel hidden, room switched or connection lost: no poll result of the current loop is applied.
-    func stop() {
-        wanted = false
+    func stop(viewer: ObjectIdentifier = PaneViewers.anonymous) {
+        viewers.remove(viewer)
+        guard !wanted || !visible else { return }  // another panel (window, D9) still shows the room
         halt()
     }
 
@@ -247,7 +253,8 @@ final class RoomActivityModel: ObservableObject {
     /// App quit / backend lost: polling never restarts.
     func shutdown() {
         shutDown = true
-        stop()
+        viewers.removeAll()
+        halt()
     }
 
     /// One `GET /activity` for the current generation; returns the wait before the next one.

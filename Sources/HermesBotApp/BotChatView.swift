@@ -137,6 +137,7 @@ struct BotChatView: View {
             .environment(\.findQuery, find?.query ?? "")
             .opacity(transcriptSettled ? 1 : 0)
             .onAppear { settle(proxy) }
+            .messageJumpTarget(.bot(chat.bot.name), proxy: proxy)  // D10: Search Messages → this message
             .onChange(of: chat.lines.last?.text) { _, _ in
                 // B6: new output follows only while the user is at the bottom; their own new message always does.
                 if following || chat.lines.last?.role == .user { scrollToEnd(proxy) }

@@ -40,6 +40,8 @@ private struct LiveActivityPanel: View {
     @State private var confirmReinstall = false
     /// Rows shown per member ("Show more" raises it).
     @State private var limits: [String: Int] = [:]
+    /// This panel as one of the room's viewers (D9: the room can show in two windows).
+    @State private var viewer = PaneViewer()
     @Environment(\.motionEnabled) private var motion
 
     private var trackingOn: Bool {
@@ -64,12 +66,12 @@ private struct LiveActivityPanel: View {
             .animation(motion ? DS.Motion.ease : nil, value: activity.actionError)
         }
         .environmentObject(activity.disclosure)
-        .background(WindowVisibilityObserver { activity.setVisible($0) })
+        .background(WindowVisibilityObserver { [viewer] in activity.setVisible($0, viewer: viewer.id) })
         .onAppear {
             activity.setMembers(room.room.members)
-            activity.start()
+            activity.start(viewer: viewer.id)
         }
-        .onDisappear { activity.stop() }
+        .onDisappear { activity.stop(viewer: viewer.id) }
         .onChange(of: room.room.members) { _, m in activity.setMembers(m) }
         // Not `.sheet`: its slide and dimmer fade ignore the motion gate (MotionSheet.swift).
         .motionSheet(isPresented: $confirmEnable, motion: motion) {

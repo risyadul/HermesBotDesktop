@@ -182,6 +182,8 @@ private struct RoomOrderingModifier: ViewModifier {
                     .disabled(!store.canMove(id, .up, rooms: rooms))
                 Button("Move Down") { store.move(id, .down, rooms: rooms) }
                     .disabled(!store.canMove(id, .down, rooms: rooms))
+                // D9 / D13 / D15: Open in New Window, Save as Template…, Mute.
+                SidebarItemMenu(item: .room(id), model: AppModel.shared)
             }
             .draggable(RoomOrderStore.dragPayload(id))
             .dropDestination(for: String.self) { items, _ in

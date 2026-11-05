@@ -892,4 +892,39 @@ final class RoomActivityModelTests: XCTestCase {
         XCTAssertEqual(EnableActivitySheet.sourceURL.absoluteString,
                        "https://github.com/risyadul/hermes-bot-activity/tree/" + BotActivityPluginManager.pinnedRef)
     }
+
+    // MARK: D9, the room in two windows
+
+    func testTwoPanelsShareOneLoopUntilTheLastLeaves() async {
+        let source = FakeActivitySource()
+        let m = make(source)
+        let main = PaneViewer(), window = PaneViewer()
+        m.start(viewer: main.id)
+        await waitUntil("the first poll") { await source.callCount >= 1 }
+        let generation = m.generation
+        m.start(viewer: window.id)
+        XCTAssertEqual(m.generation, generation, "the second panel joins the running loop")
+        m.stop(viewer: main.id)
+        XCTAssertTrue(m.isPolling, "the other window still shows the panel")
+        m.stop(viewer: window.id)
+        XCTAssertFalse(m.isPolling)
+    }
+
+    func testPollingPausesOnlyWhenEveryPanelsWindowIsHidden() {
+        let m = make(FakeActivitySource())
+        defer { m.shutdown() }
+        let main = PaneViewer(), window = PaneViewer()
+        m.start(viewer: main.id)
+        m.start(viewer: window.id)
+        m.setVisible(false, viewer: window.id)
+        XCTAssertTrue(m.isPolling, "the main window is still on screen")
+        m.setVisible(false, viewer: main.id)
+        XCTAssertFalse(m.isPolling, "both covered: paused")
+        m.setVisible(true, viewer: window.id)
+        XCTAssertTrue(m.isPolling, "one back on screen: resumed")
+        m.stop(viewer: window.id)
+        XCTAssertFalse(m.isPolling, "the panel left on screen is in a covered window")
+        m.setVisible(true, viewer: main.id)
+        XCTAssertTrue(m.isPolling)
+    }
 }

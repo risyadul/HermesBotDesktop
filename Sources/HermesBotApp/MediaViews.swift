@@ -223,9 +223,12 @@ struct MediaAttachmentView: View {
 
     var body: some View {
         let presentation = MediaPresentation(ref: ref, resolution: resolution)
+        let previewable = QuickLookPolicy.canPreview(resolution) != nil
         Group {
             if let thumbnail, presentation.isEnabled {
-                MediaThumbnailButton(thumbnail: thumbnail, presentation: presentation, action: click)
+                // D8: a thumbnail click previews in Quick Look (Open stays in the menu).
+                MediaThumbnailButton(thumbnail: thumbnail, presentation: presentation,
+                                     action: previewable ? quickLook : click)
                     .transition(.opacity)
             } else {
                 MediaChip(presentation: presentation, action: click)
@@ -233,12 +236,21 @@ struct MediaAttachmentView: View {
         }
         .contextMenu {
             if case .available = resolution {
+                if previewable { Button("Quick Look", action: quickLook) }
                 Button(MediaOpenPolicy.revealsOnly(ref.path) ? "Reveal in Finder" : "Open", action: click)
                 Button("Reveal in Finder") { Task { apply(await MediaActions.reveal(ref)) } }
             }
             Button("Copy Path") { MediaActions.copyPath(ref) }
         }
+        // D8: Space over the tile previews it; a checked file drags out to Finder (re-checked at drag time).
+        .onHover { QuickLookController.shared.hover(ref, $0 && previewable) }
+        .onDisappear { QuickLookController.shared.hover(ref, false) }
+        .modifier(MediaDragSource(ref: ref, enabled: presentation.isEnabled && resolution != .deferred))
         .task(id: ref) { await load() }
+    }
+
+    private func quickLook() {
+        Task { apply(await QuickLookController.shared.preview(ref)) }
     }
 
     /// A deferred chip is only checked by its first click; afterwards a click opens (or reveals).
@@ -370,6 +382,20 @@ struct MediaTileStyle: ButtonStyle {
                 .scaleEffect(configuration.isPressed && isEnabled && motion ? DS.Motion.pressedScale : 1)
                 .animation(motion ? DS.Motion.press : nil, value: configuration.isPressed)
                 .contentShape(shape)
+        }
+    }
+}
+
+/// D8: drag a checked bot file out of the chat (QuickLook.swift, `MediaDrag`).
+struct MediaDragSource: ViewModifier {
+    let ref: MediaRef
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.onDrag { MediaDrag.provider(for: ref) }
+        } else {
+            content
         }
     }
 }

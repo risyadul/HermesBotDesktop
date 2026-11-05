@@ -135,6 +135,7 @@ struct SidebarView: View {
         .motionSheet(isPresented: $showRecent, motion: motion) {
             if let recent { RecentSessionView(model: recent, onClose: { showRecent = false }).id(recent.id) }
         }
+        .onChange(of: order, initial: true) { _, rows in model.sidebarOrder = rows }  // ⌘1…9 (D5)
     }
 
     // MARK: sections (A5)
@@ -313,6 +314,7 @@ struct SidebarView: View {
             }
         }
         .disabled(model.backend == nil || model.botSheet != nil)
+        SidebarItemMenu(item: .bot(bot.name), model: model)  // D9, D15
     }
 
     private func sectionHeader<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {
@@ -335,6 +337,7 @@ struct SidebarView: View {
         }
         .buttonStyle(SidebarRowStyle(selected: model.selection == item, keyboardFocus: focused, space: selectionSpace))
         .accessibilityAddTraits(model.selection == item ? .isSelected : [])
+        .modifier(OpenInWindowGesture(item: item))  // D9: ⌘-double-click
     }
 
     /// Last message + age, "needs you" badge, live dot (RoomDigests.swift).

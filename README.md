@@ -133,6 +133,10 @@ have **not been tested** with this app yet.
   needs `pdftoppm` on the backend machine) and other files. Files over a limit are refused with a message.
 - **Files from bots:** images show inline and other files as chips (Bot Chat and Group Chat). A file opens
   only when you click it, after a safety check that refuses credentials and system locations.
+- **Quick Look and drag out:** click an image to preview it in Quick Look, press Space while the pointer is over
+  a file or image (not while typing), or choose **Quick Look** from its right-click menu; Space or Esc closes the
+  preview. Drag a file or image out of the chat to copy it to Finder or another app. Both re-run the safety check
+  first; web pages, SVG, archives and macro-enabled documents are not previewed (Open only reveals them).
 - **Copy:** hover a message for Copy, or right-click it. A reply that came in several parts (text around tool
   calls) also offers Copy Full Response, which copies all of that reply's text.
 - **Times:** hovering a message also shows when it was sent ("3:27 PM", "Yesterday, 3:27 PM"; the full date
@@ -219,6 +223,18 @@ have **not been tested** with this app yet.
   rooms sit at the top of Group Chats; drag a room onto another to put it in that place (pinned rooms among
   pinned ones, the others among the others). New rooms appear at the top of the unpinned ones. Pins and order
   are kept on this Mac only (app preferences), not in Hermes, and a disbanded room's pin is dropped.
+- **Switching:** ⌘1 to ⌘9 select the first nine group chats and bots the sidebar shows (in its order; the filter
+  applies, boards are skipped); they are listed in the **Go** menu. **⌘K** (Go → Quick Switch…) opens a switcher:
+  type a few letters of a group chat, bot or board (fuzzy: `lnch` finds "Launch plan"), ↑/↓ to choose, Return to
+  open, Esc to close.
+- **Search messages:** **⇧⌘F** (Go → Search Messages…), or Tab in the switcher, searches the messages the app
+  already holds: the Bot Chats you opened since launch and, for every group chat, its loaded log or the latest
+  200 events the sidebar's background check fetched. Results show the chat, the author and the text around the
+  match; Return opens the chat and scrolls to the message. Older messages that are not loaded are not searched.
+- **Own window:** right-click a bot or group chat → **Open in New Window**, ⌘-double-click it, or Go → Open in New
+  Window for the one on screen. The window shows the same chat as the main window (same connection, same
+  polling, same drafts) and reopens at the next launch.
+- **Mute:** right-click a bot or group chat → **Mute Notifications** ([Notifications](#notifications-and-the-dock-badge)).
 
 ## Managing bots
 
@@ -258,6 +274,9 @@ through the running Hermes backend.
 - Bot Chat notifications cover the bots you opened since launch (the app follows a bot's chat once you open
   it). Group Chats are checked in the background every 5 to 15 seconds even when they are not open (the same
   check that keeps their sidebar rows current).
+- **Mute one bot or group chat:** right-click it in the sidebar → **Mute Notifications** (Unmute to undo). A muted
+  bot or room posts no notifications at all, approvals included, but its requests still count in the Dock badge
+  and still show in the sidebar, because they still wait on you. Mutes are kept on this Mac.
 - Turn notifications off in **Settings → Notifications → Show notifications** (on by default; it is the
   `notificationsEnabled` user default). Notifications need the packaged `HermesBot.app`; a bare `swift run`
   binary shows the Dock badge only.
@@ -296,6 +315,11 @@ through the running Hermes backend.
 - **Clarifying questions** from bots in a room cannot be answered here: Hermes does not pass them on to room
   clients (only approvals). A bot that needs you should write `@user`, which shows the **@** badge; answer it in
   the room.
+- **Templates:** right-click a group chat → **Save as Template…** (or File → Save Group Chat as Template…) keeps
+  its bots and an opening prompt under a name. **File → New Group Chat from Template** opens New Group Chat with
+  that name and those bots ticked (bots that no longer exist are left out); after you create it, the prompt is in
+  the composer, not sent. File → New Group Chat from Template → Delete Template removes one. Templates are kept
+  on this Mac.
 
 ## Importing Hermes Desktop group chats
 

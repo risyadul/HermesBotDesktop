@@ -705,10 +705,24 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   Chat and Group Chat. Images show inline as a thumbnail (fits 320×240 pt, never upscaled, chip radius);
   other files show as a chip (kind symbol, file name, size; max width 320 pt). Nothing opens without a
   click, and every Open / Reveal re-checks the path (`MediaSafety`): a missing or refused file shows a
-  disabled chip with the reason. Context menu: Open, Reveal in Finder, Copy Path. Files the user sent in a
-  room (the app's own copies) use the same tiles, but a click opens Quick Look instead of the default app
-  (formats that can run code are still only revealed); the menu is Quick Look, Open, Reveal in Finder, Copy
-  Path; a deleted copy's chip reads "This copy was deleted, so the bots can no longer open it either."
+  disabled chip with the reason. Context menu: Quick Look, Open, Reveal in Finder, Copy Path. A thumbnail click
+  previews in Quick Look (the system panel, out of process); Space over a tile previews it unless a text field
+  has focus; a checked tile drags out as its file (D8). Reveal-only formats are never previewed.
+  Files the user sent in a room (the app's own copies) use the same tiles; a click opens Quick Look (formats
+  that can run code are still only revealed); a deleted copy's chip reads "This copy was deleted, so the bots
+  can no longer open it either."
+- `palette` (⌘K Go to / ⇧⌘F Messages, D5/D10): a sheet 560 pt wide (`paletteWidth`) in the window fill: a
+  borderless `title-pane` field with a leading muted symbol and a segmented scope picker (Tab switches), a
+  hairline, then a 360 pt list (`paletteListHeight`) of 44 pt rows styled like `sidebar-row` (the keyboard
+  selection takes `selected`, hover takes `hover`). Go to rows: kind symbol, title, muted subtitle, then
+  `bell.slash` for a muted item and the `⌘n` caption it answers to. Message rows: "<chat> · <author>" in
+  `meta` 600 muted over a two-line `body` snippet with the query terms in 600. Empty and too-short queries say
+  so in one muted `meta` line.
+- `template-sheet` (Save as Template, D13): a `sheetWidth` sheet like New Group Chat: name field, the members
+  as one `body` line, an opening-prompt editor 96 pt high (`templatePromptHeight`, surface fill, hairline,
+  control radius), Cancel and Save Template.
+- Own window (D9): a Bot Chat or room window is the detail pane alone (no sidebar) at the main window's default
+  size, with the same toolbar; a gone bot or room shows an `empty-state` ("Not available").
 - `round-divider`: hairline, caption label, hairline; the two rules take equal widths so the label is
   centred on the timeline. Labels are plain words: "Discussion settled", "Discussion ended · round limit
   reached", "Stopped", "Renamed to …" (the backend `reason_code` stays in the log, not on screen).
