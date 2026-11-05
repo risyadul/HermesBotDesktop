@@ -8,6 +8,67 @@ public struct RoomLine: Sendable, Equatable, Identifiable {
     public let kind: Kind
     public let author: String
     public let text: String
+    /// The thread the event belongs to (`payload.thread_id`; `main` for events that carry none).
+    public var threadId: String = RoomThreads.main
+}
+
+/// Threads in a room. Every `groups.send` names a `thread_id`; the discussion policy plans each thread on
+/// its own and a member's prompt holds only the messages of that thread
+/// (`hosted_room_discussion.py` `_pending_discussion` / `_thread_messages`). The app's main composer
+/// always posts to `main`; "Reply in thread" continues the message's thread, or, for a message in
+/// `main`, starts a thread anchored on it.
+public enum RoomThreads {
+    public static let main = "main"
+    private static let anchorPrefix = "hba-t-"
+
+    /// The thread an event belongs to.
+    public static func id(of event: RoomEvent) -> String {
+        guard let t = event.threadId, !t.isEmpty else { return main }
+        return t
+    }
+
+    /// The thread started from the message at `seq` in `main`. Deterministic, so every reply to that
+    /// message (from this app) lands in the same thread.
+    public static func anchored(at seq: Int) -> String { "\(anchorPrefix)\(seq)" }
+
+    /// The seq of the `main` message an app-started thread hangs off; nil for `main` and for threads
+    /// other clients started (Hermes Desktop mints `t<base36>-<random>`).
+    public static func anchorSeq(of threadId: String) -> Int? {
+        guard threadId.hasPrefix(anchorPrefix) else { return nil }
+        return Int(threadId.dropFirst(anchorPrefix.count)).flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    /// Where "Reply in thread" on this message posts.
+    public static func replyThread(for event: RoomEvent) -> String {
+        let t = id(of: event)
+        return t == main ? anchored(at: event.seq) : t
+    }
+
+    /// Characters of the anchor message quoted into a new thread's first message.
+    public static let quoteLimit = 280
+
+    /// The first message of a thread started from a `main` message. Members only see their thread's
+    /// messages, so the message being answered is quoted on top (one line, cut at `quoteLimit`).
+    public static func opening(_ text: String, quoting author: String, _ quoted: String) -> String {
+        let flat = quoted.split(whereSeparator: \.isNewline).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        guard !flat.isEmpty else { return text }
+        let cut = flat.count > quoteLimit ? String(flat.prefix(quoteLimit)) + "…" : flat
+        return "> \(author): \(cut)\n\n\(text)"
+    }
+}
+
+/// One thread other than `main`, as the timeline holds it.
+public struct RoomThreadSummary: Sendable, Equatable, Identifiable {
+    public let id: String
+    /// The `main` message this thread hangs off (app-started threads), when it is in the log.
+    public let anchorSeq: Int?
+    public let firstSeq: Int
+    public let lastSeq: Int
+    /// User and member messages in the thread.
+    public let messageCount: Int
+    /// The first message's text (attachments block removed), for the thread's label.
+    public let title: String
 }
 
 /// How far the discussion opened by one user message has got.
@@ -97,42 +158,83 @@ public struct RoomTimeline: Sendable, Equatable {
         events.filter { $0.kind.hasPrefix("turn.") && $0.discussionEventId == user.eventId }
     }
 
+    // MARK: threads
+
+    /// Events of one thread, in log order.
+    public func events(inThread threadId: String) -> [RoomEvent] {
+        events.filter { RoomThreads.id(of: $0) == threadId }
+    }
+
+    /// Threads other than `main`, in the order they started.
+    public var threads: [RoomThreadSummary] {
+        var order: [String] = []
+        var byId: [String: [RoomEvent]] = [:]
+        for e in events where e.kind == "message.user" || e.kind == "message.member" {
+            let t = RoomThreads.id(of: e)
+            guard t != RoomThreads.main else { continue }
+            if byId[t] == nil { order.append(t) }
+            byId[t, default: []].append(e)
+        }
+        return order.map { id in
+            let messages = byId[id] ?? []
+            let anchor = RoomThreads.anchorSeq(of: id).flatMap { seq in events.contains { $0.seq == seq } ? seq : nil }
+            let title = RoomAttachments.split(messages.first?.text ?? "").text
+            return RoomThreadSummary(id: id, anchorSeq: anchor, firstSeq: messages.first?.seq ?? 0,
+                                     lastSeq: messages.last?.seq ?? 0, messageCount: messages.count, title: title)
+        }
+    }
+
     /// Rows for the UI. Member display names come from the roster when the event lacks one.
     public func lines(room: RoomSummary?) -> [RoomLine] {
+        lines(of: events, room: room)
+    }
+
+    /// Rows of one thread only.
+    public func lines(thread threadId: String, room: RoomSummary?) -> [RoomLine] {
+        lines(of: events(inThread: threadId), room: room)
+    }
+
+    private func lines(of events: [RoomEvent], room: RoomSummary?) -> [RoomLine] {
+        events.compactMap { e -> RoomLine? in
+            guard var line = line(for: e, room: room) else { return nil }
+            line.threadId = RoomThreads.id(of: e)
+            return line
+        }
+    }
+
+    private func line(for e: RoomEvent, room: RoomSummary?) -> RoomLine? {
         func name(_ memberId: String?) -> String {
             room?.member(memberId)?.title ?? memberId ?? "bot"
         }
-        return events.compactMap { e -> RoomLine? in
-            switch e.kind {
-            case "message.user":
-                return RoomLine(id: e.seq, kind: .user, author: "You", text: e.text ?? "")
-            case "message.member":
-                let author = e.actor["display_name"]?.string ?? name(e.memberId)
-                return RoomLine(id: e.seq, kind: .member, author: author, text: e.text ?? "")
-            case "turn.settled":
-                // The reply itself is the message.member row; only a pass is worth a line.
-                return e.payload["passed"]?.bool == true
-                    ? RoomLine(id: e.seq, kind: .status, author: name(e.memberId), text: "passed (no reply)") : nil
-            case "turn.failed":
-                let err = e.payload["error"]?.string ?? "failed"
-                return RoomLine(id: e.seq, kind: .error, author: name(e.memberId), text: "turn failed: \(err)")
-            case "turn.cancelled":
-                return RoomLine(id: e.seq, kind: .status, author: name(e.memberId),
-                                text: "turn cancelled" + (e.payload["reason"]?.string.map { " (\($0))" } ?? ""))
-            case "turn.deferred":
-                return RoomLine(id: e.seq, kind: .status, author: name(e.memberId),
-                                text: "turn deferred" + (e.payload["reason"]?.string.map { " (\($0))" } ?? "") + ": Retry re-runs it")
-            case "room.activity":
-                let status = e.payload["status"]?.string ?? "?", reason = e.payload["reason_code"]?.string ?? ""
-                let text = status == "settled" ? "discussion settled" : status == "bounded" ? "discussion ended (limit)" : status
-                return RoomLine(id: e.seq, kind: .status, author: "room", text: reason.isEmpty ? text : "\(text) · \(reason)")
-            case "room.stop_requested":
-                return RoomLine(id: e.seq, kind: .status, author: "room", text: "stop requested")
-            case "room.renamed":
-                return RoomLine(id: e.seq, kind: .status, author: "room", text: "renamed to \(e.payload["name"]?.string ?? "?")")
-            default:
-                return RoomLine(id: e.seq, kind: .status, author: "room", text: e.kind)
-            }
+        switch e.kind {
+        case "message.user":
+            return RoomLine(id: e.seq, kind: .user, author: "You", text: e.text ?? "")
+        case "message.member":
+            let author = e.actor["display_name"]?.string ?? name(e.memberId)
+            return RoomLine(id: e.seq, kind: .member, author: author, text: e.text ?? "")
+        case "turn.settled":
+            // The reply itself is the message.member row; only a pass is worth a line.
+            return e.payload["passed"]?.bool == true
+                ? RoomLine(id: e.seq, kind: .status, author: name(e.memberId), text: "passed (no reply)") : nil
+        case "turn.failed":
+            let err = e.payload["error"]?.string ?? "failed"
+            return RoomLine(id: e.seq, kind: .error, author: name(e.memberId), text: "turn failed: \(err)")
+        case "turn.cancelled":
+            return RoomLine(id: e.seq, kind: .status, author: name(e.memberId),
+                            text: "turn cancelled" + (e.payload["reason"]?.string.map { " (\($0))" } ?? ""))
+        case "turn.deferred":
+            return RoomLine(id: e.seq, kind: .status, author: name(e.memberId),
+                            text: "turn deferred" + (e.payload["reason"]?.string.map { " (\($0))" } ?? "") + ": Retry re-runs it")
+        case "room.activity":
+            let status = e.payload["status"]?.string ?? "?", reason = e.payload["reason_code"]?.string ?? ""
+            let text = status == "settled" ? "discussion settled" : status == "bounded" ? "discussion ended (limit)" : status
+            return RoomLine(id: e.seq, kind: .status, author: "room", text: reason.isEmpty ? text : "\(text) · \(reason)")
+        case "room.stop_requested":
+            return RoomLine(id: e.seq, kind: .status, author: "room", text: "stop requested")
+        case "room.renamed":
+            return RoomLine(id: e.seq, kind: .status, author: "room", text: "renamed to \(e.payload["name"]?.string ?? "?")")
+        default:
+            return RoomLine(id: e.seq, kind: .status, author: "room", text: e.kind)
         }
     }
 }
