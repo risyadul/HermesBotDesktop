@@ -221,7 +221,7 @@ final class KanbanHub: ObservableObject {
             let list = try await api.boards(includeArchived: false)
             guard gen == generation else { return }
             if boards != list.boards { boards = list.boards }
-            availability = .available
+            if availability != .available { availability = .available }
             // A board deleted or archived elsewhere: its model stops and goes; the selection follows.
             let listed = Set(list.boards.filter { !$0.archived }.map(\.slug))
             for (slug, m) in models where !listed.contains(slug) {
@@ -232,10 +232,11 @@ final class KanbanHub: ObservableObject {
         } catch {
             guard gen == generation else { return }
             if case PluginREST.Failure.pluginUnavailable = error {
-                boards = []
-                availability = .off
+                if !boards.isEmpty { boards = [] }
+                if availability != .off { availability = .off }
             } else {
-                availability = .failed(KanbanBoardModel.describe(error))
+                let failed = Availability.failed(KanbanBoardModel.describe(error))
+                if availability != failed { availability = failed }
             }
         }
     }

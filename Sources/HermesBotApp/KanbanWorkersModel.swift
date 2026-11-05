@@ -132,10 +132,11 @@ final class KanbanWorkersModel: ObservableObject {
             let list = try await api.activeWorkers(board: slug)
             guard gen == generation, mine > appliedFetch else { return }
             appliedFetch = mine
-            workers = list.workers
-            checkedAt = list.checkedAt
-            state = .ready
-            syncError = nil
+            // Only real changes publish: an unchanged 5 s poll does not re-render the sheet.
+            if workers != list.workers { workers = list.workers }
+            if checkedAt != list.checkedAt { checkedAt = list.checkedAt }
+            if state != .ready { state = .ready }
+            if syncError != nil { syncError = nil }
         } catch {
             guard gen == generation, mine > appliedFetch else { return }
             if case PluginREST.Failure.pluginUnavailable = error { state = .unavailable; return }

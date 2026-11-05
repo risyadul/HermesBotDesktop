@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import HermesBotApp
@@ -166,6 +167,17 @@ final class RoutinesModelTests: XCTestCase {
         for _ in 1...4 { await m.refresh() }
         XCTAssertEqual(m.job("l1")?.state, "paused", "a later try that succeeds pauses it")
         XCTAssertEqual(f.actions("pause").count, 4)
+    }
+
+    func testAnUnchangedListPublishesNothing() async {
+        let f = fake()
+        let m = model(f)
+        await m.refresh()
+        var changes = 0
+        let sub = m.objectWillChange.sink { changes += 1 }
+        defer { sub.cancel() }
+        await m.refresh()
+        XCTAssertEqual(changes, 0, "same jobs: the sheet is not re-rendered every 20 s")
     }
 
     func testPollingPausesWhileSuspended() async throws {

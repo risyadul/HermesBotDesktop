@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import HermesBotApp
@@ -154,6 +155,16 @@ final class KanbanWorkersModelTests: XCTestCase {
         XCTAssertEqual(api.count("terminate"), 0)
         XCTAssertEqual(m.workers.map(\.runId), [6])
         XCTAssertEqual(api.with { s in s.columns.first { $0.name == "running" }?.tasks.count }, 0, "the card left Running")
+    }
+
+    func testAnUnchangedPollPublishesNothing() async {
+        let m = KanbanWorkersModel(slug: "main", api: fake())
+        await m.refresh()
+        var changes = 0
+        let sub = m.objectWillChange.sink { changes += 1 }
+        defer { sub.cancel() }
+        await m.refresh()
+        XCTAssertEqual(changes, 0, "same workers, same server clock: the sheet is not re-rendered")
     }
 
     func testPollingPausesWhileSuspended() {

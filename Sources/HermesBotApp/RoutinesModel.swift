@@ -117,16 +117,19 @@ final class RoutinesModel: ObservableObject {
             list = await pauseLegacy(list)
             guard gen == generation, mine > appliedLoad else { return }
             appliedLoad = mine
-            all = list.jobs
-            scoped = list.scoped
-            jobs = Routines.jobs(for: bot, in: list)
+            // Only real changes publish: an unchanged 20 s poll does not re-render the sheet.
+            if all != list.jobs { all = list.jobs }
+            if scoped != list.scoped { scoped = list.scoped }
+            let shown = Routines.jobs(for: bot, in: list)
+            if jobs != shown { jobs = shown }
             // A wanted state the server now reports is no longer pending.
-            pendingActive = pendingActive.filter { id, wanted in
-                guard let j = jobs.first(where: { $0.id == id }) else { return false }
+            let pending = pendingActive.filter { id, wanted in
+                guard let j = shown.first(where: { $0.id == id }) else { return false }
                 return Routines.isActive(j) != wanted
             }
-            phase = .ready
-            refreshError = nil
+            if pendingActive != pending { pendingActive = pending }
+            if phase != .ready { phase = .ready }
+            if refreshError != nil { refreshError = nil }
         } catch {
             guard gen == generation, mine > appliedLoad else { return }
             let text = Redaction.describe(error)
