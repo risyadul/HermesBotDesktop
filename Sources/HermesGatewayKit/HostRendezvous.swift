@@ -17,13 +17,17 @@ import Foundation
 /// mirrors the Python side (`read_record`, `record_is_stale`, `record_token_is_consistent`,
 /// `probe_owner`):
 /// 1. record + token file owned by this uid inside a dir this uid owns (`_record_is_own`, `:178-199`);
+///    stricter here: lock dir, record and token are never followed through a symlink, and a
+///    group/world-writable lock dir is refused;
 /// 2. `protocolVersion == 1` (`HOST_PROTOCOL_VERSION`, `:54`, `record_is_stale` `:257-271`);
 /// 3. the PID is alive and its start-time fingerprint matches `startTime` within 200 centiseconds
 ///    (macOS: `round(psutil.create_time()*100)`, `gateway/status.py:470-507`, tolerance `:452`);
 ///    a record without `startTime` falls back to `createTime`;
 /// 4. sha256(token)[:16] == `tokenFingerprint` (`token_fingerprint` `:220-222`, `:361-370`);
-/// 5. TCP connect to the recorded port, then `GET /api/host/identity` with the token answers
+/// 5. the dial host is loopback (127.0.0.0/8, ::1, localhost): the token is never sent off-host;
+/// 6. TCP connect to the recorded port, then `GET /api/host/identity` with the token answers
 ///    `{pid, role}` equal to the record (`probe_owner` `:285-325`, route `web_routers/status.py:130-145`).
+///    Redirects are refused, so the token headers are never forwarded.
 ///
 /// The token is read only into memory and is never logged or written anywhere by this type.
 public enum HostRendezvous {
@@ -117,12 +121,13 @@ public enum HostRendezvous {
     static func check(role: Role, lockDir: URL, probeTimeout: TimeInterval) async -> Result<Attachment, Rejection> {
         let recordURL = lockDir.appendingPathComponent("host-\(role.rawValue).json")
         let tokenURL = lockDir.appendingPathComponent("host-\(role.rawValue).token")
-        guard FileManager.default.fileExists(atPath: recordURL.path) else { return .failure(.init(reason: "no record")) }
-        guard isOwnedByMe(recordURL), isOwnedByMe(lockDir) else {
-            return .failure(.init(reason: "record or lock dir not owned by this uid"))
+        guard lstatInfo(recordURL) != nil else { return .failure(.init(reason: "no record")) }
+        if let why = lockDirProblem(lockDir) { return .failure(.init(reason: why)) }
+        guard let (data, recordInfo) = readNoFollow(recordURL) else {
+            return .failure(.init(reason: "record is a symlink, not a regular file, or unreadable"))
         }
-        guard let data = try? Data(contentsOf: recordURL),
-              let record = try? JSONDecoder().decode(Record.self, from: data) else {
+        guard recordInfo.st_uid == getuid() else { return .failure(.init(reason: "record not owned by this uid")) }
+        guard let record = try? JSONDecoder().decode(Record.self, from: data) else {
             return .failure(.init(reason: "record unreadable/corrupt"))
         }
         guard record.role == role.rawValue, record.pid > 0 else { return .failure(.init(reason: "record role/pid invalid")) }
@@ -130,18 +135,22 @@ public enum HostRendezvous {
             return .failure(.init(reason: "protocolVersion \(record.protocolVersion.map(String.init) ?? "nil") != \(protocolVersion)"))
         }
         guard let port = record.port, port > 0, port <= 65535 else { return .failure(.init(reason: "record has no port")) }
+        guard isLoopback(record.dialHost) else {
+            return .failure(.init(reason: "dial host \(record.dialHost) is not loopback"))
+        }
         switch incarnationMatches(record) {
         case .some(false): return .failure(.init(reason: "pid \(record.pid) dead or start time mismatch (stale)"))
         case .none: break  // unprovable: the identity probe below decides, as in record_is_stale
         case .some(true): break
         }
-        guard isOwnedByMe(tokenURL), let raw = try? String(contentsOf: tokenURL, encoding: .utf8) else {
-            return .failure(.init(reason: "token file missing/unreadable/not owned"))
+        guard let (tokenData, tokenInfo) = readNoFollow(tokenURL), tokenInfo.st_uid == getuid(),
+              let raw = String(data: tokenData, encoding: .utf8) else {
+            return .failure(.init(reason: "token file missing/symlinked/unreadable/not owned"))
         }
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return .failure(.init(reason: "token empty")) }
-        if let mode = posixMode(tokenURL), mode & 0o077 != 0 {
-            return .failure(.init(reason: String(format: "token file mode %o is not owner-only", mode)))
+        if tokenInfo.st_mode & 0o077 != 0 {
+            return .failure(.init(reason: "token file mode \(String(tokenInfo.st_mode & 0o777, radix: 8)) is not owner-only"))
         }
         let fp = SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)
         guard let want = record.tokenFingerprint, !want.isEmpty, String(fp) == want else {
@@ -161,16 +170,49 @@ public enum HostRendezvous {
 
     // MARK: - process + file checks
 
-    static func isOwnedByMe(_ url: URL) -> Bool {
+    /// `lstat`: never follows a symlink.
+    static func lstatInfo(_ url: URL) -> stat? {
         var st = stat()
-        guard stat(url.path, &st) == 0 else { return false }
-        return st.st_uid == getuid()
+        return lstat(url.path, &st) == 0 ? st : nil
     }
 
-    static func posixMode(_ url: URL) -> Int? {
+    /// Why the lock dir must not be trusted, or nil. `mode` includes the file-type bits (from `lstat`).
+    static func lockDirProblem(mode: mode_t, owner: uid_t, me: uid_t = getuid()) -> String? {
+        switch mode & S_IFMT {
+        case S_IFDIR: break
+        case S_IFLNK: return "lock dir is a symlink"
+        default: return "lock dir is not a directory"
+        }
+        if owner != me { return "lock dir not owned by this uid" }
+        if mode & 0o022 != 0 { return "lock dir mode \(String(mode & 0o777, radix: 8)) is group/world-writable" }
+        return nil
+    }
+
+    static func lockDirProblem(_ url: URL) -> String? {
+        guard let st = lstatInfo(url) else { return "lock dir missing" }
+        return lockDirProblem(mode: st.st_mode, owner: st.st_uid)
+    }
+
+    /// Contents + `fstat` of a regular file opened with `O_NOFOLLOW` (no check/read race); nil for a
+    /// symlink, a non-regular file, or a read error.
+    static func readNoFollow(_ url: URL) -> (Data, stat)? {
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var st = stat()
-        guard stat(url.path, &st) == 0 else { return nil }
-        return Int(st.st_mode) & 0o777
+        guard fstat(fd, &st) == 0, st.st_mode & S_IFMT == S_IFREG else { return nil }
+        do { return (try handle.readToEnd() ?? Data(), st) } catch { return nil }
+    }
+
+    /// 127.0.0.0/8, ::1 (any spelling) or `localhost`.
+    static func isLoopback(_ host: String) -> Bool {
+        let h = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+        if h.lowercased() == "localhost" { return true }
+        var v4 = in_addr()
+        if inet_pton(AF_INET, h, &v4) == 1 { return UInt32(bigEndian: v4.s_addr) >> 24 == 127 }
+        var v6 = in6_addr()
+        guard inet_pton(AF_INET6, h, &v6) == 1 else { return false }
+        return withUnsafeBytes(of: &v6) { Array($0) } == [UInt8](repeating: 0, count: 15) + [1]
     }
 
     /// Start time of `pid` in the same unit hermes records on macOS: centiseconds since the epoch.
@@ -227,11 +269,17 @@ public enum HostRendezvous {
         var req = URLRequest(url: url, timeoutInterval: timeout)
         req.setValue(token, forHTTPHeaderField: "X-Hermes-Token")
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let session = URLSession(configuration: .ephemeral)
+        let session = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, resp) = try? await session.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let v = try? JSONDecoder().decode(JSONValue.self, from: data), v.object != nil else { return nil }
         return v
+    }
+
+    /// A 3xx comes back as the response itself (≠ 200, so the probe fails) instead of being followed.
+    final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest) async -> URLRequest? { nil }
     }
 }

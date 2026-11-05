@@ -44,6 +44,8 @@ public final class ServeProcess: @unchecked Sendable {
         public var isolated: Bool = false
         /// Guard: refuse a home inside `~/.hermes` unless explicitly allowed (same-home mode).
         public var allowDefaultRoot: Bool = false
+        /// Paths the default lookup tried, for `binaryNotFound`. Empty = `hermesExecutable` was given.
+        var executableSearch: [String] = []
 
         public init(hermesExecutable: URL, hermesHome: URL, lockDir: URL?, logFile: URL) {
             self.hermesExecutable = hermesExecutable
@@ -52,19 +54,45 @@ public final class ServeProcess: @unchecked Sendable {
             self.logFile = logFile
         }
 
-        static func defaultExecutable() -> URL {
-            ProcessInfo.processInfo.environment["HERMES_BOT_APP_HERMES_BIN"].map(URL.init(fileURLWithPath:))
-                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/hermes")
+        /// `hermes` lookup order: `HERMES_BOT_APP_HERMES_BIN` (if set, nothing else), `~/.local/bin`,
+        /// each absolute `$PATH` dir, `/opt/homebrew/bin`, `/usr/local/bin`. Deduplicated, in order.
+        static func executableCandidates(environment env: [String: String], home: URL) -> [String] {
+            if let o = env["HERMES_BOT_APP_HERMES_BIN"], !o.isEmpty { return [o] }
+            var all = [home.appendingPathComponent(".local/bin/hermes").path]
+            for dir in (env["PATH"] ?? "").split(separator: ":") where dir.hasPrefix("/") {
+                all.append(URL(fileURLWithPath: String(dir)).appendingPathComponent("hermes").path)
+            }
+            all += ["/opt/homebrew/bin/hermes", "/usr/local/bin/hermes"]
+            var seen = Set<String>()
+            return all.filter { seen.insert($0).inserted }
+        }
+
+        /// First candidate `isExecutableFile` accepts (nil if none), plus every path tried.
+        static func resolveExecutable(environment env: [String: String], home: URL,
+                                      isExecutableFile: (String) -> Bool = ServeProcess.isExecutableFile)
+            -> (url: URL?, tried: [String]) {
+            let tried = executableCandidates(environment: env, home: home)
+            return (tried.first(where: isExecutableFile).map(URL.init(fileURLWithPath:)), tried)
+        }
+
+        /// Unresolved: the first candidate, so `start()` fails with `binaryNotFound` listing them all.
+        static func defaultExecutable() -> (url: URL, tried: [String]) {
+            let r = resolveExecutable(environment: ProcessInfo.processInfo.environment,
+                                      home: FileManager.default.homeDirectoryForCurrentUser)
+            return (r.url ?? URL(fileURLWithPath: r.tried[0]), r.tried)
         }
 
         /// Defaults used by the M0 spike: `~/.hermes-bot-app-spike/{home,locks,serve.log}`.
         public static func spikeDefault() -> Configuration {
             let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".hermes-bot-app-spike")
-            return Configuration(
-                hermesExecutable: defaultExecutable(),
+            let exe = defaultExecutable()
+            var c = Configuration(
+                hermesExecutable: exe.url,
                 hermesHome: base.appendingPathComponent("home"),
                 lockDir: base.appendingPathComponent("locks"),
                 logFile: base.appendingPathComponent("serve.log"))
+            c.executableSearch = exe.tried
+            return c
         }
 
         /// M1 spawn-if-absent: `hermes serve --host 127.0.0.1 --port 0 --isolated` on the user's own
@@ -73,29 +101,63 @@ public final class ServeProcess: @unchecked Sendable {
         public static func sameHomeDefault(lockDir: URL? = nil) -> Configuration {
             let fm = FileManager.default
             let logs = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/HermesBotApp")
-            try? fm.createDirectory(at: logs, withIntermediateDirectories: true)
+            try? fm.createDirectory(at: logs, withIntermediateDirectories: true,
+                                    attributes: [.posixPermissions: 0o700])
+            let exe = defaultExecutable()
             var c = Configuration(
-                hermesExecutable: defaultExecutable(),
+                hermesExecutable: exe.url,
                 hermesHome: fm.homeDirectoryForCurrentUser.appendingPathComponent(".hermes"),
                 lockDir: lockDir,
                 logFile: logs.appendingPathComponent("serve.log"))
+            c.executableSearch = exe.tried
             c.isolated = true
             c.allowDefaultRoot = true
             return c
         }
     }
 
+    /// Every case carries the serve.log path, so the text always says where to look.
     public enum ServeError: Error, CustomStringConvertible {
-        case homeInsideDefaultRoot(String)
-        case exitedBeforeReady(Int32)
-        case readyTimeout
+        case homeInsideDefaultRoot(String, log: String)
+        case binaryNotFound(tried: [String], log: String)
+        case untrustedBinary(path: String, reason: String, log: String)
+        case launchFailed(String, log: String)
+        case exitedBeforeReady(Int32, log: String)
+        case readyTimeout(log: String)
         public var description: String {
             switch self {
-            case .homeInsideDefaultRoot(let p): return "HERMES_HOME \(p) is inside ~/.hermes and would share its shared-state.db"
-            case .exitedBeforeReady(let c): return "hermes serve exited (status \(c)) before READY"
-            case .readyTimeout: return "hermes serve did not print HERMES_BACKEND_READY in time"
+            case .homeInsideDefaultRoot(let p, let log):
+                return "HERMES_HOME \(p) is inside ~/.hermes and would share its shared-state.db (log: \(log))"
+            case .binaryNotFound(let tried, let log):
+                return "hermes executable not found; tried \(tried.joined(separator: ", ")). "
+                    + "Set HERMES_BOT_APP_HERMES_BIN to its full path (log: \(log))"
+            case .untrustedBinary(let path, let reason, let log):
+                return "refusing to run \(path): \(reason). Fix its permissions or set HERMES_BOT_APP_HERMES_BIN "
+                    + "to a trusted copy (log: \(log))"
+            case .launchFailed(let why, let log): return "could not launch hermes serve: \(why) (log: \(log))"
+            case .exitedBeforeReady(let c, let log): return "hermes serve exited (status \(c)) before READY; see \(log)"
+            case .readyTimeout(let log): return "hermes serve did not print HERMES_BACKEND_READY in time; see \(log)"
             }
         }
+    }
+
+    /// Regular file (symlinks followed: the target is what runs) that this process may execute.
+    static func isExecutableFile(_ path: String) -> Bool {
+        var st = stat()
+        return stat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG && access(path, X_OK) == 0
+    }
+
+    /// Why a binary with this mode/owner must not be launched, or nil.
+    static func binaryTrustProblem(mode: mode_t, owner: uid_t, me: uid_t = getuid()) -> String? {
+        if mode & 0o022 != 0 { return "it is group- or world-writable (mode \(String(mode & 0o7777, radix: 8)))" }
+        if owner != me && owner != 0 { return "it is owned by uid \(owner), neither you (uid \(me)) nor root" }
+        return nil
+    }
+
+    static func binaryTrustProblem(path: String) -> String? {
+        var st = stat()
+        guard stat(path, &st) == 0 else { return "it cannot be inspected" }
+        return binaryTrustProblem(mode: st.st_mode, owner: st.st_uid)
     }
 
     public let configuration: Configuration
@@ -104,6 +166,7 @@ public final class ServeProcess: @unchecked Sendable {
     public let sessionToken: String
     private let process = Process()
     private var logHandle: FileHandle?
+    private var pipes: [Pipe] = []
     private var stdoutBuffer = Data()
     private let lock = NSLock()
     private var readyContinuation: CheckedContinuation<Int, Error>?
@@ -133,19 +196,39 @@ public final class ServeProcess: @unchecked Sendable {
         let fm = FileManager.default
         let defaultRoot = fm.homeDirectoryForCurrentUser.appendingPathComponent(".hermes").standardizedFileURL.path
         let home = configuration.hermesHome.standardizedFileURL.path
+        let logPath = configuration.logFile.path
         if !configuration.allowDefaultRoot && (home == defaultRoot || home.hasPrefix(defaultRoot + "/")) {
-            throw ServeError.homeInsideDefaultRoot(home)
+            throw ServeError.homeInsideDefaultRoot(home, log: logPath)
         }
         if let lockDir = configuration.lockDir {
             try fm.createDirectory(at: lockDir, withIntermediateDirectories: true,
                                    attributes: [.posixPermissions: 0o700])
         }
-        if !fm.fileExists(atPath: configuration.logFile.path) {
-            fm.createFile(atPath: configuration.logFile.path, contents: nil)
+        try fm.createDirectory(at: configuration.logFile.deletingLastPathComponent(), withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+        if !fm.fileExists(atPath: logPath) {
+            fm.createFile(atPath: logPath, contents: nil, attributes: [.posixPermissions: 0o600])
+        } else {
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: logPath)
         }
-        logHandle = try FileHandle(forWritingTo: configuration.logFile)
-        logHandle?.seekToEndOfFile()
-        logHandle?.write(Data("--- ServeProcess start \(Date()) ---\n".utf8))
+        let handle = try FileHandle(forWritingTo: configuration.logFile)
+        _ = try? handle.seekToEnd()
+        lock.withLock { logHandle = handle }
+        appendLog(Data("--- ServeProcess start \(Date()) ---\n".utf8))
+
+        // Checked before Process.run(), so a missing binary never surfaces as a raw NSCocoaErrorDomain error.
+        let exe = configuration.hermesExecutable.path
+        guard Self.isExecutableFile(exe) else {
+            let search = configuration.executableSearch
+            let e = ServeError.binaryNotFound(tried: search.contains(exe) ? search : [exe], log: logPath)
+            appendLog(Data("\(e)\n".utf8))
+            throw e
+        }
+        if let why = Self.binaryTrustProblem(path: exe) {
+            let e = ServeError.untrustedBinary(path: exe, reason: why, log: logPath)
+            appendLog(Data("\(e)\n".utf8))
+            throw e
+        }
 
         let parent = ProcessInfo.processInfo.environment
         var env: [String: String] = [:]
@@ -167,6 +250,7 @@ public final class ServeProcess: @unchecked Sendable {
         process.standardOutput = out
         process.standardError = err
         process.standardInput = FileHandle.nullDevice
+        lock.withLock { pipes = [out, err] }
 
         err.fileHandleForReading.readabilityHandler = { [weak self] h in
             let d = h.availableData
@@ -177,32 +261,44 @@ public final class ServeProcess: @unchecked Sendable {
             if !d.isEmpty { self?.consumeStdout(d) }
         }
         process.terminationHandler = { [weak self] p in
-            self?.resolveReady(.failure(ServeError.exitedBeforeReady(p.terminationStatus)))
+            self?.resolveReady(.failure(ServeError.exitedBeforeReady(p.terminationStatus, log: logPath)))
         }
 
         return try await withCheckedThrowingContinuation { cont in
             lock.lock(); readyContinuation = cont; lock.unlock()
-            do { try process.run() } catch { resolveReady(.failure(error)); return }
+            do { try process.run() } catch {
+                let ns = error as NSError
+                resolveReady(.failure(ServeError.launchFailed("\(ns.domain) \(ns.code): \(ns.localizedDescription)",
+                                                              log: logPath)))
+                return
+            }
             let timeout = configuration.readyTimeout
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
-                self?.resolveReady(.failure(ServeError.readyTimeout))
+                self?.resolveReady(.failure(ServeError.readyTimeout(log: logPath)))
             }
         }
     }
 
     /// SIGTERM, then SIGKILL after `grace` seconds. Only ever touches the child this object spawned.
+    /// Always detaches the pipe readers and closes the log, so a late chunk can never hit a closed handle.
     public func stop(grace: TimeInterval = 10) {
-        guard process.isRunning else { return }
-        process.terminate()
-        let deadline = Date().addingTimeInterval(grace)
-        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
-        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        if process.isRunning {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(grace)
+            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        }
+        lock.lock(); defer { lock.unlock() }
+        for p in pipes { p.fileHandleForReading.readabilityHandler = nil }
+        pipes = []
         try? logHandle?.close()
+        logHandle = nil
     }
 
+    /// No-op once `stop()` closed the log.
     private func appendLog(_ d: Data) {
         lock.lock(); defer { lock.unlock() }
-        logHandle?.write(d)
+        try? logHandle?.write(contentsOf: d)
     }
 
     private func consumeStdout(_ d: Data) {
