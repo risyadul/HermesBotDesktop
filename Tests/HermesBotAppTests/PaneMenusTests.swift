@@ -31,6 +31,28 @@ final class PaneMenusTests: XCTestCase {
         }
     }
 
+    /// Live UI test 2026-11-06 (round 5): the board header's actions menu was a bare `ellipsis.circle` at
+    /// header size, read as ⊖ ("remove"), placed between the board switcher and the filter. It is titled
+    /// "Board" with the symbol, like the Room and Bot menus, and is the header's trailing control.
+    func testTheBoardMenuIsTitledAndTrailing() throws {
+        let menu = try source("KanbanBoardManagement.swift")
+        let start = try XCTUnwrap(menu.range(of: "struct KanbanBoardMenu"))
+        let body = menu[start.lowerBound...]
+        XCTAssertTrue(body.contains("Label(\"Board\", systemImage: \"ellipsis.circle\")"), "the symbol pane menus use, titled")
+        XCTAssertFalse(body.prefix(1500).contains("minus.circle"))
+        XCTAssertTrue(body.contains(".accessibilityLabel(\"Board actions\")"))
+
+        let board = try source("KanbanBoardView.swift")
+        let header = try XCTUnwrap(board.range(of: "private var header: some View {"))
+        let end = try XCTUnwrap(board.range(of: "@ViewBuilder private var noteBar", range: header.upperBound..<board.endIndex))
+        let headerBody = board[header.upperBound..<end.lowerBound]
+        let menuAt = try XCTUnwrap(headerBody.range(of: "KanbanBoardMenu("), "the Board menu is in the header")
+        for control in ["TextField(\"Filter", "KanbanFilterMenu(", "Label(\"Workers\"", "DispatcherChipView("] {
+            let at = try XCTUnwrap(headerBody.range(of: control), control)
+            XCTAssertLessThan(at.lowerBound, menuAt.lowerBound, "\(control) comes before the trailing Board menu")
+        }
+    }
+
     func testTheRowMenuOffersWindowTemplateAndMute() throws {
         let menus = try source("AppCommands.swift")
         for piece in ["Button(\"Open in New Window\")", "Button(\"Save as Template…\")", "NotificationMutes.menuTitle("] {

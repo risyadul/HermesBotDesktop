@@ -339,7 +339,8 @@ struct KanbanBoardNameSheet: View {
 
 // MARK: - board menu
 
-/// The board header's Board menu: New, Rename, Export, Import, Orchestration Settings, Delete.
+/// The board header's Board menu (trailing, `ellipsis.circle` + "Board"): New, Rename, Export, Import,
+/// Orchestration Settings, Delete.
 struct KanbanBoardMenu: View {
     @ObservedObject var hub: KanbanHub
     let slug: String
@@ -361,8 +362,12 @@ struct KanbanBoardMenu: View {
             Divider()
             Button("Delete Board…", role: .destructive, action: onDelete)
                 .disabled(!KanbanBoardRules.canArchive(slug))
-        } label: { Image(systemName: "ellipsis.circle").font(DS.Typeface.icon) }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        } label: {
+            // Titled like the Room and Bot pane menus: the bare symbol at header size read as ⊖ ("remove") in the
+            // live UI test 2026-11-06, round 5.
+            Label("Board", systemImage: "ellipsis.circle")
+        }
+            .menuStyle(.borderlessButton).fixedSize()
             .accessibilityLabel("Board actions").help("Board actions")
     }
 

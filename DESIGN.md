@@ -534,8 +534,8 @@ toolbar. Minimum window 820 × 520.
   Comment share one row. The dispatcher chip is a `status-chip`: muted when running,
   attention when stopped (with Start) or not installed (its popover shows `hermes gateway install` to
   copy).
-  K6/K7/K9 additions: the header row has a Board menu (`ellipsis.circle`, borderless, no indicator) after the
-  switcher: New Board…, Rename Board…, Export Board…, Import Board…, Orchestration Settings…, Delete Board…
+  K6/K7/K9 additions: the header row ends with a Board menu (`ellipsis.circle` + "Board", borderless, with the
+  indicator, like the Room and Bot pane menus; after the dispatcher chip): New Board…, Rename Board…, Export Board…, Import Board…, Orchestration Settings…, Delete Board…
   (destructive, disabled for `default`; its confirmation says the board is archived, not erased, and warns
   when it is Hermes' current board). New / Rename and Orchestration are `sheetWidth` sheets like New Task
   (name field with the derived id in caption muted, a taken id in danger; orchestration: two profile pickers

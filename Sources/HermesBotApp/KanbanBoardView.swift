@@ -179,9 +179,6 @@ struct KanbanBoardView: View {
                     .fixedSize()
                     .help("Switch board")
             }
-            KanbanBoardMenu(hub: hub, slug: model.slug, onNew: { boardSheet = .new }, onRename: { boardSheet = .rename },
-                            onOrchestration: { boardSheet = .orchestration }, onDelete: { confirmDelete = true },
-                            onSelectBoard: onSelectBoard)
             TextField("Filter by title or @assignee", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: DS.Kanban.filterWidth)
@@ -193,6 +190,10 @@ struct KanbanBoardView: View {
                 .disabled(model.state != .ready)
             Spacer(minLength: DS.Space.s2)
             DispatcherChipView(model: hub.dispatcher)
+            // Trailing, like the Room and Bot menus at the end of their panes' toolbars.
+            KanbanBoardMenu(hub: hub, slug: model.slug, onNew: { boardSheet = .new }, onRename: { boardSheet = .rename },
+                            onOrchestration: { boardSheet = .orchestration }, onDelete: { confirmDelete = true },
+                            onSelectBoard: onSelectBoard)
         }
         .padding(.horizontal, DS.Space.s4).padding(.vertical, DS.Space.s2)
     }

@@ -530,7 +530,7 @@ worker log, and create, move, assign, prioritize, comment on and archive cards.
   moves it to Todo). Both change the card at once, so they ask first, and they can take a minute or more.
   **Model** pins the model and reasoning effort a card's worker uses (Profile default otherwise). Reassign
   is the **Assignee** menu (it releases a running worker first).
-- **Boards:** the ••• **Board** menu in the board header creates, renames and deletes boards, exports a board
+- **Boards:** the ••• **Board** menu at the right end of the board header creates, renames and deletes boards, exports a board
   to a `.tar.gz` archive and imports one as a new board. Deleting archives the board (it can be restored in
   Hermes); the `default` board can't be deleted, and deleting Hermes' current board warns first.
   **Orchestration Settings…** sets the orchestrator profile, the default assignee, automatic decomposition
