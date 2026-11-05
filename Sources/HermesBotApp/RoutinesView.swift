@@ -104,6 +104,7 @@ struct RoutinesSheet: View {
         .background(DS.Palette.window)
         .onAppear { model.start() }
         .onDisappear { model.stop() }
+        .onReceive(AppModel.shared.$mainWindowOnScreen) { model.setSuspended(!$0) }
         .confirmationDialog("Delete “\(deleteCandidate.map { Routines.title($0.name) } ?? "")”?",
                             isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })) {
             Button("Delete", role: .destructive) {

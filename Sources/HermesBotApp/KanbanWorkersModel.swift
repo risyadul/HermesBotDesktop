@@ -83,8 +83,14 @@ final class KanbanWorkersModel: ObservableObject {
 
     // MARK: polling
 
+    /// The app's windows are off screen (`AppModel.mainWindowOnScreen`): polling pauses until they return.
+    private(set) var isSuspended = false
+    /// The view is showing (start until stop), so polling resumes when unsuspended.
+    private var wantsPolling = false
+
     func start() {
-        guard loop == nil else { return }
+        wantsPolling = true
+        guard loop == nil, !isSuspended else { return }
         generation += 1
         let gen = generation, sleep = self.sleep
         loop = Task { [weak self] in
@@ -97,6 +103,21 @@ final class KanbanWorkersModel: ObservableObject {
     }
 
     func stop() {
+        wantsPolling = false
+        endLoop()
+    }
+
+    func setSuspended(_ suspended: Bool) {
+        guard suspended != isSuspended else { return }
+        isSuspended = suspended
+        if suspended {
+            endLoop()
+        } else if wantsPolling {
+            start()
+        }
+    }
+
+    private func endLoop() {
         generation += 1
         loop?.cancel()
         loop = nil

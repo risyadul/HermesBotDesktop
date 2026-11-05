@@ -46,6 +46,10 @@ final class RoutinesModel: ObservableObject {
     private var loop: Task<Void, Never>?
     private var loadSeq = 0
     private var appliedLoad = 0
+    /// Legacy pauses the gateway refused, per job: failures so far and loads still to skip before the next try.
+    private var legacyBackoff: [String: (failures: Int, skip: Int)] = [:]
+    /// The most loads a failing legacy pause waits between tries (5 min at the 20 s poll).
+    static let legacyRetryCap = 15
 
     init(bot: String, launchProfile: String = Routines.launchProfile, api: RoutinesAPI,
          sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) {
@@ -63,8 +67,14 @@ final class RoutinesModel: ObservableObject {
 
     // MARK: loading
 
+    /// The app's windows are off screen (`AppModel.mainWindowOnScreen`): polling pauses until they return.
+    private(set) var isSuspended = false
+    /// The view is showing (start until stop), so polling resumes when unsuspended.
+    private var wantsPolling = false
+
     func start() {
-        guard loop == nil else { return }
+        wantsPolling = true
+        guard loop == nil, !isSuspended else { return }
         generation += 1
         let gen = generation, sleep = self.sleep
         loop = Task { [weak self] in
@@ -77,6 +87,21 @@ final class RoutinesModel: ObservableObject {
     }
 
     func stop() {
+        wantsPolling = false
+        endLoop()
+    }
+
+    func setSuspended(_ suspended: Bool) {
+        guard suspended != isSuspended else { return }
+        isSuspended = suspended
+        if suspended {
+            endLoop()
+        } else if wantsPolling {
+            start()
+        }
+    }
+
+    private func endLoop() {
         generation += 1
         loop?.cancel()
         loop = nil
@@ -110,13 +135,24 @@ final class RoutinesModel: ObservableObject {
     }
 
     /// Pauses every active legacy delegated job (`loadRoutines`); only the jobs the gateway actually paused
-    /// are shown paused, and a failed pause is retried by the next load.
+    /// are shown paused. A failed pause backs off: the next try waits 1, 2, 4 … loads (at most
+    /// `legacyRetryCap`), so a store that keeps refusing is not hit on every poll.
     private func pauseLegacy(_ list: RoutineList) async -> RoutineList {
         let legacy = list.jobs.filter { Routines.isLegacyDelegated($0) && $0.enabled && $0.state != "paused" }
         guard !legacy.isEmpty else { return list }
         var paused: Set<String> = []
         for job in legacy {
-            if (try? await api.perform(.pause, jobId: job.id, profile: bot)) != nil { paused.insert(job.id) }
+            if let b = legacyBackoff[job.id], b.skip > 0 {
+                legacyBackoff[job.id] = (b.failures, b.skip - 1)
+                continue
+            }
+            if (try? await api.perform(.pause, jobId: job.id, profile: bot)) != nil {
+                paused.insert(job.id)
+                legacyBackoff[job.id] = nil
+            } else {
+                let failures = (legacyBackoff[job.id]?.failures ?? 0) + 1
+                legacyBackoff[job.id] = (failures, min(1 << min(failures - 1, 8), Self.legacyRetryCap))
+            }
         }
         return RoutineList(jobs: list.jobs.map { paused.contains($0.id) ? $0.markedPaused() : $0 }, scoped: list.scoped)
     }

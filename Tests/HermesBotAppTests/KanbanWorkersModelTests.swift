@@ -156,6 +156,20 @@ final class KanbanWorkersModelTests: XCTestCase {
         XCTAssertEqual(api.with { s in s.columns.first { $0.name == "running" }?.tasks.count }, 0, "the card left Running")
     }
 
+    func testPollingPausesWhileSuspended() {
+        let m = KanbanWorkersModel(slug: "main", api: fake(), sleep: { _ in try await Task.sleep(nanoseconds: 3_600_000_000_000) })
+        m.setSuspended(true)
+        m.start()
+        XCTAssertFalse(m.isPolling, "the app's windows are off screen: no loop")
+        m.setSuspended(false)
+        XCTAssertTrue(m.isPolling, "back on screen: the sheet still shows, polling resumes")
+        m.setSuspended(true)
+        XCTAssertFalse(m.isPolling)
+        m.stop()
+        m.setSuspended(false)
+        XCTAssertFalse(m.isPolling, "the sheet closed while suspended: nothing resumes")
+    }
+
     func testPollingStartsAndStopsAndDropsAnswersAfterStop() async throws {
         let api = fake()
         let m = KanbanWorkersModel(slug: "main", api: api, sleep: { _ in try await Task.sleep(nanoseconds: 10_000_000) })

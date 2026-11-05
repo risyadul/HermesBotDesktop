@@ -58,6 +58,11 @@ final class AppModel: ObservableObject {
     let roomTemplates = RoomTemplateStore()
     let mutes = NotificationMutes()
     var selectedBot: String? { if case .bot(let n)? = selection { return n }; return nil }
+    /// One visibility signal: a main window (not Settings) is on screen, the app not hidden (`updateVisibility`).
+    /// Off, the open room's poller, Kanban (boards, dispatcher, workers) and Routines pause and nothing shown
+    /// counts as seen or read; the sidebar room digests and the Kanban card watcher keep running, as the
+    /// notifications depend on them.
+    @Published private(set) var mainWindowOnScreen = true
     private(set) var backend: Backend?
     private var disconnectToken: UUID?
     /// The connect attempt in flight (nil when idle). `shutdown()` cancels it so a backend spawned while
@@ -85,7 +90,7 @@ final class AppModel: ObservableObject {
         kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
         // K9: a watched card finished or is blocked (AppModel+Kanban.swift).
         kanban.onCardEvent = { [weak self] event in self?.kanbanCardChanged(event) }
-        botActivity.onScreen = { [weak self] in self?.selectedBot }
+        botActivity.onScreen = { [weak self] in self?.mainWindowOnScreen == true ? self?.selectedBot : nil }
         botSections.filer = { [weak self] bot, id, name in self?.botMeta.setSection(bot, id: id, sectionName: name) }
         // Sections other apps made (or renamed) follow the bots' `ui_meta` (A5).
         metaWatch = botMeta.$meta.sink { [weak self] meta in
@@ -109,12 +114,22 @@ final class AppModel: ObservableObject {
         updateVisibility()
     }
 
-    /// Main windows on or off screen (AppDelegate): Kanban polling pauses while none shows.
+    /// Main windows on or off screen (AppDelegate): recomputes `mainWindowOnScreen`.
     func updateVisibility() {
         let windows = NSApp.windows.map {
             (mainWindows.contains($0), $0.isVisible, $0.isMiniaturized, $0.occlusionState.contains(.visible))
         }
-        kanban.setActive(KanbanHub.onScreen(appHidden: NSApp.isHidden, windows: windows))
+        setMainWindowOnScreen(KanbanHub.onScreen(appHidden: NSApp.isHidden, windows: windows))
+    }
+
+    /// Applies the visibility signal to everything that polls for the screen or marks things seen.
+    func setMainWindowOnScreen(_ on: Bool) {
+        kanban.setActive(on)
+        guard on != mainWindowOnScreen else { return }
+        mainWindowOnScreen = on
+        for m in roomModels.values { m.setWindowOnScreen(on) }
+        // Back on screen: the bot chat that shows now counts as read.
+        if on, let bot = selectedBot { botActivity.markRead(bot) }
     }
 
     func log(_ s: String) {
@@ -341,6 +356,7 @@ final class AppModel: ObservableObject {
         m.onDisbanded = { [weak self] model in self?.roomDisbanded(model.id) }
         m.onApplied = { [weak self] model in self?.roomDigests.absorb(model) }
         m.onRoomChanged = { [weak self] room in self?.roomRenamed(room) }
+        m.setWindowOnScreen(mainWindowOnScreen)
         roomModels[id] = m
         return m
     }
@@ -350,7 +366,7 @@ final class AppModel: ObservableObject {
     func roomDisbanded(_ id: String) {
         if selection == .room(id) { selection = nil }
         rooms.removeAll { $0.roomId == id }
-        roomModels[id] = nil
+        roomModels.removeValue(forKey: id)?.shutdown()
         activityModels.removeValue(forKey: id)?.shutdown()
         notifications.rooms.setRooms(rooms)
         roomDigests.forget(id)

@@ -149,6 +149,40 @@ final class RoutinesModelTests: XCTestCase {
         XCTAssertFalse(ok, "a legacy job cannot be resumed")
     }
 
+    func testAFailingLegacyPauseBacksOffInsteadOfRetryingEveryPoll() async {
+        let legacy = FakeCron.job("l1", "[bot:alice] Old", prompt: "You are running the scheduled routine \"Old\"")
+        let f = fake([legacy])
+        f.with { $0.pauseFailure = "store locked" }
+        let m = model(f)
+        var tried: [Int] = []
+        for load in 1...10 {
+            let before = f.actions("pause").count
+            await m.refresh()
+            if f.actions("pause").count > before { tried.append(load) }
+            XCTAssertEqual(m.phase, .ready)
+        }
+        XCTAssertEqual(tried, [1, 3, 6], "tries after skipping 1, then 2, then 4 loads")
+        f.with { $0.pauseFailure = nil }
+        for _ in 1...4 { await m.refresh() }
+        XCTAssertEqual(m.job("l1")?.state, "paused", "a later try that succeeds pauses it")
+        XCTAssertEqual(f.actions("pause").count, 4)
+    }
+
+    func testPollingPausesWhileSuspended() async throws {
+        let f = fake()
+        let m = RoutinesModel(bot: "alice", api: f.api, sleep: { _ in try await Task.sleep(nanoseconds: 3_600_000_000_000) })
+        m.setSuspended(true)
+        m.start()
+        XCTAssertFalse(m.isPolling, "the app's windows are off screen: no loop")
+        m.setSuspended(false)
+        XCTAssertTrue(m.isPolling, "back on screen: the sheet still shows, polling resumes")
+        m.setSuspended(true)
+        XCTAssertFalse(m.isPolling)
+        m.stop()
+        m.setSuspended(false)
+        XCTAssertFalse(m.isPolling, "the sheet closed while suspended: nothing resumes")
+    }
+
     func testPauseAndResume() async {
         let f = fake()
         let m = model(f)

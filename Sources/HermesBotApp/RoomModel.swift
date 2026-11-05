@@ -54,6 +54,9 @@ final class RoomModel: ObservableObject, Identifiable {
     /// it); a failed disband resumes polling only while one is.
     private var viewers = PaneViewers()
     private var wantsPolling: Bool { !viewers.isEmpty }
+    /// A main window shows on screen (AppModel's one visibility signal): off, the room's poller pauses and
+    /// nothing it shows counts as seen; the sidebar digests keep watching the room for notifications.
+    private(set) var windowOnScreen = true
     /// App shutdown: polling never restarts.
     private var shutDown = false
     /// The name of a `groups.rename` in flight: polls keep showing it until the call returns.
@@ -82,8 +85,9 @@ final class RoomModel: ObservableObject, Identifiable {
     var pollInterval: TimeInterval { RoomPollPolicy.interval(driver: driver, timeline: timeline) }
     /// Something is still happening: a task is queued/running/stopping or the latest message is unsettled.
     var active: Bool { RoomPollPolicy.busy(driver: driver, timeline: timeline) }
-    /// The room view is on screen: what it shows counts as seen (sidebar "needs you").
-    var isOnScreen: Bool { wantsPolling }
+    /// The room view is on screen: what it shows counts as seen (sidebar "needs you"). A room pane in a window
+    /// that is hidden, minimised or covered is not.
+    var isOnScreen: Bool { wantsPolling && windowOnScreen }
     var pollGeneration: Int { poller.generation }
     var droppedStaleSyncs: Int { poller.droppedStale }
 
@@ -93,8 +97,19 @@ final class RoomModel: ObservableObject, Identifiable {
     /// while it runs).
     func start(viewer: ObjectIdentifier = PaneViewers.anonymous) {
         viewers.add(viewer)
-        guard !shutDown, composer.isOpen else { return }
+        guard !shutDown, composer.isOpen, windowOnScreen else { return }
         poller.start()
+    }
+
+    /// The app's windows left or came back on screen (`AppModel.setMainWindowOnScreen`).
+    func setWindowOnScreen(_ on: Bool) {
+        guard on != windowOnScreen else { return }
+        windowOnScreen = on
+        if !on {
+            poller.stop()
+        } else if wantsPolling, !shutDown, composer.isOpen {
+            poller.start()
+        }
     }
 
     /// A room view went away; polling stops when no other view (another window, D9) still shows the room.
@@ -300,7 +315,7 @@ final class RoomModel: ObservableObject, Identifiable {
         } catch {
             note("disband failed: \(Redaction.describe(error))")
             composer.reopen()
-            if wantsPolling && !shutDown { poller.start() }
+            if wantsPolling && windowOnScreen && !shutDown { poller.start() }
             return false
         }
     }

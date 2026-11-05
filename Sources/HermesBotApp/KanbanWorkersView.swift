@@ -33,9 +33,12 @@ struct KanbanWorkersSheet: View {
          onChanged: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.onOpenTask = onOpenTask
         self.onClose = onClose
-        let m = KanbanWorkersModel(slug: slug, api: api)
-        m.onChanged = onChanged
-        _model = StateObject(wrappedValue: m)
+        // Built inside the autoclosure: SwiftUI evaluates it once per view identity, not on every re-init.
+        _model = StateObject(wrappedValue: {
+            let m = KanbanWorkersModel(slug: slug, api: api)
+            m.onChanged = onChanged
+            return m
+        }())
     }
 
     var body: some View {
@@ -74,6 +77,7 @@ struct KanbanWorkersSheet: View {
         .background(DS.Palette.window)
         .onAppear { model.start() }
         .onDisappear { model.stop() }
+        .onReceive(AppModel.shared.$mainWindowOnScreen) { model.setSuspended(!$0) }
         .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
                             presenting: confirm) { c in
             switch c {
