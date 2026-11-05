@@ -94,8 +94,9 @@ Sources/HermesBotApp/       SwiftUI app:
                               Views (Duplicate progress, Delete confirmation), AppModel+BotManagement (BotSheet,
                               roster refresh, forgetting a deleted bot)
   Notifications/              D1/D2: NotificationPolicy (when to notify, content, routes, Dock badge count,
-                              @user grammar), RoomAttention (+ RoomAttentionWatcher: groups.state/log for
-                              every room every 8 s), NotificationCoordinator (chats + rooms → posts, withdrawals,
+                              @user grammar), RoomAttention (+ RoomAttentionWatcher: fed by RoomDigestHub's
+                              passes and the open room's poller; it does not poll), NotificationCoordinator
+                              (chats + rooms → posts, withdrawals,
                               badge), UserNotificationPoster (UNUserNotificationCenter; .app bundle only, never
                               under XCTest), AppModel+Notifications (click and Approve/Deny routing)
   KanbanHub.swift             board list for the sidebar, per-board models (pruned when unlisted), polling paused
@@ -112,7 +113,8 @@ Sources/HermesBotApp/       SwiftUI app:
                               reclaim; KanbanWorkersView.swift: the sheet
   RoutinesModel.swift         A15 one bot's routines (20 s refresh while open, optimistic pause/resume, legacy
                               auto-pause, create); RoutinePresentation.swift: schedule picker + texts;
-                              RoutinesView.swift: sheet opened from the Bot Chat toolbar (RoutinesToolbarButton)
+                              RoutinesView.swift: the sheet; RoutinesToolbarButton sets ChatModel.routinesShown and
+                              BotChatView presents it from the pane (not from the toolbar item)
   KanbanTaskInspector.swift   card details inspector (attachments, message worker / requeue), New Task sheet;
                               KanbanSidebar.swift: Boards rows
   KanbanAttachments.swift     card attachments on disk: upload read + size cap, download name sanitising,
@@ -171,7 +173,7 @@ User-facing variables are in the README. These exist for scripted runs and tests
 `EvidenceDriver.swift` and exist only in debug builds (`swift build`; the scripts use `.build/debug`);
 a release build ignores them. `LOCK_DIR` and `FORCE_SPAWN` work in every build.
 - `notificationsEnabled` (user default, not an environment variable; default true): `false` stops native
-  notifications (the Dock badge stays). `@AppStorage` key for the Settings switch still to come.
+  notifications (the Dock badge stays). Settings → Notifications → Show notifications writes it.
 - `HERMES_BOT_APP_LOCK_DIR=<dir>`: discover in this lock dir and give it to a spawned backend. An empty dir
   means "no backend running" for tests. It does **not** change the Hermes home (still `~/.hermes`).
 - `HERMES_BOT_APP_FORCE_SPAWN=1`: skip discovery and always spawn.

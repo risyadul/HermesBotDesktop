@@ -138,7 +138,9 @@ have **not been tested** with this app yet.
   changes the bot's profile or any other bot. A model that costs more asks for confirmation first, and a
   change made while the bot is replying takes effect when the reply finishes.
 - **Context usage:** the small gauge shows how full the conversation's context window is (`~` when
-  estimated); click it for a breakdown by category and how often the chat has been compacted. While Hermes
+  estimated). It appears as the chat opens, from Hermes' estimate until a reply reports the measured figure
+  (it stays hidden if Hermes has not loaded the bot yet); click it for a breakdown by category and how often
+  the chat has been compacted. While Hermes
   compacts the conversation the status reads "Compacting the conversation…".
 - **Files in Group Chat:** the backend's group rooms accept only text, so a file you attach (paperclip, ⌘V or
   drag and drop, up to 10 files of 50 MB each) is copied to
@@ -203,10 +205,11 @@ through the running Hermes backend.
 - The **Dock badge** counts what is waiting on you: open request cards in Bot Chats and pending approvals in
   Group Chats.
 - Bot Chat notifications cover the bots you opened since launch (the app follows a bot's chat once you open
-  it). Group Chats are checked every 8 seconds even when they are not open.
-- Turn notifications off with `defaults write io.github.risyadul.hermesbot notificationsEnabled -bool false`
-  (a Settings switch for this key is planned). Notifications need the packaged `HermesBot.app`; a bare
-  `swift run` binary shows the Dock badge only.
+  it). Group Chats are checked in the background every 5 to 15 seconds even when they are not open (the same
+  check that keeps their sidebar rows current).
+- Turn notifications off in **Settings → Notifications → Show notifications** (on by default; it is the
+  `notificationsEnabled` user default). Notifications need the packaged `HermesBot.app`; a bare `swift run`
+  binary shows the Dock badge only.
 
 ## Using Group Chat
 
@@ -221,7 +224,8 @@ through the running Hermes backend.
   message's thread; you still send) and **Copy** (the text as written). Your own messages offer Copy too.
 - **Sidebar rows** show the last message and how long ago it was. An amber **@** badge means a bot wrote
   `@user` and you have not answered or opened the room since; an amber hand means a bot waits on your
-  approval. Rooms you are not looking at are checked every 5–15 seconds.
+  approval. Rooms you are not looking at are checked every 5–15 seconds. In messages, `@user` (a bot asking
+  for you) is amber; mentions of bots are blue.
 - **Drafts** are kept per room and per thread while the app runs, so switching rooms does not lose them.
 
 ## Group Chat activity
@@ -229,7 +233,8 @@ through the running Hermes backend.
 Bots in a Group Chat work in hidden sessions, so the room itself only shows when each bot starts, replies or
 passes. The **Activity** panel (toolbar button, ⌥⌘I) shows, per bot, what it is doing right now: the tool it
 is running and for how long, its recent tool calls with arguments and results, its reasoning, and errors. The
-bot's turn status (for example "needs approval") stays next to its live status. The panel stops polling while
+bot's turn status (for example "needs approval") stays next to its live status. Several finished turns in a row
+with nothing in between show as one line ("3 turns finished · 4.3–15s"). The panel stops polling while
 its window is covered or the app is hidden, and picks up again when it is back.
 
 The detailed view needs the [Bot Activity](https://github.com/risyadul/hermes-bot-activity) Hermes plugin,

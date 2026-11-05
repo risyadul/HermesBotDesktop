@@ -410,7 +410,8 @@ role becomes a light coral so it still reads on charcoal.
   opacity fade: a faded graphite button on charcoal turns into an unreadable grey.
 - **Attention (`#955A00` / soft `#FDF3E1`, dark `#F0BE5E` / `#3A2F1A`):** "waiting on you", used only for
   a pending approval or retry: the action card fill and ring, and the `needs approval` / `needs retry`
-  ribbon chip. It is the one warm hue in the chrome so the state that blocks a bot is the most urgent
+  ribbon chip; and for `@user` in Group Chat messages (a bot asking for the user), as text at 600 (5.6:1 on
+  window, 4.8:1 on the user bubble, light; 7:1 or more dark). It is the one warm hue in the chrome so the state that blocks a bot is the most urgent
   thing on screen and is never confused with `waiting` (a bot that has not answered yet). Text passes
   5.1:1 (light, on soft) and 7.6:1 (dark, on soft).
 - **Window / surface (`#FFFFFF` / `#F7F6F3`):** content stays on solid surfaces for long reading. The
@@ -519,15 +520,20 @@ toolbar. Minimum window 820 × 520.
   copy).
 - **Group Chat Activity panel** (the room inspector, 200–260 pt): tool titles wrap to two lines with the
   count and duration kept beside them, and the "Turn finished · 4.2s" divider label never shrinks (its
-  trailing rule gives way).
-- **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Choose Image… / Remove, Title,
-  Description and an Advanced disclosure; with Advanced open the fields scroll in a 340 pt body so the sheet
-  stays inside the 520 pt window minimum. Each field's failure is a danger `meta` line under that field.
+  trailing rule gives way). Two or more finished turns in a row with nothing between them share one divider,
+  "3 turns finished · 4.3–15s" (the range of their durations).
+- **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Choose Image… / Remove, Title
+  (placeholder: the name the bot shows now) and Description, and an Advanced disclosure. With Advanced open the
+  sheet is the main window's height less 80 pt (440 pt at the 520 pt minimum): the title stays on top, the
+  fields scroll, and Cancel / Save stay pinned at the bottom. Each field's failure is a danger `meta` line under
+  that field.
   Duplicate shows the running step, then the result with Open (primary). Delete names the profile folder in
   SF Mono, says "This cannot be undone." in danger, and its Delete Bot button is `button-danger` with no Return
   shortcut.
-- **Settings window:** 420 pt wide and as tall as its content, so every section (General, Background,
-  Kanban dispatcher) is on screen without scrolling; it follows rows that come and go.
+- **Settings window:** 420 pt wide and as tall as its content, so every section (General, Notifications,
+  Background, Kanban dispatcher) is on screen without scrolling; it follows rows that come and go.
+  Notifications is one switch, "Show notifications", with a footnote on what notifies and that only the
+  packaged app can post them (a `swift run` build also says so in a muted info line).
 - **Empty states** are centred in the pane, never pinned to the composer by a bottom-anchored scroll.
 - **Window resize:** the detail pane flexes; bubbles and messages wrap within their max widths; the
   ribbon scrolls horizontally instead of wrapping; nothing clips at the 820 pt minimum. The sidebar
@@ -600,7 +606,7 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `link` (`#0B63CE` light / `#6CB4FF` dark, ≥ 4.5:1 on window, surface and user bubble): the one blue in
   the app. Links in bot and user messages are `link` and underlined; a link that would not open (an
   autolinked `mailto:`) is plain text. In Group Chat, @mentions of room members (and @all / @everyone) are
-  `link` at 600; other @words stay ink.
+  `link` at 600, `@user` is `attention` at 600; other @words stay ink.
 - `bot-turn` (Bot Chat): only the first bot-side row of a turn carries the avatar and name; later text,
   Thought and tool rows of the same turn line up under it at the content inset.
 - `thought-row`: "Thinking" (muted, mini spinner) and open while reasoning streams, as a 160 pt preview

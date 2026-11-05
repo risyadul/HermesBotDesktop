@@ -34,8 +34,8 @@ All notable changes to this project are documented here. The format follows
   the same pins and hidden bots; no other profile setting is touched.
 - Notifications while the app is in the background: a finished Bot Chat reply, a bot asking for approval or
   an answer (Bot Chat and Group Chat), and a Group Chat round that ended with `@user`. Approvals can be
-  answered from the notification (Approve Once, Deny). Permission is asked the first time. Off with the
-  `notificationsEnabled` default (`defaults write io.github.risyadul.hermesbot notificationsEnabled -bool false`).
+  answered from the notification (Approve Once, Deny). Permission is asked the first time. Turn them off in
+  Settings → Notifications → Show notifications (the `notificationsEnabled` default).
 - Dock badge with the number of approvals and questions waiting in Bot Chats and Group Chats.
 - Group Chat: rename a room from the room menu (Rename…). The new name shows at once and goes back if Hermes
   refuses it, with the reason above the composer.
@@ -114,6 +114,10 @@ All notable changes to this project are documented here. The format follows
 - GitHub Actions CI (build and test on macOS), pull request template, Code of Conduct and this changelog.
 
 ### Changed
+- Group Chat: `@user` in messages is amber and semibold (bot mentions stay blue), so a bot asking for you stands
+  out.
+- Group Chat notifications and the sidebar rows share one background check of the rooms (5–15 s) instead of two;
+  notifications behave as before.
 - Settings → Keep Hermes running in the background asks before turning on and names the `hermes` it will run
   (with a warning when `HERMES_BOT_APP_HERMES_BIN` chose it). While the app runs its own backend it offers
   **Switch Now** (stop it, start the background Hermes, reconnect) or **At Next Launch** (install only; the next
@@ -165,6 +169,15 @@ All notable changes to this project are documented here. The format follows
 - Archives, OpenDocument and KML/KMZ files sent by bots are revealed in Finder instead of opened.
 
 ### Fixed
+- Bot Chat: the Routines toolbar button opens its sheet again (it was presented from inside the toolbar item and
+  never appeared).
+- Edit bot sheet: with Advanced open the sheet uses the window's height (less 80 pt), its fields scroll and
+  Cancel / Save stay pinned at the bottom; skills, toolsets, MCP servers and SOUL were cut off before. The Title
+  field shows the bot's current name as its placeholder when no title is set.
+- Bot Chat context gauge shows as soon as the chat opens (Hermes' read-only context estimate, as Hermes Desktop
+  does) instead of after the first reply.
+- Group Chat Activity panel: a run of "Turn finished" separators with nothing between them reads as one
+  ("3 turns finished · 4.3–15s").
 - Running `launchctl` or `hermes gateway start` no longer hangs when a process they start keeps the output
   pipe open, and stops the command when the caller gives up.
 - A card action no longer fetches the board again after the board view has closed.

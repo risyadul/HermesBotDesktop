@@ -129,7 +129,8 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **D5** ⌘1…9 to switch bots, ⌘K quick switcher (S)
 - [ ] **D8** Quick Look for bot files and attachments; drag files out to Finder (S)
 - [ ] **D13** Room templates: saved member sets and an opening prompt (S)
-- [ ] **D15** Mute notifications per bot or room; a Settings switch for `notificationsEnabled` (S)
+- [ ] **D15** Mute notifications per bot or room (S). Done: the Settings switch for `notificationsEnabled`
+      (Settings → Notifications → Show notifications).
 - [ ] **D3** Menu bar extra: bot status and quick send (M)
 - [ ] **D4** Global hotkey "quick ask" panel (M)
 - [ ] **D6** macOS Services / Share: "Send to Hermes bot" (M)
