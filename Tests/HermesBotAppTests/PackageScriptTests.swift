@@ -51,6 +51,31 @@ final class PackageScriptTests: XCTestCase {
         }
     }
 
+    /// The committed icon is a well-formed .icns with every size macOS asks for (16 to 512 pt, 1× and 2×), and the
+    /// script bundles it and names it in Info.plist.
+    func testAppIconIsBundledWithEverySize() throws {
+        let data = try Data(contentsOf: Self.repo.appendingPathComponent("Resources/AppIcon.icns"))
+        func uint32(_ at: Int) -> Int { data[at..<at + 4].reduce(0) { $0 << 8 | Int($1) } }
+        XCTAssertEqual(String(decoding: data.prefix(4), as: UTF8.self), "icns")
+        XCTAssertEqual(uint32(4), data.count, "header length matches the file")
+        var types = Set<String>(), offset = 8
+        while offset + 8 <= data.count {
+            let length = uint32(offset + 4)
+            XCTAssertGreaterThan(length, 8, "chunk at \(offset)")
+            guard length > 8 else { break }
+            types.insert(String(decoding: data[offset..<offset + 4], as: UTF8.self))
+            offset += length
+        }
+        XCTAssertEqual(offset, data.count, "chunks tile the file")
+        // ic04/ic11 16 pt, ic05/ic12 32 pt, ic07/ic13 128 pt, ic08/ic14 256 pt, ic09/ic10 512 pt (1× / 2×).
+        for type in ["ic04", "ic11", "ic05", "ic12", "ic07", "ic13", "ic08", "ic14", "ic09", "ic10"] {
+            XCTAssertTrue(types.contains(type), "missing \(type) in \(types.sorted())")
+        }
+        let script = try String(contentsOf: Self.script, encoding: .utf8)
+        XCTAssertTrue(script.contains(#"cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns""#))
+        XCTAssertTrue(script.contains("<key>CFBundleIconFile</key><string>AppIcon</string>"))
+    }
+
     func testUniversalDryRunPlansBothArchitecturesAndAdHocSigning() throws {
         let r = try run(["0.2.0", "--universal", "--dry-run"])
         XCTAssertEqual(r.status, 0, r.err)

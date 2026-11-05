@@ -199,6 +199,8 @@ build_binary
 rm -rf "$app" "$zip"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/HermesBotApp"
+# App icon (scripts/make-icon.sh regenerates it from scripts/app-icon.swift).
+cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 # SwiftPM resource bundles (if any) live next to the binary.
 shopt -s nullglob
@@ -231,6 +233,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Herald</string>
   <key>CFBundleDisplayName</key><string>Herald</string>
   <key>CFBundleExecutable</key><string>HermesBotApp</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleVersion</key><string>$version</string>

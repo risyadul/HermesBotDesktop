@@ -297,6 +297,9 @@ Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatMo
                             the real GitHub API), PackageScriptTests (`bash -n` and `--dry-run` of package-app.sh)
 scripts/package-app.sh       release .app + zip: --universal (lipo), --dry-run, Developer ID + notarization by env
 scripts/HermesBot.entitlements  hardened-runtime entitlements for a Developer ID signature (no sandbox)
+scripts/app-icon.swift       draws the app icon (winged speech bubble on graphite) into an .iconset
+scripts/make-icon.sh         app-icon.swift + iconutil -> Resources/AppIcon.icns (committed; rerun after a change)
+Resources/AppIcon.icns       the icon package-app.sh copies into the bundle (CFBundleIconFile AppIcon)
                             create-room sheet vs the motion gate; macOS integration (QuickSendTests,
                             MacIntegrationTests, RoomCatchUpTests: QuickSendFixture over FakeChatLink and
                             FakeRoomActions, recording hot key / Services registrars); real-window suites are opt-in
@@ -397,7 +400,9 @@ checked with `--dry-run` and by review; the first real run needs the maintainer'
 Shortcuts does not list the Ask Bot / Send to Group Chat actions. Without Xcode (Command Line Tools only) the
 step is skipped with a warning. `Info.plist` declares the `NSServices` entry (`NSMessage` `sendToHermesBot`,
 text and file send types). Check: `plutil -lint dist/Herald.app/Contents/Info.plist` and
-`ls dist/Herald.app/Contents/Resources/Metadata.appintents`. Services and App Intents only work from the
+`ls dist/Herald.app/Contents/Resources/Metadata.appintents`. The icon is `Resources/AppIcon.icns`, copied into
+`Contents/Resources` and named by `CFBundleIconFile`; to change it, edit `scripts/app-icon.swift`, run
+`scripts/make-icon.sh` and commit the new `.icns` (PackageScriptTests checks every size is there). Services and App Intents only work from the
 packaged app (a `swift run` binary has no bundle).
 
 ## Test-only environment variables
