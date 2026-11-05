@@ -218,6 +218,8 @@ Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes
 - Bots created or deleted in Hermes Desktop or the CLI appear in or leave the sidebar within seconds.
 - A legacy routine whose pause keeps failing is retried with a backoff, not on every refresh.
 - The Routines toolbar button opens its sheet again.
+- Group Chat: the **Summarize** toolbar button opens its sheet (it did nothing); no other toolbar control presents
+  a sheet, popover or alert from inside the toolbar.
 - Edit bot: with Advanced open the sheet fits the window, scrolls, and keeps Cancel / Save visible; an empty
   Title shows the bot's name as placeholder.
 - The context gauge shows as soon as a Bot Chat opens.

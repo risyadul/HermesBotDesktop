@@ -107,31 +107,50 @@ final class RoomCatchUpModel: ObservableObject {
     }
 }
 
-/// The room toolbar's "Summarize" button.
+extension RoomModel {
+    /// Opens the Summarize sheet for the messages after `seq` (where the user left).
+    func showCatchUp(after seq: Int, sender: @escaping () -> QuickSender = { AppModel.shared.quickSender }) {
+        catchUp = RoomCatchUpModel(room: room, lines: lines, after: seq, sender: sender)
+    }
+}
+
+/// The room toolbar's "Summarize" button. It only sets `RoomModel.catchUp`: `RoomView` presents the sheet from
+/// the pane. A `motionSheet` anchored inside ToolbarItem content never opened (as Routines; live UI test
+/// 2026-11-06, round 5).
 struct RoomCatchUpButton: View {
     @ObservedObject var model: RoomModel
     @ObservedObject var digests: RoomDigestHub
-    @State private var sheet: RoomCatchUpModel?
-    @Environment(\.motionEnabled) private var motion
+
+    /// Where the user left the room: the seen-through seq captured when the pane came on screen.
+    static func leftAt(_ room: String, digests: RoomDigestHub) -> Int {
+        digests.leftAt[room] ?? digests.seenThrough[room] ?? 0
+    }
 
     var body: some View {
-        let left = digests.leftAt[model.id] ?? digests.seenThrough[model.id] ?? 0
+        let left = Self.leftAt(model.id, digests: digests)
         let unseen = RoomCatchUp.unseen(model.lines, after: left).count
-        Button {
-            sheet = RoomCatchUpModel(room: model.room, lines: model.lines, after: left,
-                                     sender: { AppModel.shared.quickSender })
-        } label: { Label("Summarize", systemImage: "text.badge.star") }
+        Button { model.showCatchUp(after: left) } label: { Label("Summarize", systemImage: "text.badge.star") }
             .help(unseen == 0 ? "Nothing new since you last read this room"
                               : "Ask a bot to summarize the \(unseen) message\(unseen == 1 ? "" : "s") since you last read this room")
             .disabled(unseen == 0 || model.lastSync == nil)
-            .motionSheet(isPresented: Binding(get: { sheet != nil }, set: { if !$0 { sheet = nil } }), motion: motion) {
-                if let sheet {
-                    RoomCatchUpSheet(model: sheet, onOpen: { name in
-                        self.sheet = nil
-                        AppModel.shared.openFromIntegration(.bot(name))
-                    }, onClose: { self.sheet = nil })
-                }
+    }
+}
+
+/// The Summarize sheet as `RoomView` presents it: Open Bot Chat closes it and selects the bot.
+struct RoomCatchUpPresenter: ViewModifier {
+    @ObservedObject var model: RoomModel
+    let motion: Bool
+
+    func body(content: Content) -> some View {
+        content.motionSheet(isPresented: Binding(get: { model.catchUp != nil }, set: { if !$0 { model.catchUp = nil } }),
+                            motion: motion) {
+            if let sheet = model.catchUp {
+                RoomCatchUpSheet(model: sheet, onOpen: { name in
+                    model.catchUp = nil
+                    AppModel.shared.openFromIntegration(.bot(name))
+                }, onClose: { model.catchUp = nil })
             }
+        }
     }
 }
 

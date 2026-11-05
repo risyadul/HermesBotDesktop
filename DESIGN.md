@@ -839,6 +839,8 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   "Nothing is posted in the group chat." note in meta muted, an Ask menu, then the streaming reply
   (`quick-ask-panel`'s reply block, 320 pt) and Close · Summarize (`button-primary`) / Open Bot Chat
   (`button-secondary`).
+  Like every sheet opened from a toolbar button (Routines, Summarize), the pane presents it, never the toolbar
+  item: a sheet anchored inside ToolbarItem content does not open (ToolbarPresentationTests).
 - `empty-state`: SF Symbol (28 pt, muted), `title-state`, one sentence, optional primary action.
   Variants: connecting (with step list), connection failed (Try again), nothing selected, empty room,
   new 1:1 chat. The new 1:1 chat puts the bot's own face (96 pt) where the symbol goes, its name as the title,

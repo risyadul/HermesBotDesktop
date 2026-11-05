@@ -35,6 +35,9 @@ final class RoomModel: ObservableObject, Identifiable {
     @Published var drafts: [String: String] = [:]
     /// The thread shown in the thread pane (nil: closed).
     @Published var openThread: String?
+    /// D12: the open Summarize Since You Left sheet. `RoomView` presents it from the pane; the toolbar button
+    /// only sets it (a sheet anchored inside ToolbarItem content never opens).
+    @Published var catchUp: RoomCatchUpModel?
     /// A composer that should take focus (Reply to @bot, Reply in thread).
     @Published private(set) var focusRequest: FocusRequest?
     let api: any RoomActions

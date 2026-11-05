@@ -129,6 +129,8 @@ struct RoomView: View {
                 ChangeMembersSheet(change: memberChange, bots: AppModel.shared.bots, onClose: { showMembers = false })
             }
         }
+        // D12: presented from the pane (in the window's view hierarchy), not from the toolbar button.
+        .modifier(RoomCatchUpPresenter(model: model, motion: motion))
         .confirmationDialog("Disband \(model.room.name)?", isPresented: $confirmDisband) {
             Button("Disband", role: .destructive) { Task { _ = await model.disband() } }
         } message: { Text("The room id is retired for good. This cannot be undone.") }
