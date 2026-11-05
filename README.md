@@ -180,7 +180,7 @@ login and restarts it if it crashes; the app then attaches to it. It is off by d
 - **Installed but not running** (launchd does not have it) and **Loaded but not running** (launchd has it, but
   Hermes exited or is waiting after a crash; see the log): **Start** starts the installed agent as it is. If
   it shows **Hermes not found** (for example after moving or reinstalling Hermes), **Reinstall** rewrites it
-  with the current `hermes` path.
+  with the current `hermes` path, after the same question as turning it on.
 - The log folder is readable by you only (0700) and the log file is created 0600.
 
 ## Configuration

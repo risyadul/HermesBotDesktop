@@ -165,13 +165,7 @@ final class BackgroundServeSettingsModel: ObservableObject {
     func setEnabled(_ on: Bool) async {
         guard canToggle, on != isOn else { return }
         if on {
-            do {
-                let hermes = try control.resolveHermes()
-                prompt = .enable(hermes: hermes.path, fromEnvironment: hermes.fromEnvironment, offerSwitch: host.ownsSpawnedBackend())
-                error = nil
-            } catch {
-                self.error = Redaction.describe(error)
-            }
+            askToInstall()
             return
         }
         if await isAttachedToBackground() {
@@ -181,25 +175,42 @@ final class BackgroundServeSettingsModel: ObservableObject {
         await run(target: false) { try await self.control.uninstall() }
     }
 
+    /// `.enable` for the hermes found now (or the error when none passes the checks).
+    private func askToInstall() {
+        do {
+            let hermes = try control.resolveHermes()
+            prompt = .enable(hermes: hermes.path, fromEnvironment: hermes.fromEnvironment, offerSwitch: host.ownsSpawnedBackend())
+            error = nil
+        } catch {
+            self.error = Redaction.describe(error)
+        }
+    }
+
     func cancelPrompt() { prompt = nil }
 
-    /// Confirms `.enable(hermes:…)` with one of its choices. The dialog passes the path it showed (the
-    /// prompt itself may already be cleared by the dialog's dismissal).
+    /// Confirms `.enable(hermes:…)` (turning on, or Reinstall) with one of its choices. The dialog passes the
+    /// path it showed (the prompt itself may already be cleared by the dialog's dismissal). For Reinstall
+    /// (`binaryMissing`) the broken agent is removed first; nothing is installed when that fails.
     func confirmEnable(_ choice: EnableChoice, hermes: String) async {
-        guard !busy, !isOn else { return }
+        let replacing = needsReinstall
+        guard !busy, !isOn || replacing else { return }
         prompt = nil
+        let install: (Bool) async throws -> Void = { bootstrap in
+            if replacing { try await self.control.uninstall() }
+            try await self.control.install(bootstrap: bootstrap, expecting: hermes)
+        }
         switch choice {
         case .now:
-            await run(target: true) { try await self.control.install(bootstrap: true, expecting: hermes) }
+            await run(target: true) { try await install(true) }
         case .switchNow:
             let ok = await run(target: true) {
                 await self.host.stopOwnedBackend()
-                try await self.control.install(bootstrap: true, expecting: hermes)
+                try await install(true)
             }
             // The own serve is stopped either way: connect again (to the background one when it came up).
             await host.reconnect(ok)
         case .atNextLaunch:
-            if await run(target: true, { try await self.control.install(bootstrap: false, expecting: hermes) }) {
+            if await run(target: true, { try await install(false) }) {
                 defaults.set(true, forKey: Self.startAtLaunchKey)
                 pendingNextLaunch = true
             }
@@ -219,14 +230,11 @@ final class BackgroundServeSettingsModel: ObservableObject {
         await run(target: true) { try await self.control.start() }
     }
 
-    /// `binaryMissing` → uninstall, then install (only if the uninstall worked). The hermes found now is
-    /// recorded; Settings shows it under the status afterwards.
+    /// `binaryMissing` → asks like turning on (the hermes found now, Switch Now / At Next Launch when the app
+    /// runs its own serve); confirming uninstalls, then installs (only if the uninstall worked).
     func reinstall() async {
-        guard !busy, needsReinstall else { return }
-        await run(target: true) {
-            try await self.control.uninstall()
-            try await self.control.install(bootstrap: true, expecting: nil)
-        }
+        guard !busy, needsReinstall, prompt == nil else { return }
+        askToInstall()
     }
 
     /// Attached through the `serve` role to the pid launchd reports for the job (or, when launchd reports no

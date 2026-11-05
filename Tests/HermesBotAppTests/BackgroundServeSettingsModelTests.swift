@@ -448,7 +448,12 @@ final class BackgroundServeSettingsModelTests: XCTestCase {
         let m = model(fake)
         await m.load()
         await m.reinstall()
-        let calls = await fake.calls
+        XCTAssertEqual(m.prompt, .enable(hermes: "/opt/hermes/bin/hermes", fromEnvironment: false, offerSwitch: false),
+                       "Reinstall asks with the hermes found now, like turning on")
+        var calls = await fake.calls
+        XCTAssertEqual(calls, ["status"], "nothing removed before the confirmation")
+        await m.confirmEnable(.now, hermes: "/opt/hermes/bin/hermes")
+        calls = await fake.calls
         XCTAssertEqual(calls, ["status", "uninstall", "install", "status"])
         XCTAssertEqual(m.status, .loaded(executable: "/opt/hermes/bin/hermes"))
         XCTAssertFalse(m.needsReinstall)
@@ -460,6 +465,7 @@ final class BackgroundServeSettingsModelTests: XCTestCase {
         let m = model(fake)
         await m.load()
         await m.reinstall()
+        await m.confirmEnable(.now, hermes: "/opt/hermes/bin/hermes")
         let calls = await fake.calls
         XCTAssertEqual(calls, ["status", "uninstall", "status"], "no install after a failed uninstall")
         XCTAssertEqual(m.error, "background serve: cannot remove the plist")
@@ -470,9 +476,11 @@ final class BackgroundServeSettingsModelTests: XCTestCase {
         let m = model(fake)
         await m.load()
         await m.reinstall()
+        XCTAssertNil(m.prompt)
         await m.start()
+        await m.confirmEnable(.now, hermes: "/opt/hermes/bin/hermes")
         let calls = await fake.calls
-        XCTAssertEqual(calls, ["status"])
+        XCTAssertEqual(calls, ["status"], "installed and fine: no reinstall, no second install")
     }
 
     func testStartRunsTheInstalledAgentAsWritten() async {
