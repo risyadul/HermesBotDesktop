@@ -100,7 +100,8 @@ final class AppModel: ObservableObject {
     /// or create on confirmed absence) when its view appears.
     func chat(for bot: Bot) -> ChatModel {
         if let c = chats[bot.name] { return c }
-        let c = ChatModel(bot: bot, opener: Self.canonicalOpener(backend))
+        let c = ChatModel(bot: bot, opener: Self.canonicalOpener(backend), drafts: ChatDraftStore.app)
+        c.roster = { [weak self] in self?.bots ?? [] }  // B1 @mentions
         c.onTurnEvent = { [weak self] type, chat in
 #if DEBUG
             self?.turnEvent(type, chat)

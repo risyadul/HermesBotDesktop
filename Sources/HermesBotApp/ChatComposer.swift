@@ -10,6 +10,8 @@ import SwiftUI
 /// Files can also be pasted (⌘V with files or an image on the pasteboard) or dropped on the chat
 /// (`BotChatView`); chips stay local until Send. The send gate stays in `ChatModel.submit`: the draft is
 /// cleared only when accepted.
+/// `@` lists the other bots (B1, Tab or click inserts); ↑/↓ at the start/end of the text walk the earlier
+/// messages (B12, ChatModel+Composer.swift).
 struct ChatComposer: View {
     @ObservedObject var chat: ChatModel
     let identity: BotIdentity
@@ -22,6 +24,12 @@ struct ChatComposer: View {
         menu.isOpen(chat.draft, catalog: chat.catalog) ? SlashMenuState.items(chat.draft, catalog: chat.catalog) : []
     }
 
+    /// B1: roster bots for the `@word` the draft ends with (none while the slash menu shows).
+    private var mentionMatches: [Bot] {
+        guard menuItems.isEmpty, chat.draft.contains("@") else { return [] }
+        return BotMentionCompletion.matches(chat.draft, candidates: chat.mentionCandidates)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
             let items = menuItems
@@ -32,6 +40,11 @@ struct ChatComposer: View {
                 }
                 .transition(motion ? .scale(scale: DS.Motion.pressedScale, anchor: .bottomLeading).combined(with: .opacity) : .identity)
             }
+            let mentions = mentionMatches
+            if !mentions.isEmpty {
+                BotMentionSuggestions(matches: mentions, candidates: chat.mentionCandidates) { pickMention($0) }
+                    .transition(motion ? .scale(scale: DS.Motion.pressedScale, anchor: .bottomLeading).combined(with: .opacity) : .identity)
+            }
             if !chat.queue.isEmpty {
                 ChatQueuePanel(chat: chat)
                     .transition(motion ? .opacity.combined(with: .move(edge: .bottom)) : .identity)
@@ -40,6 +53,7 @@ struct ChatComposer: View {
             statusRow
         }
         .animation(motion ? DS.Motion.pop : nil, value: menuItems.map(\.id))
+        .animation(motion ? DS.Motion.pop : nil, value: mentionMatches.map(\.id))
         .animation(motion ? DS.Motion.ease : nil, value: chat.queue.map(\.id))
         .alert(chat.modelConfirm.map { "Switch to \($0.model)?" } ?? "", isPresented: Binding(
             get: { chat.modelConfirm != nil }, set: { if !$0 { chat.cancelModelSwitch() } }
@@ -74,9 +88,9 @@ struct ChatComposer: View {
                     .padding(.vertical, DS.Size.fieldInset)
                     .focused($focused)
                     .onSubmit(send)
-                    .onKeyPress(.upArrow) { moveMenu(-1) }
-                    .onKeyPress(.downArrow) { moveMenu(1) }
-                    .onKeyPress(.tab) { acceptMenu() ? .handled : .ignored }
+                    .onKeyPress(.upArrow) { moveMenu(-1) == .handled ? .handled : recall(up: true) }
+                    .onKeyPress(.downArrow) { moveMenu(1) == .handled ? .handled : recall(up: false) }
+                    .onKeyPress(.tab) { acceptMenu() || acceptMention() ? .handled : .ignored }
                     .onKeyPress(.escape) {
                         if !menuItems.isEmpty { menu.dismiss(chat.draft); return .handled }
                         guard chat.editingQueueId != nil else { return .ignored }
@@ -166,7 +180,7 @@ struct ChatComposer: View {
 
     nonisolated static func hints(_ action: ComposerAction) -> [(keys: String, label: String)] {
         switch action {
-        case .send: return [("Return", "send"), ("/", "commands")]
+        case .send: return [("Return", "send"), ("/", "commands"), ("@", "mention")]
         case .steer: return [("Return", "steer"), ("⌘Return", "queue")]
         case .queue: return [("Return", "queue")]
         case .saveEdit: return [("Return", "save"), ("Esc", "cancel")]
@@ -227,6 +241,29 @@ struct ChatComposer: View {
         guard !menuItems.isEmpty, let next = menu.accept(chat.draft, catalog: chat.catalog) else { return false }
         chat.draft = next
         return true
+    }
+
+    /// B1: Tab takes the first @ suggestion.
+    private func acceptMention() -> Bool {
+        guard let first = mentionMatches.first else { return false }
+        pickMention(first)
+        return true
+    }
+
+    private func pickMention(_ bot: Bot) {
+        BotMentionCompletion.insert(bot, candidates: chat.mentionCandidates, into: &chat.draft)
+        focused = true
+    }
+
+    /// B12: ↑ / ↓ recall sent messages when the caret is at the start / end of the text (like a shell);
+    /// otherwise the key moves the caret as usual. Read from the field editor, the text view that has the
+    /// caret while the composer is focused.
+    private func recall(up: Bool) -> KeyPress.Result {
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView,
+           !PromptHistory.caretAllows(up: up, caret: editor.selectedRange(), length: (editor.string as NSString).length) {
+            return .ignored
+        }
+        return (up ? chat.recallOlder() : chat.recallNewer()) ? .handled : .ignored
     }
 
     private func pickFiles() {

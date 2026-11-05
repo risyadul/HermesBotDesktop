@@ -14,12 +14,25 @@ struct BotChatView: View {
     @StateObject private var disclosure = DisclosureStore()
     /// The transcript stays invisible until it has been scrolled to its last row (`settle`).
     @State private var transcriptSettled = false
+    /// B13: the find bar's state; nil while it is closed.
+    @State private var find: ChatFind?
+    @State private var findFocus = 0
+    /// B6: follow new output unless the user scrolled up (geometry in `scroll`, only changes published);
+    /// messages that arrived below meanwhile.
+    @State private var scroll = TranscriptScrollTracker()
+    @State private var following = true
+    @State private var unread = UnreadCounter()
     @Environment(\.motionEnabled) private var motion
 
     private var identity: BotIdentity { avatars.identity(profile: chat.bot.name, title: chat.bot.title) }
 
     var body: some View {
         VStack(spacing: 0) {
+            if find != nil {
+                ChatFindBar(find: Binding(get: { find ?? ChatFind() }, set: { find = $0 }), lines: chat.lines,
+                            focusRequest: findFocus, onClose: { find = nil })
+                    .transition(motion ? .move(edge: .top).combined(with: .opacity) : .identity)
+            }
             switch chat.phase {
             case .idle, .loading: loadingChat
             case .failed(let message): failedChat(message)
@@ -47,6 +60,18 @@ struct BotChatView: View {
             ToolbarItem(placement: .navigation) { AvatarView(identity: identity, size: DS.Size.avatarHero) }
             ToolbarItem(placement: .primaryAction) { RoutinesToolbarButton(bot: chat.bot) }  // A15, RoutinesView.swift
             ToolbarItem(placement: .primaryAction) {
+                Button { toggleFind() } label: { Label("Find in Chat", systemImage: "magnifyingglass") }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .help("Find in this chat (⌘F)")
+                    .disabled(!chat.isReady)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { ChatExport.save(chat) } label: { Label("Export Conversation", systemImage: "square.and.arrow.up") }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .help("Export this chat as Markdown (⇧⌘E)")
+                    .disabled(!chat.isReady || chat.lines.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     // System inspector animation with motion on; a no-animation transaction with it off.
                     if motion { showInspector.toggle() } else { withDSAnimation(false) { showInspector.toggle() } }
@@ -60,6 +85,12 @@ struct BotChatView: View {
                 .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showInspector) { _, shown in storedInspector = shown }
+        .animation(motion ? DS.Motion.ease : nil, value: find != nil)
+    }
+
+    /// ⌘F opens the find bar, or puts the caret back in its field when it is already open.
+    private func toggleFind() {
+        if find == nil { find = ChatFind() } else { findFocus += 1 }
     }
 
     private var transcript: some View {
@@ -82,17 +113,65 @@ struct BotChatView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .animation(motion ? DS.Motion.spring : nil, value: chat.lines.map(\.id))
                 .animation(motion ? DS.Motion.spring : nil, value: chat.requests.map(\.id))
+                .onGeometryChange(for: TranscriptEdges.self) { g in
+                    let f = g.frame(in: .named(TranscriptEdges.space))
+                    return TranscriptEdges(top: f.minY, bottom: f.maxY)
+                } action: { e in
+                    scroll.edges = e
+                    trackScroll()
+                }
+            }
+            .coordinateSpace(.named(TranscriptEdges.space))
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                scroll.viewport = h
+                trackScroll()
             }
             .defaultScrollAnchor(.bottom)
             .environmentObject(disclosure)
+            .environment(\.findQuery, find?.query ?? "")
             .opacity(transcriptSettled ? 1 : 0)
             .onAppear { settle(proxy) }
             .onChange(of: chat.lines.last?.text) { _, _ in
-                if let id = TranscriptItem.build(chat.lines).last?.id { proxy.scrollTo(id, anchor: .bottom) }
+                // B6: new output follows only while the user is at the bottom; their own new message always does.
+                if following || chat.lines.last?.role == .user { scrollToEnd(proxy) }
+                unread.update(chat.lines, following: following)
+                if find != nil { find?.refresh(chat.lines) }
             }
             .onChange(of: chat.requests.last?.id) { _, id in
-                if let id { proxy.scrollTo("request-\(id)", anchor: .bottom) }
+                if let id, following { proxy.scrollTo("request-\(id)", anchor: .bottom) }
             }
+            .onChange(of: find?.currentMatch) { _, match in
+                guard let match else { return }
+                withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(match.lineId, anchor: .center) }
+            }
+            .overlay(alignment: .bottom) {
+                if !following {
+                    ScrollToBottomButton(unread: unread.count) { scrollToEnd(proxy, animated: true) }
+                        .padding(.bottom, DS.Space.s3)
+                        .transition(motion ? .scale(scale: DS.Motion.pressedScale).combined(with: .opacity) : .identity)
+                }
+            }
+            .animation(motion ? DS.Motion.ease : nil, value: following)
+        }
+    }
+
+    /// B6: the scroll view moved or its content changed size. Only a change of `following` reaches the view.
+    private func trackScroll() {
+        guard transcriptSettled, scroll.viewport > 0,
+              scroll.follow.update(top: scroll.edges.top, bottom: scroll.edges.bottom, viewport: scroll.viewport) else { return }
+        following = scroll.follow.following
+        unread.update(chat.lines, following: following)
+    }
+
+    /// The last row (or the last open request card) at the bottom of the view; follows again.
+    private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        scroll.follow.resume()
+        if !following { following = true }
+        if unread.count > 0 { unread.update(chat.lines, following: true) }
+        let request = chat.requests.last.map { "request-\($0.id)" }
+        let last = TranscriptItem.build(chat.lines).last?.id
+        withDSAnimation(motion && animated, DS.Motion.ease) {
+            if let request { proxy.scrollTo(request, anchor: .bottom) } else if let last { proxy.scrollTo(last, anchor: .bottom) }
         }
     }
 
@@ -111,7 +190,9 @@ struct BotChatView: View {
     private func transcriptRow(_ item: TranscriptItem, full: [UUID: String]) -> some View {
         let fromUser: Bool
         if case .line(let l, _) = item { fromUser = l.role == .user } else { fromUser = false }
-        return copyable(row(item), item, full: full).id(item.id)
+        return copyable(row(item), item, full: full)
+            .overlay { if find?.currentMatch?.lineId == item.id { FindCurrentRing() } }
+            .id(item.id)
             .transition(motion ? .arrive(from: fromUser ? .bottomTrailing : .bottomLeading) : .identity)
     }
 
@@ -162,7 +243,16 @@ struct BotChatView: View {
         switch line.role {
         case .thought: ThoughtRow(line: line).padding(.leading, -DS.Space.s2)
         case .tool: ToolActivityRow(line: line).padding(.leading, -DS.Space.s2)
-        default: StreamingText(text: line.text, streaming: line.streaming, caret: identity.color)
+        default:
+            if let seconds = line.turnDuration, !line.streaming {
+                // B5: how long the turn took, under its finished reply.
+                VStack(alignment: .leading, spacing: DS.Space.s1) {
+                    StreamingText(text: line.text, streaming: false, caret: identity.color)
+                    TurnDurationLabel(seconds: seconds)
+                }
+            } else {
+                StreamingText(text: line.text, streaming: line.streaming, caret: identity.color)
+            }
         }
     }
 
@@ -211,7 +301,11 @@ struct BotChatView: View {
     @ViewBuilder private func bubble(_ line: ChatLine) -> some View {
         switch line.role {
         case .user:
-            if let notice = SystemNotice.parse(line.text) { SystemNoticeRow(notice: notice, id: line.id) } else { UserBubble(text: line.text, time: 0) }
+            if let notice = SystemNotice.parse(line.text) {
+                SystemNoticeRow(notice: notice, id: line.id)
+            } else {
+                UserBubble(text: line.text, time: 0, mentionHandles: chat.mentionHandles)  // B1: tagged bots highlighted
+            }
         case .bot, .thought, .tool:
             botContent(line)
         case .error:

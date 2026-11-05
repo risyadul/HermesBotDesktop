@@ -85,11 +85,14 @@ public struct ChatHistoryMessage: Sendable, Equatable {
     /// Tool rows: the call's arguments and its connector label (`App · action`).
     public let toolArgs: JSONValue?
     public let toolLabel: String?
+    /// When the row was written (`timestamp`, Unix seconds, `session_history.py` "authoring time"); nil when
+    /// the backend sent none.
+    public let timestamp: Date?
 
     public init(role: Role, text: String, toolName: String? = nil, toolContext: String? = nil, reasoning: String? = nil,
-                toolArgs: JSONValue? = nil, toolLabel: String? = nil) {
+                toolArgs: JSONValue? = nil, toolLabel: String? = nil, timestamp: Date? = nil) {
         self.role = role; self.text = text; self.toolName = toolName; self.toolContext = toolContext
-        self.reasoning = reasoning; self.toolArgs = toolArgs; self.toolLabel = toolLabel
+        self.reasoning = reasoning; self.toolArgs = toolArgs; self.toolLabel = toolLabel; self.timestamp = timestamp
     }
 
     init?(_ v: JSONValue) {
@@ -102,7 +105,8 @@ public struct ChatHistoryMessage: Sendable, Equatable {
         self.init(role: role, text: text, toolName: tool ? (v["name"]?.string ?? "tool") : nil,
                   toolContext: tool ? v["context"]?.string : nil, reasoning: reasoning,
                   toolArgs: tool ? v["args"].flatMap { $0 == .null ? JSONValue?.none : $0 } : nil,
-                  toolLabel: tool ? ToolStart.labelText(v) : nil)
+                  toolLabel: tool ? ToolStart.labelText(v) : nil,
+                  timestamp: v["timestamp"]?.double.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil })
     }
 
     /// `reasoning`, else `reasoning_content`, when it is non-blank text.

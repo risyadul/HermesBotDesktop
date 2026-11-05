@@ -17,8 +17,9 @@ struct MarkdownView: View {
     }
 
     /// Inline styling shared by every leaf block: inline code in the code face on a surface tint, links blue
-    /// and underlined, @mentions of `mentions` (room member handles) blue and semibold.
-    static func styled(_ text: AttributedString, mentions: Set<String> = []) -> AttributedString {
+    /// and underlined, @mentions of `mentions` (room member handles) blue and semibold, Find in chat matches of
+    /// `find` (B13) on the `find-match` background.
+    static func styled(_ text: AttributedString, mentions: Set<String> = [], find: String = "") -> AttributedString {
         var a = text
         for run in a.runs where run.inlinePresentationIntent?.contains(.code) == true {
             a[run.range].font = DS.Typeface.code
@@ -26,6 +27,7 @@ struct MarkdownView: View {
         }
         TextStyling.styleLinks(&a)
         TextStyling.highlightMentions(&a, handles: mentions)
+        TextStyling.highlightFind(&a, query: find)
         return a
     }
 
@@ -41,13 +43,14 @@ struct MarkdownView: View {
 private struct MarkdownBlockView: View {
     let block: MarkdownBlock
     @Environment(\.mentionHandles) private var mentions
+    @Environment(\.findQuery) private var find
 
     var body: some View {
         switch block {
         case .paragraph(let text):
             Prose(text: text)
         case .heading(let level, let text):
-            Text(MarkdownView.styled(text, mentions: mentions))
+            Text(MarkdownView.styled(text, mentions: mentions, find: find))
                 .font(MarkdownView.headingFont(level)).foregroundStyle(DS.Palette.ink)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -77,8 +80,9 @@ private struct MarkdownBlockView: View {
 private struct Prose: View {
     let text: AttributedString
     @Environment(\.mentionHandles) private var mentions
+    @Environment(\.findQuery) private var find
     var body: some View {
-        Text(MarkdownView.styled(text, mentions: mentions))
+        Text(MarkdownView.styled(text, mentions: mentions, find: find))
             .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
             .lineSpacing(DS.Typeface.proseLineSpacing)
             .textSelection(.enabled)
@@ -117,6 +121,7 @@ private struct MarkdownList: View {
 private struct MarkdownTableView: View {
     let table: MarkdownTable
     @Environment(\.mentionHandles) private var mentions
+    @Environment(\.findQuery) private var find
 
     private var columns: Int { max(table.alignments.count, table.header.count, table.rows.map(\.count).max() ?? 0) }
 
@@ -138,7 +143,7 @@ private struct MarkdownTableView: View {
 
     /// One cell, filling its slot (so the rule above it spans the column) with the text at the top.
     private func cell(_ text: AttributedString, column: Int, header: Bool, ruled: Bool) -> some View {
-        Text(MarkdownView.styled(text, mentions: mentions))
+        Text(MarkdownView.styled(text, mentions: mentions, find: find))
             .font(header ? DS.Typeface.bodyStrong : DS.Typeface.body)
             .foregroundStyle(DS.Palette.ink)
             .multilineTextAlignment(textAlignment(column))

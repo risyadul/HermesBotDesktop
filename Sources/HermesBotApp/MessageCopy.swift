@@ -51,6 +51,8 @@ struct MessageCopyActions: ViewModifier {
     let fullResponse: String?
     /// K9: "Create Task from Message…" (nil: not offered).
     var onCreateTask: (() -> Void)?
+    /// B5: when the message landed, shown on hover before the buttons (the full date is its tooltip).
+    var time: Date?
     @State private var hovering = false
 
     func body(content: Content) -> some View {
@@ -58,6 +60,13 @@ struct MessageCopyActions: ViewModifier {
             .overlay(alignment: .topTrailing) {
                 if hovering {
                     HStack(spacing: 0) {
+                        if let time {
+                            Text(MessageTime.short(time))
+                                .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).monospacedDigit()
+                                .padding(.horizontal, DS.Space.s2)
+                                .help(MessageTime.full(time))
+                                .accessibilityLabel("Sent \(MessageTime.full(time))")
+                        }
                         MessageActionButton(symbol: "doc.on.doc", label: "Copy message") { ChatCopy.copy(text) }
                         if let fullResponse {
                             MessageActionButton(symbol: "doc.on.clipboard", label: "Copy full response") {
@@ -81,6 +90,6 @@ struct MessageCopyActions: ViewModifier {
 
 extension View {
     func messageCopyActions(_ line: ChatLine, fullResponse: String?, onCreateTask: (() -> Void)? = nil) -> some View {
-        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse, onCreateTask: onCreateTask))
+        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse, onCreateTask: onCreateTask, time: line.at))
     }
 }
