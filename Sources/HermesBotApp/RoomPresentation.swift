@@ -28,6 +28,16 @@ struct RoomRow: Identifiable, Equatable {
     let id: Int
     let kind: Kind
     let time: Double
+    /// The thread of the row's event (`main` for the room composer's messages).
+    var threadId: String = RoomThreads.main
+
+    /// A user or member message: the rows that carry per-message actions and a thread label.
+    var isMessage: Bool {
+        switch kind {
+        case .user, .member: return true
+        default: return false
+        }
+    }
 }
 
 enum RoomPresentation {
@@ -41,9 +51,10 @@ enum RoomPresentation {
             let time = e?.createdAt ?? 0
             switch line.kind {
             case .user:
-                out.append(RoomRow(id: line.id, kind: .user(text: line.text), time: time))
+                out.append(RoomRow(id: line.id, kind: .user(text: line.text), time: time, threadId: line.threadId))
             case .member:
-                out.append(RoomRow(id: line.id, kind: .member(memberId: e?.memberId, author: line.author, text: line.text), time: time))
+                out.append(RoomRow(id: line.id, kind: .member(memberId: e?.memberId, author: line.author, text: line.text), time: time,
+                                   threadId: line.threadId))
             case .error:
                 out.append(RoomRow(id: line.id, kind: .failure(memberId: e?.memberId, author: line.author, text: line.text), time: time))
             case .status:
@@ -92,6 +103,31 @@ enum RoomPresentation {
         guard let f = s.first else { return s }
         return f.uppercased() + s.dropFirst()
     }
+
+    /// What Copy puts on the pasteboard for a message row: the text as written. A user message's files are
+    /// listed after its text, one path per line (the attachments block itself is wire format). Nil for rows
+    /// that are not messages.
+    static func copyText(_ row: RoomRow) -> String? {
+        switch row.kind {
+        case .member(_, _, let text): return text
+        case .user(let text):
+            let parts = RoomAttachments.split(text)
+            return ([parts.text] + parts.paths).filter { !$0.isEmpty }.joined(separator: "\n")
+        default: return nil
+        }
+    }
+
+    /// The label of a thread: its first message, on one line, cut short; "Thread" when that is empty.
+    static func threadTitle(_ thread: RoomThreadSummary?) -> String {
+        let text = RoomDigest.previewText(thread?.title ?? "")
+        let short = text.count > threadTitleLimit ? String(text.prefix(threadTitleLimit - 1)) + "…" : text
+        return short.isEmpty ? "Thread" : short
+    }
+
+    static let threadTitleLimit = 48
+
+    /// "1 reply" / "3 replies" under a message a thread hangs off.
+    static func replyCount(_ n: Int) -> String { n == 1 ? "1 reply" : "\(n) replies" }
 
     static func passText(_ passes: [RoomRow.Pass]) -> String {
         let names = passes.map(\.author)
@@ -203,6 +239,7 @@ struct RoomNote: Equatable {
             return n == 0 ? "Stopped. No turn was running." : "Stopped \(n) running turn\(n == 1 ? "" : "s")."
         }
         if raw.hasPrefix("groups.retry → ") { return "Retry sent (\(raw.dropFirst("groups.retry → ".count)))." }
+        if raw.hasPrefix("groups.rename → ") { return "Renamed to \(raw.dropFirst("groups.rename → ".count))." }
         if raw == "disbanded" { return "Room disbanded." }
         if raw.hasPrefix("send failed, message not posted: ") {
             return "Message not sent: " + raw.dropFirst("send failed, message not posted: ".count)

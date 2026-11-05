@@ -57,6 +57,19 @@ final class RoomThreadsTests: XCTestCase {
         XCTAssertTrue(q.hasPrefix("> A: " + String(repeating: "x", count: RoomThreads.quoteLimit) + "…\n\n"))
     }
 
+    func testBodyDropsTheOpeningQuote() {
+        XCTAssertEqual(RoomThreads.body(of: RoomThreads.opening("why?", quoting: "Alpha", "A\nB")), "why?")
+        XCTAssertEqual(RoomThreads.body(of: "plain\n\ntext"), "plain\n\ntext")
+        XCTAssertEqual(RoomThreads.body(of: "> quote only"), "> quote only")
+    }
+
+    func testThreadTitleIsTheUsersWords() {
+        var t = RoomTimeline()
+        let first = user(3, RoomThreads.opening("why safer?", quoting: "Alpha", "B is safer"), thread: "hba-t-2")
+        t.apply(RoomLogPage(events: [user(1), member(2, "alpha"), first], cursor: 3, latestSeq: 3, hasMore: false))
+        XCTAssertEqual(t.threads.first?.title, "why safer?")
+    }
+
     // MARK: timeline
 
     func testLinesCarryThreadAndFilterByThread() {

@@ -56,6 +56,12 @@ public enum RoomThreads {
         let cut = flat.count > quoteLimit ? String(flat.prefix(quoteLimit)) + "…" : flat
         return "> \(author): \(cut)\n\n\(text)"
     }
+
+    /// The user's own words of a thread message: an `opening` quote on top is dropped.
+    public static func body(of text: String) -> String {
+        guard text.hasPrefix("> "), let r = text.range(of: "\n\n") else { return text }
+        return String(text[r.upperBound...])
+    }
 }
 
 /// One thread other than `main`, as the timeline holds it.
@@ -178,7 +184,7 @@ public struct RoomTimeline: Sendable, Equatable {
         return order.map { id in
             let messages = byId[id] ?? []
             let anchor = RoomThreads.anchorSeq(of: id).flatMap { seq in events.contains { $0.seq == seq } ? seq : nil }
-            let title = RoomAttachments.split(messages.first?.text ?? "").text
+            let title = RoomThreads.body(of: RoomAttachments.split(messages.first?.text ?? "").text)
             return RoomThreadSummary(id: id, anchorSeq: anchor, firstSeq: messages.first?.seq ?? 0,
                                      lastSeq: messages.last?.seq ?? 0, messageCount: messages.count, title: title)
         }
