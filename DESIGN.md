@@ -492,13 +492,18 @@ toolbar. Minimum window 820 × 520.
 - **Kanban board:** toolbar (board name + task count, New Task, card details toggle), a header row
   (board switcher when there are two or more boards, filter field 220 pt, dispatcher chip), a note bar
   (failed action in danger, the server's create warning in attention), then the lanes in server order
-  as a horizontally scrolling row of 264 pt `surface` columns (card radius) with label + count; an empty
+  as a horizontally scrolling row of 248 pt `surface` columns (card radius) with label + count; an empty
   archive lane is hidden and the dispatcher-only lanes (running, review, scheduled) show a lock and
-  refuse drops. Cards are `window` tiles (chip radius, hairline; the open card has the graphite ring):
+  refuse drops. Other empty lanes fold into a 36 pt strip (count, label running top to bottom, lock) so the
+  lanes with cards fit; a click unfolds one (a chevron in its header folds it again), it still takes
+  dropped cards, and nothing folds while the whole board is empty. The selected card's lane and the card
+  itself scroll into view (the least distance) when the selection changes and when the board narrows. Cards are `window` tiles (chip radius, hairline; the open card has the graphite ring):
   title, a `P<n>` tag when prioritised, state flags (running dot; attention for blocked / needs input /
   no heartbeat; danger for failed runs; muted "won't run" for a ready card with no assignee), then
-  assignee avatar 20 + @handle, comment count and age. The card details inspector uses the Bot Chat
-  inspector's widths and remembered state. Its Attachments section has a paperclip icon button in the
+  assignee avatar 20 + @handle, comment count and age; the card's tooltip is its id. The card details
+  inspector uses the Bot Chat inspector's widths. It is closed until a card is selected and opens on
+  selection, unless the user closed it with a card selected: that choice is remembered, a click then only
+  selects, and the toggle (⌥⌘I) or the card's Open opens it again. Its Attachments section has a paperclip icon button in the
   header, one row per file (doc icon, name in `link`, then size · date · uploader in caption muted, a trash
   icon button that asks first) and takes dropped files with the composer's dashed `DropHighlight`. On a
   running card the comment box reads "Message the running worker…", a caption-muted hint sits under the

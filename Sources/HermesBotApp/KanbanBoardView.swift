@@ -9,7 +9,9 @@ import SwiftUI
 extension DS {
     /// Kanban sizes (DESIGN.md "Kanban").
     enum Kanban {
-        static let laneWidth: CGFloat = 264
+        static let laneWidth: CGFloat = 248
+        /// An empty lane folded into a strip: vertical label + count (KanbanColumns.isCollapsed).
+        static let collapsedLaneWidth: CGFloat = 36
         static let filterWidth: CGFloat = 220
         static let logMaxHeight: CGFloat = 240
         static let descriptionHeight: CGFloat = 96
@@ -22,10 +24,13 @@ struct KanbanBoardView: View {
     @ObservedObject var hub: KanbanHub
     @ObservedObject var model: KanbanBoardModel
     let onSelectBoard: (String) -> Void
-    /// Persisted inspector visibility, mirrored into @State like Bot Chat's (BotChatView.swift: an
-    /// @AppStorage binding loses the no-animation transaction).
-    @AppStorage("hba.kanbanInspector") private var storedInspector = true
-    @State private var showInspector = UserDefaults.standard.object(forKey: "hba.kanbanInspector") as? Bool ?? true
+    /// The inspector opens when a card is selected unless the user closed it (KanbanInspectorRule); that
+    /// choice is remembered. Visibility is @State like Bot Chat's (BotChatView.swift: an @AppStorage binding
+    /// loses the no-animation transaction).
+    @AppStorage("hba.kanbanInspectorClosed") private var inspectorClosedByUser = false
+    @State private var showInspector = false
+    /// Empty lanes the user unfolded.
+    @State private var expandedLanes: Set<String> = []
     @State private var query = ""
     @State private var showNewTask = false
     @State private var archiveCandidate: KanbanTask?
@@ -50,9 +55,18 @@ struct KanbanBoardView: View {
             KanbanTaskInspector(model: model, onArchive: { archiveCandidate = $0 })
                 .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
-        .onChange(of: showInspector) { _, shown in storedInspector = shown }
+        .onChange(of: showInspector) { _, shown in
+            inspectorClosedByUser = KanbanInspectorRule.closedByUser(afterShown: shown, selection: model.selectedTaskId,
+                                                                     was: inspectorClosedByUser)
+        }
+        .onChange(of: model.selectedTaskId) { _, id in
+            setInspector(KanbanInspectorRule.shown(selection: id, closedByUser: inspectorClosedByUser))
+        }
         // Polling (board and dispatcher record) pauses while no app window is on screen (KanbanHub.setActive).
-        .onAppear { model.start(); hub.watchDispatcher(true) }
+        .onAppear {
+            setInspector(KanbanInspectorRule.shown(selection: model.selectedTaskId, closedByUser: inspectorClosedByUser), animated: false)
+            model.start(); hub.watchDispatcher(true)
+        }
         .onDisappear { model.stop(); hub.watchDispatcher(false) }
         .confirmationDialog("Archive “\(archiveCandidate?.title ?? "")”?",
                             isPresented: Binding(get: { archiveCandidate != nil }, set: { if !$0 { archiveCandidate = nil } })) {
@@ -86,9 +100,7 @@ struct KanbanBoardView: View {
                 .labelStyle(.titleAndIcon)
                 .help("Create a task on this board")
                 .disabled(model.state != .ready)
-            Button {
-                if motion { showInspector.toggle() } else { withDSAnimation(false) { showInspector.toggle() } }
-            } label: { Label("Card Details", systemImage: "sidebar.trailing") }
+            Button { setInspector(!showInspector) } label: { Label("Card Details", systemImage: "sidebar.trailing") }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .help("Show or hide card details (⌥⌘I)")
         }
@@ -177,24 +189,21 @@ struct KanbanBoardView: View {
         let filtering = !KanbanFilter.terms(query).isEmpty
         let names = model.serverLanes.map(\.name)
         let now = model.serverNow ?? Int(Date().timeIntervalSince1970)
-        return ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: DS.Space.s3) {
-                ForEach(visible) { lane in
-                    KanbanLaneView(lane: lane, filtering: filtering, now: now, targeted: dropTarget == lane.name,
-                                   model: model, laneNames: names,
-                                   onOpen: open, onArchive: { archiveCandidate = $0 })
-                        .dropDestination(for: String.self) { ids, _ in
-                            guard let id = ids.first, !KanbanColumns.locked.contains(lane.name),
-                                  lane.name != KanbanColumns.archived, model.task(id) != nil else { return false }
-                            Task { await model.move(id, to: lane.name) }
-                            return true
-                        } isTargeted: { on in
-                            if on { dropTarget = lane.name } else if dropTarget == lane.name { dropTarget = nil }
-                        }
+        return ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: DS.Space.s3) {
+                    ForEach(visible) { lane in
+                        laneColumn(lane, in: visible, filtering: filtering, now: now, names: names).id(lane.name)
+                    }
                 }
+                .padding(DS.Space.s4)
+                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .padding(DS.Space.s4)
-            .frame(maxHeight: .infinity, alignment: .top)
+            // The selected card's lane is scrolled into view (the least distance) when the selection changes
+            // and when the board narrows, e.g. as the inspector opens.
+            .onChange(of: model.selectedTaskId) { _, _ in reveal(proxy, in: visible, animated: true) }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { _ in reveal(proxy, in: visible, animated: false) }
+            .onAppear { reveal(proxy, in: visible, animated: false) }
         }
         .overlay {
             if filtering && visible.allSatisfy(\.tasks.isEmpty) {
@@ -203,10 +212,111 @@ struct KanbanBoardView: View {
         }
     }
 
+    @ViewBuilder
+    private func laneColumn(_ lane: KanbanLane, in visible: [KanbanLane], filtering: Bool, now: Int, names: [String]) -> some View {
+        let targeted = dropTarget == lane.name
+        Group {
+            if KanbanColumns.isCollapsed(lane, in: visible, expanded: expandedLanes) {
+                KanbanCollapsedLaneView(lane: lane, targeted: targeted) { setExpanded(lane.name, true) }
+            } else {
+                KanbanLaneView(lane: lane, filtering: filtering, now: now, targeted: targeted,
+                               model: model, laneNames: names,
+                               onSelect: { model.select($0.id) }, onOpen: open, onArchive: { archiveCandidate = $0 },
+                               onCollapse: lane.tasks.isEmpty && expandedLanes.contains(lane.name)
+                                   ? { setExpanded(lane.name, false) } : nil)
+            }
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first, !KanbanColumns.locked.contains(lane.name),
+                  lane.name != KanbanColumns.archived, model.task(id) != nil else { return false }
+            Task { await model.move(id, to: lane.name) }
+            return true
+        } isTargeted: { on in
+            if on { dropTarget = lane.name } else if dropTarget == lane.name { dropTarget = nil }
+        }
+    }
+
+    private func setExpanded(_ lane: String, _ expanded: Bool) {
+        withDSAnimation(motion, DS.Motion.ease) {
+            if expanded { expandedLanes.insert(lane) } else { expandedLanes.remove(lane) }
+        }
+    }
+
+    private func reveal(_ proxy: ScrollViewProxy, in lanes: [KanbanLane], animated: Bool) {
+        guard let lane = KanbanColumns.lane(containing: model.selectedTaskId, in: lanes) else { return }
+        withDSAnimation(animated && motion, DS.Motion.ease) { proxy.scrollTo(lane) }
+    }
+
+    private func setInspector(_ shown: Bool, animated: Bool = true) {
+        guard shown != showInspector else { return }
+        withDSAnimation(animated && motion) { showInspector = shown }
+    }
+
+    /// "Open" (context menu, accessibility action): select and show the details even if the user had closed
+    /// them. A plain click only selects (the inspector follows KanbanInspectorRule).
     private func open(_ task: KanbanTask) {
+        inspectorClosedByUser = false  // before selecting, so the selection handler agrees
         model.select(task.id)
-        if !showInspector {
-            if motion { showInspector = true } else { withDSAnimation(false) { showInspector = true } }
+        setInspector(true)
+    }
+}
+
+/// An empty lane folded into a slim strip: count, vertical label, lock for dispatcher-only lanes. Click
+/// unfolds it; it still takes dropped cards (the parent's drop destination), and a dropped card unfolds it.
+struct KanbanCollapsedLaneView: View {
+    let lane: KanbanLane
+    let targeted: Bool
+    let onExpand: () -> Void
+
+    private var locked: Bool { KanbanColumns.locked.contains(lane.name) }
+
+    var body: some View {
+        Button(action: onExpand) {
+            VStack(spacing: DS.Space.s2) {
+                Text("\(lane.tasks.count)").font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
+                VerticalLabel {
+                    Text(KanbanColumns.label(lane.name)).font(DS.Typeface.metaStrong).foregroundStyle(DS.Palette.ink)
+                        .lineLimit(1)
+                }
+                if locked {
+                    Image(systemName: "lock").font(DS.Typeface.iconSmall).foregroundStyle(DS.Palette.muted)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, DS.Space.s3)
+            .frame(width: DS.Kanban.collapsedLaneWidth)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay {
+                if targeted {
+                    RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                        .strokeBorder(locked ? DS.Palette.dangerRing : DS.Palette.ring, lineWidth: DS.Stroke.focus)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Show the empty \(KanbanColumns.label(lane.name)) lane")
+        .accessibilityLabel("\(KanbanColumns.label(lane.name)), empty")
+        .accessibilityHint("Shows the lane")
+    }
+}
+
+/// Lays its content out turned 90° clockwise: reports the content's size with width and height swapped.
+private struct VerticalLabel<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        Rotated { content.rotationEffect(.degrees(90)) }
+    }
+
+    private struct Rotated: Layout {
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            let size = subviews.first?.sizeThatFits(.unspecified) ?? .zero
+            return CGSize(width: size.height, height: size.width)
+        }
+
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center, proposal: .unspecified)
         }
     }
 }
@@ -220,8 +330,11 @@ struct KanbanLaneView: View {
     let targeted: Bool
     @ObservedObject var model: KanbanBoardModel
     let laneNames: [String]
+    let onSelect: (KanbanTask) -> Void
     let onOpen: (KanbanTask) -> Void
     let onArchive: (KanbanTask) -> Void
+    /// Folds an empty lane the user unfolded back into its strip.
+    var onCollapse: (() -> Void)?
     @ObservedObject private var avatars = AvatarStore.shared
     @Environment(\.motionEnabled) private var motion
 
@@ -229,31 +342,42 @@ struct KanbanLaneView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
-            HStack(spacing: DS.Space.s1 + DS.Space.s0) {
-                Text(KanbanColumns.label(lane.name)).font(DS.Typeface.metaStrong).foregroundStyle(DS.Palette.ink)
-                Text("\(lane.tasks.count)").font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-                Spacer(minLength: 0)
-                if locked {
-                    Image(systemName: "lock").font(DS.Typeface.iconSmall).foregroundStyle(DS.Palette.muted)
-                        .accessibilityLabel("Set by the dispatcher")
-                }
-            }
-            .padding(.horizontal, DS.Space.s1)
-            .help(KanbanColumns.help(lane.name) ?? "")
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: DS.Space.s2) {
-                    ForEach(lane.tasks) { task in card(task) }
-                    if lane.tasks.isEmpty {
-                        Text(filtering ? "No matches" : "Empty")
-                            .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
-                            .padding(DS.Space.s2)
+            HStack(spacing: DS.Space.s1) {
+                HStack(spacing: DS.Space.s1 + DS.Space.s0) {
+                    Text(KanbanColumns.label(lane.name)).font(DS.Typeface.metaStrong).foregroundStyle(DS.Palette.ink)
+                    Text("\(lane.tasks.count)").font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
+                    Spacer(minLength: 0)
+                    if locked {
+                        Image(systemName: "lock").font(DS.Typeface.iconSmall).foregroundStyle(DS.Palette.muted)
+                            .accessibilityLabel("Set by the dispatcher")
                     }
                 }
-                .animation(motion ? DS.Motion.ease : nil, value: lane.tasks.map(\.id))
+                .accessibilityElement(children: .combine)
+                // After the combine: `.help` on the stack would reach every child and the combined tooltip
+                // would repeat it once per child.
+                .help(KanbanColumns.help(lane.name) ?? "")
+                .accessibilityAddTraits(.isHeader)
+                if let onCollapse { IconButton(symbol: "chevron.left", label: "Fold the empty lane", action: onCollapse) }
             }
-            .scrollIndicators(.automatic)
+            .padding(.horizontal, DS.Space.s1)
+            .frame(minHeight: onCollapse == nil ? nil : DS.Size.controlHeight)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: DS.Space.s2) {
+                        ForEach(lane.tasks) { task in card(task).id(task.id) }
+                        if lane.tasks.isEmpty {
+                            Text(filtering ? "No matches" : "Empty")
+                                .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                                .padding(DS.Space.s2)
+                        }
+                    }
+                    .animation(motion ? DS.Motion.ease : nil, value: lane.tasks.map(\.id))
+                }
+                .scrollIndicators(.automatic)
+                // The selected card scrolls into view inside its lane (the least distance).
+                .onChange(of: model.selectedTaskId) { _, id in reveal(id, proxy) }
+                .onAppear { reveal(model.selectedTaskId, proxy) }
+            }
         }
         .padding(DS.Space.s2)
         .frame(width: DS.Kanban.laneWidth, alignment: .top)
@@ -267,10 +391,15 @@ struct KanbanLaneView: View {
         }
     }
 
+    private func reveal(_ id: String?, _ proxy: ScrollViewProxy) {
+        guard let id, lane.tasks.contains(where: { $0.id == id }) else { return }
+        withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(id) }
+    }
+
     private func card(_ task: KanbanTask) -> some View {
         KanbanCardView(task: task, now: now, selected: model.selectedTaskId == task.id, pending: model.isPending(task.id),
                        identity: task.assignee.map { avatars.identity(profile: $0) })
-            .onTapGesture { onOpen(task) }
+            .onTapGesture { onSelect(task) }
             .accessibilityAction { onOpen(task) }
             .draggable(task.id)
             .contextMenu {
@@ -327,8 +456,10 @@ struct KanbanCardView: View {
                 .strokeBorder(selected ? DS.Palette.ring : DS.Palette.hairline, lineWidth: selected ? DS.Stroke.focus : DS.Stroke.hairline)
         }
         .contentShape(RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
-        .help(task.id)
         .accessibilityElement(children: .combine)
+        // After the combine, so the tooltip is the id once (on the stack it reached every child and the
+        // combined tooltip read "t_1, t_1, t_1, …").
+        .help(task.id)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }

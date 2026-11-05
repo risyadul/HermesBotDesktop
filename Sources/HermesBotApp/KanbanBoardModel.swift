@@ -72,6 +72,18 @@ enum KanbanColumns {
         lanes.filter { !($0.name == archived && $0.tasks.isEmpty) }
     }
 
+    /// An empty lane folds into a slim strip (label + count) unless the user expanded it, so the lanes that
+    /// hold cards fit on screen. Nothing folds while every lane is empty: a new board shows its lanes.
+    static func isCollapsed(_ lane: KanbanLane, in lanes: [KanbanLane], expanded: Set<String>) -> Bool {
+        lane.tasks.isEmpty && !expanded.contains(lane.name) && lanes.contains { !$0.tasks.isEmpty }
+    }
+
+    /// The lane holding card `id`, to scroll it into view.
+    static func lane(containing id: String?, in lanes: [KanbanLane]) -> String? {
+        guard let id else { return nil }
+        return lanes.first { $0.tasks.contains { $0.id == id } }?.name
+    }
+
     /// Where a card in `current` can be moved by hand: every lane but its own, the locked ones and archived
     /// (Archive is its own action, with a confirmation).
     static func moveTargets(from current: String, lanes: [String]) -> [String] {
@@ -96,6 +108,19 @@ enum KanbanColumns {
         } ?? out.endIndex
         out.insert(task, at: i)
         return out
+    }
+}
+
+/// When the card details inspector shows: closed until a card is selected, then open, unless the user
+/// closed it while a card was selected (remembered); opening it again by hand clears that.
+enum KanbanInspectorRule {
+    static func shown(selection: String?, closedByUser: Bool) -> Bool { selection != nil && !closedByUser }
+
+    /// The remembered "closed by the user" flag once the inspector became `shown`. The app only closes it
+    /// by itself when nothing is selected, so a close with a card selected is the user's.
+    static func closedByUser(afterShown shown: Bool, selection: String?, was: Bool) -> Bool {
+        if shown { return false }
+        return selection != nil ? true : was
     }
 }
 
