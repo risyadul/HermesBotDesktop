@@ -49,6 +49,8 @@ enum ChatCopy {
 struct MessageCopyActions: ViewModifier {
     let text: String
     let fullResponse: String?
+    /// K9: "Create Task from Message…" (nil: not offered).
+    var onCreateTask: (() -> Void)?
     @State private var hovering = false
 
     func body(content: Content) -> some View {
@@ -72,12 +74,13 @@ struct MessageCopyActions: ViewModifier {
             .contextMenu {
                 Button("Copy Message") { ChatCopy.copy(text) }
                 if let fullResponse { Button("Copy Full Response") { ChatCopy.copy(fullResponse) } }
+                if let onCreateTask { Divider(); Button("Create Task from Message…", action: onCreateTask) }
             }
     }
 }
 
 extension View {
-    func messageCopyActions(_ line: ChatLine, fullResponse: String?) -> some View {
-        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse))
+    func messageCopyActions(_ line: ChatLine, fullResponse: String?, onCreateTask: (() -> Void)? = nil) -> some View {
+        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse, onCreateTask: onCreateTask))
     }
 }

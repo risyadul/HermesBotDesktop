@@ -517,6 +517,25 @@ toolbar. Minimum window 820 × 520.
   Comment share one row. The dispatcher chip is a `status-chip`: muted when running,
   attention when stopped (with Start) or not installed (its popover shows `hermes gateway install` to
   copy).
+  K6/K7/K9 additions: the header row has a Board menu (`ellipsis.circle`, borderless, no indicator) after the
+  switcher: New Board…, Rename Board…, Export Board…, Import Board…, Orchestration Settings…, Delete Board…
+  (destructive, disabled for `default`; its confirmation says the board is archived, not erased, and warns
+  when it is Hermes' current board). New / Rename and Orchestration are `sheetWidth` sheets like New Task
+  (name field with the derived id in caption muted, a taken id in danger; orchestration: two profile pickers
+  with "Default (resolved)" first and two toggles, each with a caption-muted line, saved on change). Board
+  action results use the note bar (muted with a check, danger on failure). The card inspector gains a Model
+  field under Priority (a borderless menu: Profile Default, one submenu per provider, Other Model…, a
+  Reasoning submenu; label "provider: model · Effort"), an Assignee chat icon button (Open Bot Chat) when the
+  assignee is a bot in the roster, and an "AI actions" section after the fields: Estimate, Decompose…,
+  Specify… as `button-secondary` (one row, or stacked when narrow; Decompose / Specify only enabled on
+  triage cards), a mini spinner with "Estimating…", the estimate as "~120k tokens · Medium" (meta strong)
+  with the rationale and "Rough guess, not a bill · model" muted, and the last outcome as a meta label (muted
+  check, or danger) with the created subtasks as `link` rows. Decompose and Specify confirm first. The card
+  menu adds Open Bot Chat with @x, the three AI actions and a "Notify When Done or Blocked" toggle (also in
+  the inspector's ••• menu).
+- **Create Task from Message** (Group Chat and Bot Chat message menus, after Copy): the New Task sheet with a
+  caption line "From Alice in Launch" under its title, a Board picker first, and the title, description and
+  assignee prefilled.
 - **Group Chat Activity panel** (the room inspector, 200–260 pt): tool titles wrap to two lines with the
   count and duration kept beside them, and the "Turn finished · 4.2s" divider label never shrinks (its
   trailing rule gives way).

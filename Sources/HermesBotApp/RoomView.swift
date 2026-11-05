@@ -275,7 +275,11 @@ struct RoomView: View {
             replyHandle: model.room.member(memberId)?.handle,
             onReply: { inspectorChange { model.replyToMember(seq: seq) } },
             onReplyInThread: inThreadPane || !model.composer.isOpen ? nil : { inspectorChange { model.replyInThread(seq: seq) } },
-            copyText: RoomPresentation.copyText(row))
+            copyText: RoomPresentation.copyText(row),
+            onCreateTask: RoomPresentation.copyText(row).map { text in
+                let seed = KanbanTaskSeed.room(text: text, member: model.room.member(memberId), roomName: model.room.name)
+                return { AppModel.shared.composeTask(from: seed) }
+            })
     }
 
     enum EmptyKind: Equatable { case loading, empty }

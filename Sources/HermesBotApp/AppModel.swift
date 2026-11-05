@@ -35,7 +35,7 @@ final class AppModel: ObservableObject {
     /// Group Chat is off (no "+", a notice), Bot Chat still works.
     @Published private(set) var groupsAvailable = true
     /// Kanban boards, board models and the dispatcher status of the current connection (KanbanHub.swift).
-    let kanban = KanbanHub()
+    let kanban = KanbanHub(watches: KanbanWatchList(defaults: .standard))
     /// Pin / Hide per bot, saved to the profile's `ui_meta` (A2, BotMetaModel.swift).
     let botMeta = BotMetaModel()
     /// Native notifications and the Dock badge (D1, D2: Notifications/).
@@ -64,6 +64,8 @@ final class AppModel: ObservableObject {
         notifications.rooms.log = { [weak self] line in self?.log(line) }
         // A board deleted or archived elsewhere leaves the selection (its pane would show a dead board).
         kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
+        // K9: a watched card finished or is blocked (AppModel+Kanban.swift).
+        kanban.onCardEvent = { [weak self] event in self?.kanbanCardChanged(event) }
     }
 
     func boardsListed(_ listed: Set<String>) {

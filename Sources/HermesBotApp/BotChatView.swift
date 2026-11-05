@@ -118,7 +118,10 @@ struct BotChatView: View {
     /// B2: Copy message (and Copy full response for a reply in several parts) on hover and in the context menu.
     @ViewBuilder private func copyable<V: View>(_ view: V, _ item: TranscriptItem, full: [UUID: String]) -> some View {
         if case .line(let line, _) = item, ChatCopy.copyable(line) {
-            view.messageCopyActions(line, fullResponse: full[line.id])
+            let bot = chat.bot
+            view.messageCopyActions(line, fullResponse: full[line.id], onCreateTask: {
+                AppModel.shared.composeTask(from: .botChat(text: line.text, fromUser: line.role == .user, bot: bot.name, botTitle: bot.title))
+            })
         } else {
             view
         }

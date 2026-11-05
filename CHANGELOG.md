@@ -17,6 +17,15 @@ All notable changes to this project are documented here. The format follows
   ones into a read-only **Desktop archive** sidebar section (collapsible, hidden when empty) kept by this app.
   An archived room shows its members and saved messages; **Continue in a New Room…** opens New Group Chat
   prefilled with its name and members and puts a quoted carry-over into the new room's composer (not sent).
+- Kanban AI actions on a card: **Estimate** (rough tokens and size), and on Triage cards **Decompose…** (lists
+  the subtasks it created) and **Specify…** (rewrites the card and moves it to Todo), both confirmed first.
+  A **Model** field pins a card's model and reasoning effort (Profile default otherwise).
+- Kanban board management from the board's ••• menu: New, Rename, Delete (archives; never `default`, a warning
+  for Hermes' current board), Export to a `.tar.gz` and Import as a new board, and **Orchestration
+  Settings…** (orchestrator profile, default assignee, auto-decompose, queue subtasks right away).
+- Kanban integrations: **Create Task from Message…** in Group Chat and Bot Chat message menus (prefilled New
+  Task sheet with a board picker), **Open Bot Chat with @…** for a card's assignee, and notifications when a
+  card you created in the app, or marked **Notify When Done or Blocked**, finishes or gets blocked.
 - Manage bots without the CLI (right-click a bot, or the ••• menu in Bot details):
   - **Edit…** a bot's title, description and avatar (PNG/JPEG up to 15 MB, saved as a 256 px square), and under
     Advanced its model and provider (Hermes' model list, typed in, or Inherit), skills, toolsets, MCP servers

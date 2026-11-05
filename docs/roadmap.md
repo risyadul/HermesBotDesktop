@@ -119,10 +119,10 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **C2.3** Spike: can room members' clarifying questions be answered from the app? (S)
 
 ### Kanban
-- [ ] **K6** Kanban AI actions: estimate, decompose, specify, reassign (M)
-- [ ] **K7** Kanban boards and orchestration settings: create/rename/delete, export/import, orchestrator profile,
+- [x] **K6** Kanban AI actions: estimate, decompose, specify, reassign (M)
+- [x] **K7** Kanban boards and orchestration settings: create/rename/delete, export/import, orchestrator profile,
       default assignee, model override (M)
-- [ ] **K9** Kanban integrations: open the assignee's Bot Chat from a card, "Create task from message" in rooms,
+- [x] **K9** Kanban integrations: open the assignee's Bot Chat from a card, "Create task from message" in rooms,
       notifications when a card finishes or is blocked, Boards section in the sidebar (M)
 
 ### macOS integration
