@@ -85,6 +85,26 @@ final class RoomModelGroupChatTests: XCTestCase {
         XCTAssertEqual(model.room.name, "Fresh")
     }
 
+    func testStaleStateAfterRenameDoesNotPutTheOldNameBack() async {
+        XCTAssertTrue(model.rename("Fresh"))
+        await eventually { !self.model.busyActions.contains("rename") }
+        XCTAssertEqual(model.room.revision, 2, "the confirmed row (revision + 1) is kept")
+        // A sync that was in flight when the rename returned carries the pre-rename row (revision 1).
+        api.setRooms([RoomFixtures.room()])
+        api.setEvents("hba-test-0", [RoomFixtures.user(1)])
+        model.start()
+        await eventually { self.model.timeline.cursor == 1 }
+        model.stopPolling()
+        XCTAssertEqual(model.room.name, "Fresh")
+        // A newer row (renamed elsewhere) still wins.
+        api.setRooms([RoomFixtures.room(name: "Elsewhere", revision: 3)])
+        api.setEvents("hba-test-0", [RoomFixtures.user(1), RoomFixtures.user(2)])
+        model.start()
+        await eventually { self.model.timeline.cursor == 2 }
+        model.stopPolling()
+        XCTAssertEqual(model.room.name, "Elsewhere")
+    }
+
     func testRenameRefusedOnceTheRoomIsClosing() async {
         _ = await model.disband()
         XCTAssertFalse(model.rename("Later"))
@@ -220,6 +240,11 @@ final class RoomModelGroupChatTests: XCTestCase {
         let sent = RoomAttachments.compose(text: "see file", paths: ["/tmp/a.png"])
         XCTAssertEqual(RoomPresentation.copyText(RoomRow(id: 1, kind: .user(text: sent), time: 0)), "see file\n/tmp/a.png")
         XCTAssertNil(RoomPresentation.copyText(RoomRow(id: 3, kind: .divider(text: "Stopped"), time: 0)))
+        let opening = RoomThreads.opening("why?", quoting: "Alpha", "B is safer")
+        XCTAssertEqual(RoomPresentation.copyText(RoomRow(id: 4, kind: .user(text: opening), time: 0, threadId: "hba-t-2")), "why?",
+                       "the quote an anchored thread opens with is not copied")
+        XCTAssertEqual(RoomPresentation.copyText(RoomRow(id: 5, kind: .user(text: "> mine\n\nok"), time: 0)), "> mine\n\nok",
+                       "a quote the user typed in the room is kept")
     }
 
     // MARK: C1.7 drafts survive the pane

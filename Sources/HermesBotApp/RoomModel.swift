@@ -51,6 +51,9 @@ final class RoomModel: ObservableObject, Identifiable {
     private var shutDown = false
     /// The name of a `groups.rename` in flight: polls keep showing it until the call returns.
     private var pendingName: String?
+    /// The room revision a confirmed rename produced: a sync that was already in flight carries an older
+    /// `groups.state` row (the old name) and must not put it back.
+    private var renamedRevision = 0
     /// Anchored threads whose quoted opening message was already sent (the log may not show it yet).
     private var openedThreads: Set<String> = []
     private(set) var pollCount = 0
@@ -101,7 +104,8 @@ final class RoomModel: ObservableObject, Identifiable {
 
     private func apply(_ u: RoomPoller.Update) {
         timeline = u.timeline; driver = u.state.driver; lastSync = Date(); pollCount += 1
-        setRoom(pendingName.map { u.state.room.renamed($0) } ?? u.state.room)
+        let incoming = u.state.room.revision < renamedRevision ? room : u.state.room
+        setRoom(pendingName.map { incoming.renamed($0) } ?? incoming)
         onSync?(self, u.newEvents)
         onApplied?(self)
     }
@@ -202,7 +206,8 @@ final class RoomModel: ObservableObject, Identifiable {
             if let quote { text = RoomThreads.opening(text, quoting: quote.author, quote.text) }
             guard text.utf8.count <= RoomComposer.maxTextBytes else {
                 RoomAttachmentStore.discard(copies)
-                return sendFailed(ids, draft: draft, thread: thread, note: "The message and its file list are too long. Message not posted.")
+                let what = copies.isEmpty ? "The message is" : "The message and its file list are"
+                return sendFailed(ids, draft: draft, thread: thread, note: "\(what) too long. Message not posted.")
             }
             do {
                 let e = try await api.sendMessage(roomId: roomId, eventId: eventId, text: text, threadId: thread)
@@ -313,7 +318,8 @@ final class RoomModel: ObservableObject, Identifiable {
             do {
                 let renamed = try await api.renameRoom(roomId: roomId, eventId: eventId, name: name)
                 pendingName = nil
-                setRoom(room.renamed(renamed.name))
+                renamedRevision = max(renamedRevision, renamed.revision)
+                setRoom(renamed.roomId == roomId ? renamed : room.renamed(renamed.name))
                 note("groups.rename → \(renamed.name)")
             } catch {
                 pendingName = nil

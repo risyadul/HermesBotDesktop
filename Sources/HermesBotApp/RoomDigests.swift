@@ -24,6 +24,8 @@ final class RoomDigestHub: ObservableObject {
     private let defaults: UserDefaults
     /// Bumped by `start`/`stop`: a pass that started under an older generation applies nothing.
     private var generation = 0
+    /// Where the next pass starts in the list of unsettled rooms, so every one gets its `groups.state` turn.
+    private var stateOffset = 0
 
     static let seenKey = "hba.roomSeenThrough"
     /// Events read per room when its log moved (enough to hold its latest messages).
@@ -141,13 +143,18 @@ final class RoomDigestHub: ObservableObject {
                 let page = try await directory.roomLog(roomId: room.roomId, sinceSeq: since, limit: Self.tailFetch)
                 guard gen == generation else { return }
                 // A tail that does not continue the one held (older events skipped) replaces it.
+                // The open room's own poll replaced the tail during the await: it is newer, keep it.
+                guard (tails[room.roomId]?.last?.seq ?? 0) == known else { continue }
                 let held = since == known ? (tails[room.roomId] ?? []) : []
                 setTail(room.roomId, Array((held + page.events.filter { $0.seq > since }).suffix(Self.tailKeep)))
             } catch {
                 AppModel.shared.log("room digests: groups.log \(room.roomId) failed: \(Redaction.describe(error))")
             }
         }
-        for id in listed.map(\.roomId).filter({ digests[$0]?.awaiting == true }).prefix(Self.stateBudget) {
+        let unsettled = listed.map(\.roomId).filter { digests[$0]?.awaiting == true }
+        let start = unsettled.isEmpty ? 0 : stateOffset % unsettled.count
+        stateOffset += Self.stateBudget
+        for id in (unsettled[start...] + unsettled[..<start]).prefix(Self.stateBudget) {
             do {
                 let state = try await directory.roomState(roomId: id)
                 guard gen == generation else { return }

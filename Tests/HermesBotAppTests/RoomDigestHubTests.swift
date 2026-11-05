@@ -107,6 +107,17 @@ final class RoomDigestHubTests: XCTestCase {
         XCTAssertFalse(api.calls.contains("state:hba-b"), "a settled room cannot have a pending approval")
     }
 
+    func testStateChecksRotateThroughUnsettledRooms() async {
+        let ids = (0..<(RoomDigestHub.stateBudget + 2)).map { "hba-r\($0)" }
+        let api = FakeRoomActions(rooms: ids.map { RoomFixtures.room($0, latestSeq: 1) })
+        for id in ids { api.setEvents(id, [RoomFixtures.user(1)]) }
+        let hub = RoomDigestHub(defaults: defaults)
+        await hubRefresh(hub, api)
+        await hubRefresh(hub, api)
+        let asked = Set(api.calls.filter { $0.hasPrefix("state:") }.map { String($0.dropFirst("state:".count)) })
+        XCTAssertEqual(asked, Set(ids), "every unsettled room gets its approval check within two passes")
+    }
+
     func testRoomsGoneFromTheListLoseTheirDigest() async {
         let api = FakeRoomActions(rooms: [RoomFixtures.room("hba-a", latestSeq: 3)])
         api.setEvents("hba-a", asks)

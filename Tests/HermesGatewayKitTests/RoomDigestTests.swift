@@ -71,6 +71,14 @@ final class RoomDigestTests: XCTestCase {
         XCTAssertFalse(plain.needsYou(seenThrough: 0))
     }
 
+    func testThreadOpeningPreviewShowsTheUsersWords() {
+        let opening = RoomEvent(seq: 5, eventId: "user:5", kind: "message.user", actor: ["kind": "user", "id": "desktop"],
+                                payload: ["text": .string(RoomThreads.opening("why?", quoting: "Alpha", "B")), "thread_id": "hba-t-2"])
+        XCTAssertEqual(RoomDigest.make(events: [opening], room: room).preview?.text, "why?")
+        let typedQuote = user(1, "> as you said\n\nok")
+        XCTAssertEqual(RoomDigest.make(events: [typedQuote], room: room).preview?.text, "> as you said ok", "main: kept as typed")
+    }
+
     func testUserMessagesNeverCountAsAddress() {
         let d = RoomDigest.make(events: [user(1, "@user note to self")], room: room)
         XCTAssertEqual(d.lastAddressSeq, 0)

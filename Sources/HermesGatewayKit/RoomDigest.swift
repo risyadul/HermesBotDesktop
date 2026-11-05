@@ -45,7 +45,10 @@ public struct RoomDigest: Sendable, Equatable {
         let preview = messages.last.map { e -> Preview in
             let fromUser = e.kind == "message.user"
             let author = fromUser ? "You" : (e.actor["display_name"]?.string ?? room?.member(e.memberId)?.title ?? e.memberId ?? "bot")
-            return Preview(author: author, text: previewText(e.text ?? ""), time: e.createdAt, seq: e.seq, fromUser: fromUser)
+            // A thread's first message carries a quote of what it answers: the preview shows the user's words.
+            let quoted = fromUser && RoomThreads.id(of: e) != RoomThreads.main
+            let text = quoted ? RoomThreads.body(of: e.text ?? "") : (e.text ?? "")
+            return Preview(author: author, text: previewText(text), time: e.createdAt, seq: e.seq, fromUser: fromUser)
         }
         return RoomDigest(preview: preview, latestSeq: sorted.last?.seq ?? 0, lastUserSeq: lastUser,
                           lastAddressSeq: lastAddress, awaiting: timeline.awaitingDiscussion)

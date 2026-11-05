@@ -89,7 +89,8 @@ final class FakeRoomActions: RoomActions, RoomDirectory, @unchecked Sendable {
         if hold { await withCheckedContinuation { c in lock.withLock { renameGate = c } } }
         if let e = lock.withLock({ _renameError }) { throw e }
         let room = lock.withLock { _rooms.first { $0.roomId == roomId } }
-        guard let renamed = room?.renamed(name) else { throw GatewayClient.RPCError(code: 4117, message: "hosted room not found", data: nil) }
+        guard let room else { throw GatewayClient.RPCError(code: 4117, message: "hosted room not found", data: nil) }
+        let renamed = RoomFixtures.room(roomId, name: name, revision: room.revision + 1)  // as the server: revision + 1
         lock.withLock { _rooms = _rooms.map { $0.roomId == roomId ? renamed : $0 } }
         return renamed
     }
@@ -97,9 +98,9 @@ final class FakeRoomActions: RoomActions, RoomDirectory, @unchecked Sendable {
 
 /// Fixtures shared by the room model tests.
 enum RoomFixtures {
-    static func room(_ id: String = "hba-test-0", name: String = "Ops", latestSeq: Int? = nil) -> RoomSummary {
+    static func room(_ id: String = "hba-test-0", name: String = "Ops", latestSeq: Int? = nil, revision: Int = 1) -> RoomSummary {
         var v: [String: JSONValue] = [
-            "room_id": .string(id), "name": .string(name), "revision": 1, "created_at": 1, "updated_at": 1,
+            "room_id": .string(id), "name": .string(name), "revision": .number(Double(revision)), "created_at": 1, "updated_at": 1,
             "members": [["member_id": "alpha", "profile": "alpha", "handle": "alpha", "display_name": "Alpha"],
                         ["member_id": "beta", "profile": "beta", "handle": "beta"]],
         ]

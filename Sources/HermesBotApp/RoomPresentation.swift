@@ -111,8 +111,10 @@ enum RoomPresentation {
         switch row.kind {
         case .member(_, _, let text): return text
         case .user(let text):
+            // The quote an anchored thread's first message opens with is not the user's text.
             let parts = RoomAttachments.split(text)
-            return ([parts.text] + parts.paths).filter { !$0.isEmpty }.joined(separator: "\n")
+            let body = row.threadId == RoomThreads.main ? parts.text : RoomThreads.body(of: parts.text)
+            return ([body] + parts.paths).filter { !$0.isEmpty }.joined(separator: "\n")
         default: return nil
         }
     }
