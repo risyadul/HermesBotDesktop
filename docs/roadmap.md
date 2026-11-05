@@ -79,7 +79,7 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
       picker, deliver results to Bot Chat (`cron.manage`) (L)
 - [x] **A11** Duplicate a bot (`profiles.create {clone_from}`) (S)
 - [x] **A12** Delete a bot (never `default`), with confirmation (`hermes profile delete --yes`) (S)
-- [ ] **C2.2** Change room members: create a new room with the new members and carry a summary over (M)
+- [x] **C2.2** Change room members: create a new room with the new members and carry a summary over (M)
 - [x] **K4** Kanban filters and search: by profile, archived, group Running by profile (S)
 - [x] **K5** Kanban workers: active workers, inspect run, terminate, reclaim (M)
 

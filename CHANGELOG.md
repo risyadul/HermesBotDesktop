@@ -39,6 +39,10 @@ All notable changes to this project are documented here. The format follows
 - Dock badge with the number of approvals and questions waiting in Bot Chats and Group Chats.
 - Group Chat: rename a room from the room menu (Rename…). The new name shows at once and goes back if Hermes
   refuses it, with the reason above the composer.
+- Group Chat: change members from the room menu (Change Members…). Hermes has no way to change a room's members,
+  so the app creates a new room with the chosen bots and the same name, posts a context note quoting the
+  previous room's last 12 messages (capped, one safe line each, file names only), then keeps the previous room
+  (optionally renamed "… (old)") or disbands it, and opens the new room.
 - Group Chat threads: Reply in thread opens the thread beside the room with its own composer; the room
   composer keeps writing to the whole room. A thread started on a room message quotes it in its first reply,
   since bots only see their own thread. Thread messages are labelled in the room timeline, and a message with a

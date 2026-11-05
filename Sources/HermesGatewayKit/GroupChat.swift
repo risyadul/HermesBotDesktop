@@ -329,6 +329,8 @@ public protocol RoomActions: RoomSource {
     func approve(roomId: String, approval: RoomApproval, choice: String) async throws -> JSONValue
     func disbandRoom(roomId: String, cancelId: String) async throws -> JSONValue
     func renameRoom(roomId: String, eventId: String, name: String) async throws -> RoomSummary
+    /// Change Members (C2.2) creates the replacement room through the old room's actions.
+    func createRoom(roomId: String, name: String, members: [RoomMember]) async throws -> RoomSummary
 }
 
 extension GroupsAPI: RoomActions {}

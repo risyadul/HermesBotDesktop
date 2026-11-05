@@ -520,6 +520,12 @@ toolbar. Minimum window 820 × 520.
 - **Group Chat Activity panel** (the room inspector, 200–260 pt): tool titles wrap to two lines with the
   count and duration kept beside them, and the "Turn finished · 4.2s" divider label never shrinks (its
   trailing rule gives way).
+- **Change Members sheet** (`sheet`, 460 pt): step 1 is the create-room form titled "Change members" with a muted
+  `meta` line explaining that a new room is made, the current bots ticked, and Create New Room (primary). Step 2
+  says what was created, then "What about the previous room?" as a radio group: Keep it (default; a checkbox to
+  rename it "… (old)", Return = Open New Room) or Disband it (a danger `meta` line, `button-danger` "Disband and
+  Open New Room" with no Return shortcut). No Cancel once the room exists. Long names and errors stop at a few
+  lines (full text in the tooltip) so both steps fit the 520 pt window minimum.
 - **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Choose Image… / Remove, Title,
   Description and an Advanced disclosure; with Advanced open the fields scroll in a 340 pt body so the sheet
   stays inside the 520 pt window minimum. Each field's failure is a danger `meta` line under that field.

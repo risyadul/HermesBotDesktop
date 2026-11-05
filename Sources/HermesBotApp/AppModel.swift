@@ -328,13 +328,7 @@ final class AppModel: ObservableObject {
         let id = roomId ?? Self.mintRoomId()
         do {
             let room = try await groups.createRoom(roomId: id, name: name, members: members)
-#if DEBUG
-            roomCreated(room)
-#endif
-            log("groups.create → \(room.roomId) members=\(room.members.map(\.handle))")
-            rooms.removeAll { $0.roomId == room.roomId }
-            rooms.insert(room, at: 0)
-            notifications.rooms.setRooms(rooms)
+            roomAdded(room)
             selection = .room(room.roomId)
             return nil
         } catch {
