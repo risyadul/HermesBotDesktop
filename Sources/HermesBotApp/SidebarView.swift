@@ -305,18 +305,7 @@ struct SidebarView: View {
             }
         }
         Divider()
-        ForEach(BotRowMenu.manageItems(bot), id: \.self) { item in
-            switch item {
-            case .edit: Button(BotRowMenu.title(item)) { model.editBot(bot.name) }
-            case .duplicate: Button(BotRowMenu.title(item)) { model.duplicateBot(bot.name) }
-            case .delete:
-                Divider()
-                Button(BotRowMenu.title(item), role: .destructive) { model.deleteBot(bot.name) }
-            default: EmptyView()
-            }
-        }
-        .disabled(model.backend == nil || model.botSheet != nil)
-        SidebarItemMenu(item: .bot(bot.name), model: model)  // D9, D15
+        BotManageMenu(bot: bot, model: model)  // also the Bot Chat toolbar's Bot menu
     }
 
     private func sectionHeader<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {

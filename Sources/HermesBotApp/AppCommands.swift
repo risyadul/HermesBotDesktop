@@ -40,6 +40,30 @@ private struct GoMenu: View {
 
 /// Extra items in a bot's or a room's sidebar menu: Open in New Window (D9), Save as Template… (D13, rooms),
 /// Mute / Unmute Notifications (D15).
+/// Edit / Duplicate / Delete, then Open in New Window and Mute: the bot row's context menu and the Bot Chat
+/// toolbar's Bot menu, so managing a bot is not sidebar-only.
+struct BotManageMenu: View {
+    let bot: Bot
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        ForEach(BotRowMenu.manageItems(bot), id: \.self) { item in
+            switch item {
+            case .edit: Button(BotRowMenu.title(item)) { model.editBot(bot.name) }
+            case .duplicate: Button(BotRowMenu.title(item)) { model.duplicateBot(bot.name) }
+            case .delete:
+                Divider()
+                Button(BotRowMenu.title(item), role: .destructive) { model.deleteBot(bot.name) }
+            default: EmptyView()
+            }
+        }
+        .disabled(model.backend == nil || model.botSheet != nil)
+        SidebarItemMenu(item: .bot(bot.name), model: model)  // D9, D15
+    }
+}
+
+/// Open in New Window, Save as Template (rooms) and Mute: the sidebar row's context menu and the pane's
+/// toolbar menu (Room, Bot) alike.
 struct SidebarItemMenu: View {
     let item: SidebarItem
     @ObservedObject var model: AppModel

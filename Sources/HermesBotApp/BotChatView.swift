@@ -74,6 +74,11 @@ struct BotChatView: View {
                     .disabled(!chat.isReady || chat.lines.isEmpty)
             }
             ToolbarItem(placement: .primaryAction) {
+                // The bot row's actions (Edit, Duplicate, Delete, Open in New Window, Mute) in the pane too.
+                Menu { BotManageMenu(bot: chat.bot, model: AppModel.shared) } label: { Label("Bot", systemImage: "ellipsis.circle") }
+                    .help("Bot actions")
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     // System inspector animation with motion on; a no-animation transaction with it off.
                     if motion { showInspector.toggle() } else { withDSAnimation(false) { showInspector.toggle() } }

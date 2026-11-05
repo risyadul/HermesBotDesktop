@@ -164,6 +164,8 @@ struct RoomView: View {
                 Button("Choose Picture…") { pickRoomPicture(for: model) }
                 Button("Remove Picture") { pictures.removePicture(room: model.room.roomId) }
                     .disabled(!pictures.hasPicture(room: model.room.roomId))
+                // D9, D13, D15: the sidebar row's actions here too.
+                SidebarItemMenu(item: .room(model.room.roomId), model: AppModel.shared)
                 Divider()
                 Button("Disband Room…", role: .destructive) { confirmDisband = true }
             } label: { Label("Room", systemImage: "ellipsis.circle") }
