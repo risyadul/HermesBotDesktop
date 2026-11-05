@@ -82,7 +82,7 @@ extension AppModel {
                 switch selection {
                 case .room(let id)?: roomModel(id)?.addAttachments(urls)
                 case .bot(let name)?: chats[name]?.addAttachments(urls)
-                case nil: break
+                case .board?, nil: break
                 }
                 log("autoattach → \(urls.count) file(s)")
             }

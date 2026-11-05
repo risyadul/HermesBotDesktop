@@ -146,6 +146,11 @@ struct RootView: View {
             BotChatView(chat: model.chat(for: bot)).paneArrival(motion: motion).id(name)
         } else if case .room(let id)? = model.selection, let room = model.roomModel(id) {
             RoomView(model: room).paneArrival(motion: motion).id(id)
+        } else if case .board(let slug)? = model.selection, let board = model.kanban.model(for: slug) {
+            KanbanBoardView(hub: model.kanban, model: board, onSelectBoard: { next in
+                withTransaction(SidebarView.selectionTransaction) { model.selection = .board(next) }
+            })
+            .paneArrival(motion: motion).id(slug)
         } else {
             placeholder
         }
