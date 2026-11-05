@@ -40,6 +40,32 @@ final class QuickLookTests: XCTestCase {
         XCTAssertNil(QuickLookPolicy.canPreview(nil))
     }
 
+    /// One menu for Bot Chat files and room attachments; a reveal-only file offered "Reveal in Finder" twice.
+    func testContextMenuIsOneListWithoutDuplicates() {
+        let pdf = URL(fileURLWithPath: "/tmp/r.pdf"), page = URL(fileURLWithPath: "/tmp/p.html")
+        XCTAssertEqual(MediaContextMenu.items(.available(url: pdf, size: 1, modified: .distantPast)),
+                       [.quickLook, .open, .reveal, .copyPath])
+        XCTAssertEqual(MediaContextMenu.items(.available(url: page, size: 1, modified: .distantPast)), [.reveal, .copyPath],
+                       "reveal-only: one Reveal in Finder, no Quick Look or Open")
+        for other: MediaResolution? in [.deferred, .unavailable(reason: "gone"), nil] {
+            XCTAssertEqual(MediaContextMenu.items(other), [.copyPath])
+        }
+        for resolution: MediaResolution in [.available(url: pdf, size: 1, modified: .distantPast),
+                                            .available(url: page, size: 1, modified: .distantPast)] {
+            let titles = MediaContextMenu.items(resolution).map(MediaContextMenu.title)
+            XCTAssertEqual(Set(titles).count, titles.count, "no duplicate entries: \(titles)")
+        }
+    }
+
+    /// Room attachments use the shared panel (hover + Space), not SwiftUI's own `.quickLookPreview`.
+    func testRoomAttachmentsUseTheSharedQuickLookController() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Sources/HermesBotApp/RoomAttachmentViews.swift"), encoding: .utf8)
+        XCTAssertFalse(source.contains(".quickLookPreview("))
+        XCTAssertTrue(source.contains("QuickLookController.shared.hover("))
+        XCTAssertTrue(source.contains("QuickLookController.shared.show("))
+    }
+
     func testSpaceBarRule() {
         let space = QuickLookPolicy.spaceKeyCode
         XCTAssertEqual(QuickLookPolicy.keyAction(keyCode: space, modifiers: [], hovering: true, panelVisible: false, editingText: false), .open)

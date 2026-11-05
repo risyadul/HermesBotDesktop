@@ -3,7 +3,8 @@ import HermesGatewayKit
 import QuickLookUI
 import SwiftUI
 
-// D8: Quick Look for bot `MEDIA:` files and room attachments, and dragging them out to Finder. Same rule as Open
+// D8: Quick Look for bot `MEDIA:` files and room attachments (one panel, one policy, one hover target), and
+// dragging them out to Finder. Same rule as Open
 // (MediaActions.swift): every preview and every drag re-runs `MediaSafety` (`MediaResolver.resolve`, user
 // initiated) at that moment; the earlier lazy check is never trusted. Formats Open only reveals in Finder
 // (`MediaOpenPolicy.revealsOnly`: web pages, SVG, archives, macro-enabled documents) are not previewed either.
@@ -31,6 +32,26 @@ enum QuickLookPolicy {
               modifiers.intersection([.command, .option, .control, .shift]).isEmpty else { return .none }
         if panelVisible { return .close }
         return hovering && !editingText ? .open : .none
+    }
+}
+
+/// The context menu of a media tile, Bot Chat file and room attachment alike: one list, so a reveal-only
+/// format shows a single "Reveal in Finder" and never Quick Look or Open.
+enum MediaContextMenu {
+    enum Item: Equatable { case quickLook, open, reveal, copyPath }
+
+    static func items(_ resolution: MediaResolution?) -> [Item] {
+        guard case .available(let url, _, _)? = resolution else { return [.copyPath] }
+        return MediaOpenPolicy.revealsOnly(url.path) ? [.reveal, .copyPath] : [.quickLook, .open, .reveal, .copyPath]
+    }
+
+    static func title(_ item: Item) -> String {
+        switch item {
+        case .quickLook: return "Quick Look"
+        case .open: return "Open"
+        case .reveal: return "Reveal in Finder"
+        case .copyPath: return "Copy Path"
+        }
     }
 }
 
@@ -73,7 +94,8 @@ final class QuickLookController: NSObject, QLPreviewPanelDataSource, QLPreviewPa
         return fresh
     }
 
-    private func show(_ urls: [URL]) {
+    /// Shows files the caller has just checked (a room attachment's click checks first, then previews).
+    func show(_ urls: [URL]) {
         items = urls
         guard let panel = QLPreviewPanel.shared() else { return }
         if panel.currentController == nil {

@@ -236,12 +236,16 @@ struct MediaAttachmentView: View {
             }
         }
         .contextMenu {
-            if case .available = resolution {
-                if previewable { Button("Quick Look", action: quickLook) }
-                Button(MediaOpenPolicy.revealsOnly(ref.path) ? "Reveal in Finder" : "Open", action: click)
-                Button("Reveal in Finder") { Task { apply(await MediaActions.reveal(ref)) } }
+            ForEach(MediaContextMenu.items(resolution), id: \.self) { item in
+                Button(MediaContextMenu.title(item)) {
+                    switch item {
+                    case .quickLook: quickLook()
+                    case .open: click()
+                    case .reveal: Task { apply(await MediaActions.reveal(ref)) }
+                    case .copyPath: MediaActions.copyPath(ref)
+                    }
+                }
             }
-            Button("Copy Path") { MediaActions.copyPath(ref) }
         }
         // D8: Space over the tile previews it; a checked file drags out to Finder (re-checked at drag time).
         .onHover { QuickLookController.shared.hover(ref, $0 && previewable) }

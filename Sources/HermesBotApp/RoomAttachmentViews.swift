@@ -1,11 +1,11 @@
 import AppKit
 import HermesGatewayKit
-import QuickLook
 import SwiftUI
 
 // C2.1: files sent with a Group Chat message (`RoomAttachments`: copies in the app's own folder, named by path
 // in the message). Images show as an inline thumbnail, other files as a chip with kind and size. A click opens
-// Quick Look; the context menu has Quick Look, Open, Reveal in Finder and Copy Path. When the app's copy was
+// Quick Look through the app's one panel (`QuickLookController`, as Bot Chat files: Space over the tile previews
+// it too); the context menu is `MediaContextMenu` (Quick Look, Open, Reveal in Finder, Copy Path). When the app's copy was
 // deleted the chip says so in plain words (the bots cannot open it either).
 // MediaSafety rules are the Bot Chat ones (MediaViews.swift / MediaActions.swift): only the app's own copies
 // are checked on appear (room history is shared, another client could name any path), thumbnails come from
@@ -84,7 +84,6 @@ struct RoomAttachmentView: View {
     let ownCopy: Bool
     @State private var resolution: MediaResolution?
     @State private var thumbnail: MediaThumbnail?
-    @State private var preview: URL?
     @Environment(\.motionEnabled) private var motion
 
     init(ref: MediaRef, ownCopy: Bool) {
@@ -100,6 +99,7 @@ struct RoomAttachmentView: View {
 
     var body: some View {
         let presentation = RoomAttachmentPresentation.presentation(ref: ref, resolution: resolution, ownCopy: ownCopy)
+        let previewable = QuickLookPolicy.canPreview(resolution) != nil
         Group {
             if let thumbnail, presentation.isEnabled {
                 MediaThumbnailButton(thumbnail: thumbnail, presentation: presentation, action: click)
@@ -109,16 +109,19 @@ struct RoomAttachmentView: View {
             }
         }
         .contextMenu {
-            if case .available(let url, _, _) = resolution {
-                if !MediaOpenPolicy.revealsOnly(url.path) {
-                    Button("Quick Look", action: click)
-                    Button("Open") { Task { apply(await MediaActions.open(ref)) } }
+            ForEach(MediaContextMenu.items(resolution), id: \.self) { item in
+                Button(MediaContextMenu.title(item)) {
+                    switch item {
+                    case .quickLook: click()
+                    case .open: Task { apply(await MediaActions.open(ref)) }
+                    case .reveal: Task { apply(await MediaActions.reveal(ref)) }
+                    case .copyPath: MediaActions.copyPath(ref)
+                    }
                 }
-                Button("Reveal in Finder") { Task { apply(await MediaActions.reveal(ref)) } }
             }
-            Button("Copy Path") { MediaActions.copyPath(ref) }
         }
-        .quickLookPreview($preview)
+        .onHover { QuickLookController.shared.hover(ref, $0 && previewable) }
+        .onDisappear { QuickLookController.shared.hover(ref, false) }
         .task(id: ref) { await load() }
     }
 
@@ -129,7 +132,7 @@ struct RoomAttachmentView: View {
             let fresh = await MediaActions.check(ref)
             apply(fresh)
             switch RoomAttachmentPresentation.click(ref: ref, fresh: fresh) {
-            case .quickLook(let url): preview = url
+            case .quickLook(let url): QuickLookController.shared.show([url])
             case .reveal(let url): NSWorkspace.shared.activateFileViewerSelecting([url])
             case .check, .none: break
             }
