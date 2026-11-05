@@ -34,11 +34,11 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [x] **K0** Spike: REST/WebSocket client for backend plugin APIs (`/api/plugins/kanban/*`, `/events`, and
       `/api/plugins/bot-activity/*`) using the existing session token; detect when a plugin is disabled. Unblocks
       C1.10 and K1–K3 (S)
-- [ ] **E1** Keep the backend running after quit (login item / LaunchAgent for `hermes serve`), so rooms and
+- [x] **E1** Keep the backend running after quit (login item / LaunchAgent for `hermes serve`), so rooms and
       routines keep running; the app attaches to it on launch (M–L)
 - [x] **K8** Show whether the kanban dispatcher (`hermes gateway`) is running, with a way to start it (S–M)
-- [ ] **C1.3** Activity feed for the current room run (queued, working, replied, passed, timed out, …) (M)
-- [ ] **C1.10** Per-bot activity panel in each room: what every member is doing live (status, tool calls with
+- [x] **C1.3** Activity feed for the current room run (queued, working, replied, passed, timed out, …) (M)
+- [x] **C1.10** Per-bot activity panel in each room: what every member is doing live (status, tool calls with
       arguments/result/duration, reasoning). Room members run in hidden sessions whose events never reach
       `groups.log`, so this reads the [Bot Activity](https://github.com/risyadul/hermes-bot-activity) plugin
       (`/api/plugins/bot-activity/activity?room=…&since=…`, `/bots`). The app installs it on request: an opt-in
