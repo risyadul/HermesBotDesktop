@@ -117,6 +117,22 @@ have **not been tested** with this app yet.
   needs `pdftoppm` on the backend machine) and other files. Files over a limit are refused with a message.
 - **Files from bots:** images show inline and other files as chips (Bot Chat and Group Chat). A file opens
   only when you click it, after a safety check that refuses credentials and system locations.
+- **Copy:** hover a message for Copy, or right-click it. A reply that came in several parts (text around tool
+  calls) also offers Copy Full Response, which copies all of that reply's text.
+- **While the bot is replying:** Return *steers* the running reply: your message is added below what it has
+  written so far and the bot continues from it. ⌘Return *queues* the message instead; queued messages wait
+  in a panel above the composer and are sent one at a time when the reply finishes. Each can be edited, sent
+  now (this stops the current reply) or deleted. Stop pauses the queue until you press Resume. A reply that
+  another Hermes app started is never steered from here: Return queues instead. If the bot cannot take a
+  correction, the message is queued, so nothing you typed is lost. Files and slash commands are never used
+  to steer (files are queued; slash commands run at once).
+- **Model and reasoning effort:** the row under the composer shows the chat's model and reasoning effort;
+  click either to change it. A change applies to this chat only (the same as `/model … --session`); it never
+  changes the bot's profile or any other bot. A model that costs more asks for confirmation first, and a
+  change made while the bot is replying takes effect when the reply finishes.
+- **Context usage:** the small gauge shows how full the conversation's context window is (`~` when
+  estimated); click it for a breakdown by category and how often the chat has been compacted. While Hermes
+  compacts the conversation the status reads "Compacting the conversation…".
 - **Files in Group Chat:** the backend's group rooms accept only text, so a file you attach (paperclip, ⌘V or
   drag and drop, up to 10 files of 50 MB each) is copied to
   `~/Library/Application Support/HermesBotApp/Room Attachments/<room>/` and the message names the copies'

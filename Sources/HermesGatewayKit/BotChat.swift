@@ -198,6 +198,7 @@ public final class BotChatSession: @unchecked Sendable {
             guard lock.withLock({ !detached }) else { return }
             // The consumer reseeds from the new reply exactly as on open (history, then a running turn).
             emit(.resumed(history: ChatHistoryMessage.decode(r["messages"]), inflight: InflightTurn(resume: r)))
+            if let info = SessionInfoSnapshot(r["info"]) { emit(.info(info)) }
             for req in (r["open_requests"]?.array ?? []).compactMap(ServerRequest.init(openRequest:)) { emit(.request(req)) }
         } catch {
             emit(.error("Hermes closed this Bot Chat's live session and it could not be reopened: \(Redaction.describe(error))"))
@@ -322,7 +323,10 @@ public final class BotChatSession: @unchecked Sendable {
             if let stored = payload?["stored_session_id"]?.string, !stored.isEmpty {
                 lock.withLock { _storedSessionId = stored }
             }
+            if let info = SessionInfoSnapshot(payload) { emit(.info(info)) }
             e = payload?["running"]?.bool == false ? .idle : .other(type)
+        case "session.usage":
+            e = ContextUsage(payload?["usage"]).map(ChatEvent.usage) ?? .other(type)
         case "tool.generating": e = .toolGenerating(name: payload?["name"]?.string ?? "")
         case "tool.start": e = .toolStarted(ToolStart(payload: payload))
         case "tool.complete": e = .toolCompleted(ToolCompletion(payload: payload))

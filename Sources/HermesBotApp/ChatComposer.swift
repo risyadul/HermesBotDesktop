@@ -2,8 +2,11 @@ import AppKit
 import HermesGatewayKit
 import SwiftUI
 
-/// Bot Chat composer: pending attachment chips, paperclip (NSOpenPanel, several files), the text field
-/// with the slash menu above it, Send (and Stop while a reply runs), and the status row.
+/// Bot Chat composer: the queue panel, pending attachment chips, paperclip (NSOpenPanel, several files), the
+/// text field with the slash menu above it, Send (and Stop while a reply runs), and the status row with the
+/// model, reasoning effort and context controls.
+/// While a reply runs, Return steers it (`session.redirect`) and ⌘Return queues the message (B8); the
+/// primary button follows `ChatModel.composerAction` (Send / Steer / Queue / Save).
 /// Files can also be pasted (⌘V with files or an image on the pasteboard) or dropped on the chat
 /// (`BotChatView`); chips stay local until Send. The send gate stays in `ChatModel.submit`: the draft is
 /// cleared only when accepted.
@@ -29,10 +32,23 @@ struct ChatComposer: View {
                 }
                 .transition(motion ? .scale(scale: DS.Motion.pressedScale, anchor: .bottomLeading).combined(with: .opacity) : .identity)
             }
+            if !chat.queue.isEmpty {
+                ChatQueuePanel(chat: chat)
+                    .transition(motion ? .opacity.combined(with: .move(edge: .bottom)) : .identity)
+            }
             field
             statusRow
         }
         .animation(motion ? DS.Motion.pop : nil, value: menuItems.map(\.id))
+        .animation(motion ? DS.Motion.ease : nil, value: chat.queue.map(\.id))
+        .alert(chat.modelConfirm.map { "Switch to \($0.model)?" } ?? "", isPresented: Binding(
+            get: { chat.modelConfirm != nil }, set: { if !$0 { chat.cancelModelSwitch() } }
+        ), presenting: chat.modelConfirm) { _ in
+            Button("Switch") { chat.confirmModelSwitch() }
+            Button("Cancel", role: .cancel) { chat.cancelModelSwitch() }
+        } message: { c in
+            Text(c.message)
+        }
         .padding(.horizontal, DS.Space.s4).padding(.top, DS.Space.s2).padding(.bottom, DS.Space.s3)
         .onChange(of: chat.draft) { _, d in
             menu.draftChanged(d)
@@ -62,53 +78,117 @@ struct ChatComposer: View {
                     .onKeyPress(.downArrow) { moveMenu(1) }
                     .onKeyPress(.tab) { acceptMenu() ? .handled : .ignored }
                     .onKeyPress(.escape) {
-                        guard !menuItems.isEmpty else { return .ignored }
-                        menu.dismiss(chat.draft)
+                        if !menuItems.isEmpty { menu.dismiss(chat.draft); return .handled }
+                        guard chat.editingQueueId != nil else { return .ignored }
+                        chat.cancelQueueEdit()
                         return .handled
                     }
                     .accessibilityLabel("Message \(chat.bot.title)")
                 if chat.busy {
                     IconButton(symbol: "stop.circle", label: "Stop the reply") { chat.stop() }
                 }
-                Button("Send", action: send)
+                Button(Self.primaryLabel(chat.composerAction), action: send)
                     .buttonStyle(DSButtonStyle(kind: .primary))
                     .disabled(!canSend)
-                    .keyboardShortcut(.return, modifiers: .command)
+                    .keyboardShortcut(chat.busy ? nil : KeyboardShortcut(.return, modifiers: .command))
+                    .help(Self.primaryHelp(chat.composerAction))
+                if chat.busy {
+                    // ⌘Return while a reply runs: queue the draft (an invisible button keeps the shortcut
+                    // working wherever focus is, like Send's).
+                    Button("Queue message") { chat.queueOrSend() }
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .frame(width: 0, height: 0).opacity(0)
+                        .accessibilityHidden(true)
+                }
             }
         }
         .padding(.leading, DS.Space.s2).padding(.trailing, DS.Space.s2).padding(.vertical, DS.Space.s2)
         .composerSurface(focused: focused)
     }
 
+    /// Controls, key hints and the chat's status. Narrower rows drop the hints first, then the effort
+    /// label; the model name and the status text truncate last.
     private var statusRow: some View {
-        HStack(spacing: DS.Space.s3) {
-            KeyHint(keys: "Return", label: "send")
-            KeyHint(keys: "/", label: "commands")
-            Spacer()
-            if let activity = chat.activity {
-                HStack(spacing: DS.Space.s2) {
-                    ProgressView().controlSize(.mini)
-                    Text(activity).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-                }
-                .transition(.opacity)
-            } else if chat.reconnecting {
-                HStack(spacing: DS.Space.s2) {
-                    ProgressView().controlSize(.mini)
-                    Text("Reopening the Bot Chat…").font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-                }
-                .transition(.opacity)
-            } else if chat.busy {
-                HStack(spacing: DS.Space.s2) {
-                    WorkingDots(color: identity.nameColor)
-                    Text(Self.busyText(bot: chat.bot.title, drafting: chat.transcript.draftingTool))
-                        .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-                }
-                .transition(.opacity)
-                .accessibilityElement(children: .combine)
-            }
+        ViewThatFits(in: .horizontal) {
+            statusLine(compact: false, hints: true)
+            statusLine(compact: false, hints: false)
+            statusLine(compact: true, hints: false)
         }
         .animation(motion ? DS.Motion.ease : nil, value: chat.busy)
         .animation(motion ? DS.Motion.ease : nil, value: chat.activity)
+        .animation(motion ? DS.Motion.ease : nil, value: chat.compacting)
+    }
+
+    private func statusLine(compact: Bool, hints showHints: Bool) -> some View {
+        HStack(spacing: DS.Space.s3) {
+            ComposerControls(chat: chat, compact: compact)
+            if showHints { hints }
+            Spacer(minLength: 0)
+            status
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        if let activity = chat.activity {
+            statusText(activity, spinner: true)
+        } else if chat.reconnecting {
+            statusText("Reopening the Bot Chat…", spinner: true)
+        } else if chat.compacting {
+            statusText("Compacting the conversation…", spinner: true)
+        } else if chat.busy {
+            HStack(spacing: DS.Space.s2) {
+                WorkingDots(color: identity.nameColor)
+                Text(Self.busyText(bot: chat.bot.title, drafting: chat.transcript.draftingTool))
+                    .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            .transition(.opacity)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func statusText(_ text: String, spinner: Bool) -> some View {
+        HStack(spacing: DS.Space.s2) {
+            if spinner { ProgressView().controlSize(.mini) }
+            Text(text).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).lineLimit(1)
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// What Return does now, then the second key where there is one.
+    @ViewBuilder private var hints: some View {
+        HStack(spacing: DS.Space.s3) {
+            ForEach(Self.hints(chat.composerAction), id: \.keys) { h in KeyHint(keys: h.keys, label: h.label) }
+        }
+        .fixedSize()
+    }
+
+    nonisolated static func hints(_ action: ComposerAction) -> [(keys: String, label: String)] {
+        switch action {
+        case .send: return [("Return", "send"), ("/", "commands")]
+        case .steer: return [("Return", "steer"), ("⌘Return", "queue")]
+        case .queue: return [("Return", "queue")]
+        case .saveEdit: return [("Return", "save"), ("Esc", "cancel")]
+        }
+    }
+
+    nonisolated static func primaryLabel(_ action: ComposerAction) -> String {
+        switch action {
+        case .send: return "Send"
+        case .steer: return "Steer"
+        case .queue: return "Queue"
+        case .saveEdit: return "Save"
+        }
+    }
+
+    nonisolated static func primaryHelp(_ action: ComposerAction) -> String {
+        switch action {
+        case .send: return "Send (Return)"
+        case .steer: return "Redirect the running reply to this message (Return). ⌘Return queues it instead."
+        case .queue: return "Send this after the running reply finishes (Return)"
+        case .saveEdit: return "Save the queued message (Return). Esc cancels."
+        }
     }
 
     /// Status while a reply runs; `tool.generating` shows which tool call the model is drafting.
@@ -125,15 +205,15 @@ struct ChatComposer: View {
         }
     }
 
-    /// The model's gate (`ChatModel.canSend`): the same rules as `submit`, so the button never lies.
-    private var canSend: Bool { chat.canSend }
+    /// The model's gate for what the button does now (`ChatModel.canPrimary`), so the button never lies.
+    private var canSend: Bool { chat.canPrimary }
 
     // MARK: actions
 
     /// Return / Send. With the slash menu open, Return accepts the highlight first.
     private func send() {
         if menu.returnAccepts(chat.draft, catalog: chat.catalog) { _ = acceptMenu(); return }
-        chat.submit()
+        chat.primaryAction()
     }
 
     private func moveMenu(_ delta: Int) -> KeyPress.Result {

@@ -1424,3 +1424,39 @@ pure functions (`swift test`); the backend behavior is read from source (citatio
   M1 `BotChatSession.open` is kept in the kit only for non-canonical sessions and the harnesses. The UI itself
   (cards, composer, chips, media views) is covered by headless model tests and window layout tests, not by a
   live run against a backend.
+
+## 15. Bot Chat controls (P1: B7, B8, B9)
+
+Kit: `ChatControls.swift`; app: `ChatModel+Queue.swift`, `ChatModel+Controls.swift`. All [src + test] against
+`tui_gateway` and Hermes Desktop's composer; none proven against a live backend yet.
+
+- **Steer (B8):** `session.redirect {session_id, text}` → `{status: redirected | queued | rejected, text}`
+  (`methods_session_interrupt.py`). `queued` = turn-build window or compression in flight (the backend runs it
+  next). `4010` = the agent has no active-turn redirect. The app records the user line before the RPC (the
+  redirect aborts the model request, so its events can race the reply), keeps it on `redirected` / `queued`,
+  and on `rejected` or an error takes it back and puts the text in its local queue. Only turns this client
+  started are steered; a turn joined from a resume or started by another client is never redirected (Return
+  queues). Slash commands and files are never steered.
+- **Queue (B8):** client-side, per chat, like Desktop's composer queue. Entries are sent with the normal
+  `prompt.submit` path one at a time when the chat is idle: on `session.info running:false` at once, else 1 s
+  after `message.complete` / `error`. Stop parks the queue; Send now while busy promotes the entry and
+  interrupts without parking.
+- **Model (B7):** `model.options {session_id, profile, explicit_only: true}` (Desktop `requestModelOptions`);
+  `config.set {session_id, key: "model", value: "<model> --provider <slug> --session"}` (+
+  `confirm_expensive_model: true` after a `confirm_required` reply). Always `--session`:
+  `resolve_persist_behavior` then never writes `config.yaml`, so a pick changes this chat only (Desktop uses
+  `--session` for secondary surfaces; the app treats every Bot Chat that way). `deferred: true` = picked
+  mid-turn, applied at the next turn start. `4009` from an older backend refusing a mid-turn switch keeps the
+  pick (Desktop `isBusySessionModelSwitch`).
+- **Reasoning (B7):** `config.set {session_id, key: "reasoning", value: <none|minimal|low|medium|high|xhigh|max|ultra>}`
+  with no `scope`: session-scoped (`create_reasoning_override`). Display words the same key accepts (`show`,
+  `hide`, …) write global display config and are refused client-side.
+- **Model / effort / usage state:** `session.info` carries `model`, `provider`, `reasoning_effort`,
+  `reasoning_effort_wire`, `usage` (`server.py` `_session_info`); the kit emits `.info` before the frame's
+  `.idle` / `.other`. The resume reply's `info` seeds it on open.
+- **Context (B9):** `usage.context_used / context_max / context_percent / context_estimated / compressions`
+  from `session.info`, the `session.usage {usage}` event, `message.complete.usage`, or `session.usage`
+  (fetched after a turn without usage and after compaction). The popover reads `session.context_breakdown`.
+- **Compacting (B9):** `status.update` `compacting` (auto) / `compressing` (manual) starts it; `compacted` /
+  `ready`, the first model output or tool start after it, the turn's end, an error, a disconnect or
+  `session.info running:false` ends it (Desktop `store/compaction.ts`).

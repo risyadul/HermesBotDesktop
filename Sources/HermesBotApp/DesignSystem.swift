@@ -160,6 +160,13 @@ enum DS {
         /// Composer text field vertical inset so one line sits centred on the 28 pt Send button.
         static let fieldInset: CGFloat = 5
         static let composerLines = 1...6
+        /// Bot Chat composer controls: model menu label cap, context gauge bar, queue panel height cap,
+        /// hover copy buttons on messages.
+        static let controlLabelMax: CGFloat = 150
+        static let gaugeWidth: CGFloat = 28
+        static let gaugeHeight: CGFloat = 4
+        static let queueMaxHeight: CGFloat = 132
+        static let messageAction: CGFloat = 22
     }
 
     enum Stroke {

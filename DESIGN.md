@@ -630,7 +630,19 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `composer`: surface box with focus ring in graphite; Send is `button-primary`; a hint row below shows
   the Return shortcut and, in Group Chat, the sync footer ("Synced 10:42:07 · every 5s · seq 12"). Typing
   `@` opens member suggestions above the box (click, or Tab for the first match); they only edit the
-  draft.
+  draft. In Bot Chat the button says what Return does: Send, Steer (a reply runs; ⌘Return queues), Queue
+  (a reply runs that this chat cannot steer, or files are attached) or Save (a queued message is being
+  edited). The row below leads with the chat's controls in `caption`, muted, hover tint: the model
+  (name truncates in the middle, 150 pt cap), the reasoning effort (brain symbol + level, symbol only on a
+  narrow row) and the context gauge (28 × 4 pt ink bar on a hairline track + percentage, `~` when
+  estimated; click for the breakdown popover). Key hints drop first when the row is narrow. Status on the
+  right: an action in flight, then "Compacting the conversation…", then "<bot> is replying".
+- `queue-panel` (Bot Chat): above the composer, `surface` fill, card radius: a caption header ("2 queued",
+  "· paused" after Stop, with Resume), then one row per message (two lines, `meta`) with Edit, Send now and
+  Delete as 22 pt icon buttons; the row being edited has the `selected` fill and the graphite ring.
+- `message-actions` (Bot Chat): hovering a message shows Copy (and Copy full response for a reply in
+  several parts) at its top trailing corner on a `window` plate with a hairline; the same actions are in its
+  context menu.
 - `empty-state`: SF Symbol (28 pt, muted), `title-state`, one sentence, optional primary action.
   Variants: connecting (with step list), connection failed (Try again), nothing selected, empty room,
   new 1:1 chat.
