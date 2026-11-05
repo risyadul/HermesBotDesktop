@@ -4,9 +4,12 @@ import SwiftUI
 
 // Sidebar room rows (roadmap C1.5, C1.7): last-message preview + age and the "needs you" badge, for every
 // room, opened or not. A room's own `RoomModel` only polls while its pane is on screen, so the hub keeps a
-// light watch of its own: `groups.list` (each row carries `latest_seq`), then `groups.log` for the tail of
-// a room whose log moved, then `groups.state` for rooms with an unsettled discussion (an approval can only be
-// pending while a turn runs). The open room feeds the hub from its own polls (`absorb`).
+// light watch of its own: `groups.list` (each row carries `latest_seq`), then `groups.log` from the tail held
+// for a room whose log moved, then `groups.state` for rooms with an unsettled discussion (an approval can only
+// be pending while a turn runs). The open room feeds the hub from its own polls (`absorb`).
+// Each pass also feeds the notification watcher (`attention`, D1/D2): it is the app's one background room
+// poller (the notification side polled `groups.state` for every room every 8 s on top of this until the live
+// UI test 2026-11-06, round 2).
 
 @MainActor
 final class RoomDigestHub: ObservableObject {
@@ -28,13 +31,19 @@ final class RoomDigestHub: ObservableObject {
     private var stateOffset = 0
 
     static let seenKey = "hba.roomSeenThrough"
-    /// Events read per room when its log moved (enough to hold its latest messages).
-    static let tailFetch = 40
+    /// Events per `groups.log` page. A room seen for the first time is read from this far back (its latest
+    /// messages, and an `@user` of a discussion still running); later passes read on from the tail held.
+    static let logPage = RoomAttentionWatcher.baselineWindow
+    /// Pages per room and pass when its log moved a long way.
+    static let logPages = 10
     static let tailKeep = 200
     /// Rooms asked for `groups.state` per pass.
     static let stateBudget = 8
     static let activeInterval: TimeInterval = 5
     static let idleInterval: TimeInterval = 15
+
+    /// The notification watcher fed from every pass (approvals, settled `@user` discussions); nil feeds nothing.
+    var attention: RoomAttentionWatcher?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -135,32 +144,63 @@ final class RoomDigestHub: ObservableObject {
         guard gen == generation else { return }
         for room in listed { rooms[room.roomId] = room }
         for id in Set(digests.keys).subtracting(listed.map(\.roomId)) { tails[id] = nil; digests[id] = nil; approvals.remove(id) }
+        var read: [String: [RoomEvent]] = [:]
+        var failed: Set<String> = []
         for room in listed {
             let known = tails[room.roomId]?.last?.seq ?? 0
             guard let latest = room.latestSeq, latest > known || tails[room.roomId] == nil else { continue }
-            let since = max(known, latest - Self.tailFetch)
+            let since = tails[room.roomId] == nil ? max(0, latest - Self.logPage) : known
             do {
-                let page = try await directory.roomLog(roomId: room.roomId, sinceSeq: since, limit: Self.tailFetch)
-                guard gen == generation else { return }
-                // A tail that does not continue the one held (older events skipped) replaces it.
+                var events: [RoomEvent] = []
+                var cursor = since
+                for _ in 0..<Self.logPages {
+                    let page = try await directory.roomLog(roomId: room.roomId, sinceSeq: cursor, limit: Self.logPage)
+                    guard gen == generation else { return }
+                    events += page.events.filter { $0.seq > cursor }
+                    cursor = max(cursor, page.events.last?.seq ?? cursor)
+                    if !page.hasMore || page.events.isEmpty { break }
+                }
+                read[room.roomId] = events
                 // The open room's own poll replaced the tail during the await: it is newer, keep it.
                 guard (tails[room.roomId]?.last?.seq ?? 0) == known else { continue }
-                let held = since == known ? (tails[room.roomId] ?? []) : []
-                setTail(room.roomId, Array((held + page.events.filter { $0.seq > since }).suffix(Self.tailKeep)))
+                setTail(room.roomId, Array(((tails[room.roomId] ?? []) + events).suffix(Self.tailKeep)))
             } catch {
+                failed.insert(room.roomId)
                 AppModel.shared.log("room digests: groups.log \(room.roomId) failed: \(Redaction.describe(error))")
             }
         }
         let unsettled = listed.map(\.roomId).filter { digests[$0]?.awaiting == true }
         let start = unsettled.isEmpty ? 0 : stateOffset % unsettled.count
         stateOffset += Self.stateBudget
+        var drivers: [String: RoomDriverStatus?] = [:]
         for id in (unsettled[start...] + unsettled[..<start]).prefix(Self.stateBudget) {
             do {
                 let state = try await directory.roomState(roomId: id)
                 guard gen == generation else { return }
                 setApproval(id, state.driver)
+                drivers[id] = .some(state.driver)
             } catch {
                 AppModel.shared.log("room digests: groups.state \(id) failed: \(Redaction.describe(error))")
+            }
+        }
+        feedAttention(listed, read: read, failed: failed, drivers: drivers)
+    }
+
+    /// Hands what this pass learned to the notification watcher. A room is fed the events read for it (its
+    /// first feed: the whole tail held, the baseline); its approvals are what `groups.state` said, none when it
+    /// has no unsettled discussion, and left alone when this pass did not check it. A room whose log read
+    /// failed waits for the next pass, as the watcher's own poll did.
+    private func feedAttention(_ listed: [RoomSummary], read: [String: [RoomEvent]], failed: Set<String>,
+                               drivers: [String: RoomDriverStatus?]) {
+        guard let attention else { return }
+        for room in listed where !failed.contains(room.roomId) {
+            let id = room.roomId
+            let events = attention.isBaselined(id) ? (read[id] ?? []) : (tails[id] ?? read[id] ?? [])
+            if let checked = drivers[id] {
+                attention.ingest(room: room, events: events, driver: checked, latestSeq: room.latestSeq)
+            } else {
+                let awaiting = digests[id]?.awaiting == true
+                attention.ingest(room: room, events: events, driver: nil, latestSeq: room.latestSeq, approvalsKnown: !awaiting)
             }
         }
     }

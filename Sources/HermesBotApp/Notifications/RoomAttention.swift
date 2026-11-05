@@ -3,8 +3,9 @@ import HermesGatewayKit
 
 /// What one room asks of the user, folded from its log and `groups.state`: the approvals its members wait
 /// on (D2 badge, D1 approval notifications) and discussions that settled after a member addressed `@user`
-/// (D1). Fed by the room's own poller while its pane shows (RoomModel sync) and by `RoomAttentionWatcher`
-/// otherwise; events at or below the cursor are duplicates and skipped, so both feeds can overlap.
+/// (D1). Fed by the room's own poller while its pane shows (RoomModel sync) and by the sidebar's digest
+/// passes (`RoomDigestHub` → `RoomAttentionWatcher`); events at or below the cursor are duplicates and
+/// skipped, so both feeds can overlap.
 struct RoomAttention: Equatable {
     struct Mention: Equatable {
         let discussion: String
@@ -67,27 +68,27 @@ struct RoomAttention: Equatable {
 }
 
 /// Keeps `RoomAttention` current for every listed room, including rooms whose pane is not open (their
-/// `RoomModel` does not poll): `groups.state` each `interval`, then `groups.log` from the cursor when the
-/// room's `latest_seq` moved. The first read of a room starts at most `baselineWindow` events back, so an
-/// `@user` message of a discussion that is still running is remembered without replaying the whole log.
+/// `RoomModel` does not poll). It does not poll: `RoomDigestHub`'s background passes feed it (one watcher for
+/// the sidebar rows and the notifications, live UI test 2026-11-06 round 2), and the open room's own poller
+/// feeds it too (`RoomModel.onSync`). The first feed of a room reaches at most `baselineWindow` events back, so
+/// an `@user` message of a discussion that is still running is remembered without replaying the whole log.
 @MainActor
 final class RoomAttentionWatcher {
-    var interval: TimeInterval = 8
     static let baselineWindow = 200
     private(set) var states: [String: RoomAttention] = [:]
     private(set) var rooms: [String: RoomSummary] = [:]
-    private var source: RoomSource?
-    private var loop: Task<Void, Never>?
     /// New approvals, gone approvals, settled `@user` discussions.
     var onApprovals: ((RoomSummary, _ new: [RoomApproval], _ gone: [RoomApproval]) -> Void)?
     var onMentions: ((RoomSummary, [RoomAttention.Mention]) -> Void)?
-    var log: (String) -> Void = { _ in }
 
     var approvalCounts: [String: Int] { states.mapValues(\.approvals.count).filter { $0.value > 0 } }
 
     func approval(room: String, member: String, request: String) -> RoomApproval? {
         states[room]?.approvals.first { $0.requestId == request && (member.isEmpty || $0.memberId == member) }
     }
+
+    /// The room has had its baseline feed (its next events can signal).
+    func isBaselined(_ roomId: String) -> Bool { states[roomId]?.baselined == true }
 
     /// The rooms `groups.list` returned; state of rooms no longer listed goes (their approvals with it).
     func setRooms(_ list: [RoomSummary]) {
@@ -99,67 +100,21 @@ final class RoomAttentionWatcher {
         }
     }
 
-    /// `polling: false` (tests) attaches the source without the loop; passes are then run with `pollOnce`.
-    func start(source: RoomSource, polling: Bool = true) {
-        stop()
-        self.source = source
-        guard polling else { return }
-        let interval = interval
-        loop = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.pollOnce()
-                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-            }
-        }
-    }
-
-    func stop() {
-        loop?.cancel()
-        loop = nil
-        source = nil
-    }
-
     /// Everything goes (connection lost or replaced).
     func reset() {
-        stop()
         states = [:]
         rooms = [:]
     }
 
-    /// One pass over every listed room. Errors leave that room as it was until the next pass.
-    func pollOnce() async {
-        guard let source else { return }
-        for id in rooms.keys.sorted() {
-            do {
-                let snapshot = try await source.roomState(roomId: id)
-                guard self.source != nil, rooms[id] != nil else { return }
-                var events: [RoomEvent] = []
-                let latest = snapshot.room.latestSeq ?? 0
-                let cursor = states[id]?.cursor
-                if cursor == nil || latest > (cursor ?? 0) {
-                    var since = cursor ?? max(0, latest - Self.baselineWindow)
-                    for _ in 0..<10 {
-                        let page = try await source.roomLog(roomId: id, sinceSeq: since, limit: Self.baselineWindow)
-                        events += page.events
-                        since = max(since, page.events.last?.seq ?? since)
-                        if !page.hasMore || page.events.isEmpty { break }
-                    }
-                }
-                guard self.source != nil, rooms[id] != nil else { return }
-                ingest(room: snapshot.room, events: events, driver: snapshot.driver, latestSeq: latest)
-            } catch {
-                log("room \(id): attention poll failed: \(Redaction.describe(error))")
-            }
-        }
-    }
-
-    /// One sync of a room (its own poller or this watcher).
-    func ingest(room: RoomSummary, events: [RoomEvent], driver: RoomDriverStatus?, latestSeq: Int? = nil) {
+    /// One sync of a room (the digest hub's pass or the open room's poller). `approvalsKnown: false` (the
+    /// pass did not read `groups.state` for this room) leaves its approvals as they were.
+    func ingest(room: RoomSummary, events: [RoomEvent], driver: RoomDriverStatus?, latestSeq: Int? = nil,
+                approvalsKnown: Bool = true) {
         guard rooms[room.roomId] != nil else { return }
         var state = states[room.roomId] ?? RoomAttention()
         let mentions = state.apply(events: events, room: room)
         if let latestSeq { state.baseline(through: latestSeq) }
-        let (new, gone) = state.apply(driver: driver)
+        let (new, gone) = approvalsKnown ? state.apply(driver: driver) : ([], [])
         states[room.roomId] = state
         if !new.isEmpty || !gone.isEmpty { onApprovals?(room, new, gone) }
         if !mentions.isEmpty { onMentions?(room, mentions) }

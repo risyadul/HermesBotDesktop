@@ -4,8 +4,8 @@ import XCTest
 @testable import HermesGatewayKit
 
 /// D1 / D2 wiring with a recording poster (never the system notification centre) and a fake room source:
-/// room attention folding, the background room watcher, Bot Chat requests and replies, withdrawals and
-/// the Dock badge.
+/// room attention folding, the room watcher fed by the sidebar digest passes, Bot Chat requests and replies,
+/// withdrawals and the Dock badge.
 @MainActor
 final class NotificationCoordinatorTests: XCTestCase {
     final class RecordingPoster: NotificationPosting {
@@ -13,33 +13,6 @@ final class NotificationCoordinatorTests: XCTestCase {
         var removed: [String] = []
         func post(_ content: NotificationContent) { posted.append(content) }
         func remove(ids: [String]) { removed += ids }
-    }
-
-    final class FakeRooms: RoomSource, @unchecked Sendable {
-        let lock = NSLock()
-        var events: [String: [RoomEvent]] = [:]
-        var drivers: [String: RoomDriverStatus] = [:]
-        var logCalls: [(String, Int)] = []
-
-        func roomLog(roomId: String, sinceSeq: Int, limit: Int) async throws -> RoomLogPage {
-            lock.withLock {
-                logCalls.append((roomId, sinceSeq))
-                let all = (events[roomId] ?? []).filter { $0.seq > sinceSeq }
-                let page = Array(all.prefix(limit))
-                return RoomLogPage(events: page, cursor: page.last?.seq ?? sinceSeq,
-                                   latestSeq: events[roomId]?.last?.seq ?? 0, hasMore: all.count > limit)
-            }
-        }
-
-        func roomState(roomId: String) async throws -> RoomStateSnapshot {
-            lock.withLock {
-                let latest = events[roomId]?.last?.seq ?? 0
-                return RoomStateSnapshot(room: RoomSummary(["room_id": .string(roomId), "name": "Launch", "latest_seq": .number(Double(latest)),
-                                                             "members": [["member_id": "alpha", "profile": "alpha", "handle": "alpha",
-                                                                          "display_name": "Alpha"]]])!,
-                                         driver: drivers[roomId])
-            }
-        }
     }
 
     private let room = RoomSummary(["room_id": "hba-1", "name": "Launch",
@@ -164,30 +137,76 @@ final class NotificationCoordinatorTests: XCTestCase {
         XCTAssertEqual(poster.removed.count, 1)
     }
 
-    func testWatcherBaselinesFromARecentWindowThenFollowsTheCursor() async {
+    /// One background poller (live UI test 2026-11-06, round 2): the sidebar's `RoomDigestHub` passes feed the
+    /// watcher, which no longer reads `groups.state` / `groups.log` itself. Same semantics as its own poll had:
+    /// the baseline reads a recent window only and never signals, then the cursor is followed, approvals and
+    /// settled `@user` discussions notify, and nothing is read while `latest_seq` has not moved.
+    func testDigestPassesFeedTheWatcherFromARecentWindowThenTheCursor() async {
         let (c, poster, _) = coordinator()
-        let fake = FakeRooms()
+        let suite = "hba-attention-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let hub = RoomDigestHub(defaults: defaults)
+        hub.attention = c.rooms
+        func listed(_ latest: Int) -> RoomSummary {
+            RoomSummary(["room_id": "hba-1", "name": "Launch", "latest_seq": .number(Double(latest)),
+                         "members": [["member_id": "alpha", "profile": "alpha", "handle": "alpha", "display_name": "Alpha"]]])!
+        }
         var events = (1...250).map { user($0, "u\($0)") }
         events.append(member(251, "d9", "@user approve the plan?"))
-        fake.events["hba-1"] = events
+        let api = FakeRoomActions(rooms: [listed(251)])
+        api.setEvents("hba-1", events)
         c.rooms.setRooms([room])
-        let watcher = c.rooms
-        watcher.start(source: fake, polling: false)
-        await watcher.pollOnce()
-        XCTAssertEqual(fake.logCalls.first?.1, 251 - RoomAttentionWatcher.baselineWindow, "baseline reads a recent window only")
-        XCTAssertEqual(watcher.states["hba-1"]?.cursor, 251)
-        XCTAssertTrue(poster.posted.isEmpty)
-        fake.lock.withLock {
-            fake.events["hba-1"]?.append(settled(252, "d9"))
-            fake.drivers["hba-1"] = driver([approval("r7")])
-        }
-        await watcher.pollOnce()
-        XCTAssertEqual(fake.logCalls.last?.1, 251)
-        XCTAssertEqual(Set(poster.posted.map(\.title)), ["Alpha needs you in Launch", "Alpha needs your approval"])
-        let calls = fake.logCalls.count
-        await watcher.pollOnce()
-        XCTAssertEqual(fake.logCalls.count, calls, "no log read while latest_seq has not moved")
-        watcher.stop()
+
+        await hub.refresh(with: api)
+        XCTAssertEqual(api.logRequests.first?.since, 251 - RoomAttentionWatcher.baselineWindow, "baseline reads a recent window only")
+        XCTAssertEqual(c.rooms.states["hba-1"]?.cursor, 251)
+        XCTAssertTrue(poster.posted.isEmpty, "history is never announced")
+
+        // The discussion is still running: the pass checks the room's approvals without reading its log.
+        api.setDriver("hba-1", driver([approval("r7")]))
+        let reads = api.logRequests.count
+        await hub.refresh(with: api)
+        XCTAssertEqual(api.logRequests.count, reads, "no log read while latest_seq has not moved")
+        XCTAssertEqual(poster.posted.map(\.title), ["Alpha needs your approval"])
+        XCTAssertEqual(c.badgeCount, 1)
+
+        api.setEvents("hba-1", events + [settled(252, "d9")])
+        api.setRooms([listed(252)])
+        await hub.refresh(with: api)
+        XCTAssertEqual(api.logRequests.last?.since, 251, "follows the cursor")
+        XCTAssertEqual(poster.posted.map(\.title), ["Alpha needs your approval", "Alpha needs you in Launch"])
+        XCTAssertEqual(api.calls.filter { $0.hasPrefix("state:") }.count, 3, "groups.state once per pass for the unsettled room")
+    }
+
+    func testApprovalsWithdrawWhenTheRoomSettlesAndStayWhenUnchecked() async {
+        let (c, poster, _) = coordinator()
+        c.rooms.setRooms([room])
+        c.rooms.ingest(room: room, events: [user(1, "u1")], driver: driver([approval("r1")]), latestSeq: 1)
+        XCTAssertEqual(c.badgeCount, 1)
+        c.rooms.ingest(room: room, events: [], driver: nil, approvalsKnown: false)
+        XCTAssertEqual(c.badgeCount, 1, "a pass that did not read groups.state leaves the approval")
+        XCTAssertTrue(poster.removed.isEmpty)
+
+        // A settled room (no unsettled discussion): the hub reports no approvals, the notification goes.
+        let suite = "hba-attention-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let hub = RoomDigestHub(defaults: defaults)
+        hub.attention = c.rooms
+        let api = FakeRoomActions(rooms: [RoomSummary(["room_id": "hba-1", "name": "Launch", "latest_seq": 2,
+                                                       "members": [["member_id": "alpha", "profile": "alpha", "handle": "alpha"]]])!])
+        api.setEvents("hba-1", [user(1, "u1"), settled(2, "u1")])
+        await hub.refresh(with: api)
+        XCTAssertFalse(api.calls.contains("state:hba-1"), "a settled room is not asked")
+        XCTAssertEqual(c.badgeCount, 0)
+        XCTAssertEqual(poster.removed, [NotificationContent.roomApprovalId(room: "hba-1", approval: approval("r1"))])
+    }
+
+    func testTheAppHasOneRoomPoller() {
+        let app = AppModel()
+        app.notifications.setBadge = { _ in }
+        XCTAssertTrue(app.roomDigests.attention === app.notifications.rooms, "the digest passes feed the notification watcher")
     }
 
     // MARK: coordinator + Bot Chat

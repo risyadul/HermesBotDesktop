@@ -50,7 +50,8 @@ final class AppModel: ObservableObject {
         notifications = NotificationCoordinator(poster: poster)
         poster?.onRoute = { [weak self] route in self?.handleNotification(route) }
         notifications.botHidden = { [weak self] name in self?.botMeta[name].hidden ?? false }
-        notifications.rooms.log = { [weak self] line in self?.log(line) }
+        // One background room poller: the sidebar digests' passes feed the notification watcher.
+        roomDigests.attention = notifications.rooms
         // A board deleted or archived elsewhere leaves the selection (its pane would show a dead board).
         kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
     }
@@ -205,7 +206,6 @@ final class AppModel: ObservableObject {
             guard backend === b else { return }
             phase = .connected
             kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) })
-            if groupsAvailable, let groups { notifications.rooms.start(source: groups) }
 #if DEBUG
             autochat()
             autoroom()
