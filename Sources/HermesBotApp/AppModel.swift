@@ -38,7 +38,8 @@ final class AppModel: ObservableObject {
     /// Group Chat is off (no "+", a notice), Bot Chat still works.
     @Published private(set) var groupsAvailable = true
     /// Kanban boards, board models and the dispatcher status of the current connection (KanbanHub.swift).
-    let kanban = KanbanHub(watches: KanbanWatchList(defaults: .standard))
+    /// Created in `init`: as a stored-property initializer, Swift 6.1's SILGen crashed (signal 11) on it.
+    let kanban: KanbanHub
     /// Pin / Hide per bot, saved to the profile's `ui_meta` (A2, BotMetaModel.swift).
     let botMeta = BotMetaModel()
     /// Bot rows' activity, preview, unread dot and needs-attention badge (A4, A6: BotActivityHub.swift).
@@ -79,6 +80,7 @@ final class AppModel: ObservableObject {
 #endif
 
     init() {
+        kanban = KanbanHub(watches: KanbanWatchList(defaults: .standard))
         let poster = UserNotificationPoster.makeIfAvailable()
         notifications = NotificationCoordinator(poster: poster)
         poster?.onRoute = { [weak self] route in self?.handleNotification(route) }

@@ -107,7 +107,8 @@ extension AppModel {
 
 /// The menu bar extra's scene: one line in `HermesBotApp.body`.
 struct MenuBarScene: Scene {
-    static let settingKey = "hba.menuBarExtra"
+    /// Nonisolated: read by the pure `WindowLifecyclePolicy` (a Scene is main-actor isolated in Swift 6.1).
+    nonisolated static let settingKey = "hba.menuBarExtra"
     @AppStorage(MenuBarScene.settingKey) private var shown = true
 
     var body: some Scene {
