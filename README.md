@@ -52,7 +52,9 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   from Hermes; the bots' copies stay on disk, inactive.
 - **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
   Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use. **Terminate Run** and **Reclaim
-  Task** (Workers) stop a running worker process.
+  Task** (Workers) stop a running worker process. **Decompose** and **Specify** create or rewrite cards with
+  Hermes' auxiliary model, **Estimate** makes a model call, and board actions (create, rename, delete,
+  import) and **Orchestration Settings** change Hermes' boards and config for every client.
 - **Routines are real.** Routines you create, pause, resume or delete change that bot's Hermes cron jobs, the
   same ones Hermes Desktop's Routines and `hermes cron` show. When it lists a bot's routines, the app pauses
   any old-style delegated routine Hermes Desktop marks unsafe, as Hermes Desktop does.
@@ -264,6 +266,24 @@ worker log, and create, move, assign, prioritize, comment on and archive cards.
 
 - **Filters:** the filter button next to the search field shows one profile's cards at a time, shows archived
   cards (an Archived lane), and groups the Running lane by profile (remembered).
+- **AI actions:** a card's details (and its right-click menu) offer **Estimate** (a rough token and size
+  guess, not a bill), and on a Triage card **Decompose…** (splits it into subtasks across your bots; the
+  new subtasks are listed and open with a click) and **Specify…** (rewrites its title and description and
+  moves it to Todo). Both change the card at once, so they ask first, and they can take a minute or more.
+  **Model** pins the model and reasoning effort a card's worker uses (Profile default otherwise). Reassign
+  is the **Assignee** menu (it releases a running worker first).
+- **Boards:** the ••• **Board** menu in the board header creates, renames and deletes boards, exports a board
+  to a `.tar.gz` archive and imports one as a new board. Deleting archives the board (it can be restored in
+  Hermes); the `default` board can't be deleted, and deleting Hermes' current board warns first.
+  **Orchestration Settings…** sets the orchestrator profile, the default assignee, automatic decomposition
+  of triage cards and whether subtasks are queued right away (Hermes' config, shared by every board).
+- **From chats to cards:** right-click a message in a Group Chat or a Bot Chat for **Create Task from
+  Message…**: a New Task sheet with the message as the description, its first line as the title and its bot
+  as the suggested assignee; pick the board there. A card's assignee opens its Bot Chat (**Open Bot Chat
+  with @…** in the card menu, or the chat button next to the assignee).
+- **Notifications for cards:** cards you create in the app, and cards you mark **Notify When Done or
+  Blocked** (card menu), notify when they finish or get blocked while the app is in the background (checked
+  every 15 seconds, also while the app's windows are hidden). Clicking the notification opens the card.
 - **Workers:** **Workers** in the board header lists the cards being worked on right now: which bot runs which
   card, for how long and its last heartbeat (amber after two minutes without one). **Inspect Run** shows the
   run, the worker process and its log. **Terminate Run** and **Reclaim Task** stop the worker and put the card

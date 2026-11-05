@@ -43,7 +43,11 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                               streamed answers capped: 8 MB JSON, downloads per call; multipart upload; `+` in
                               query values sent as %2B)
   KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models;
-                              KanbanWorkers.swift: K5 /workers/active, /runs/{id}[/inspect|/terminate]
+                              KanbanWorkers.swift: K5 /workers/active, /runs/{id}[/inspect|/terminate];
+                              KanbanAI.swift: K6 estimate / decompose / specify (longer timeouts; ok:false is
+                              not an error), /model-options, the model-override PATCH (explicit clear_* flags);
+                              KanbanBoardsAPI.swift: K7 boards create/rename/archive (never delete=true or
+                              /switch), export/import by path (loopback backend only), /orchestration, /profiles
   Routines.swift              A15 cron.manage: RoutineJob/RoutineList, Desktop's naming ([bot:<name>]), prompt
                               (plain in the bot's own store, v2 delegation when the scope is unproven), add
                               payload, tag-filter fallback; `{success: false}` replies throw
@@ -110,6 +114,16 @@ Sources/HermesBotApp/       SwiftUI app:
                               Group Running by profile (@AppStorage hba.kanbanGroupRunning)
   KanbanWorkersModel.swift    K5 Workers sheet state: polling /workers/active while open, inspect, terminate,
                               reclaim; KanbanWorkersView.swift: the sheet
+  KanbanCardAI.swift          K6 KanbanCardAIModel (board.ai): per-card estimate / decompose / specify results,
+                              one action per card, confirmation for decompose/specify, model override; the
+                              inspector's AI section, Model menu, card-menu items
+  KanbanBoardManagement.swift K7 KanbanHub board actions (create/rename/archive/export/import, boardNote),
+                              KanbanOrchestrationModel + sheet, board name sheet, the header's Board menu
+  KanbanIntegrations.swift    K9 KanbanTaskSeed / compose request (Create Task from Message), KanbanWatchList
+                              (UserDefaults hba.kanbanWatchedCards), KanbanCardWatcher (own 15 s /board loop
+                              while connected, baseline first, done/blocked events), KanbanCardNotice (content +
+                              route), KanbanComposePresenter; AppModel+Kanban.swift: compose, Open Bot Chat,
+                              open a card from its notification
   RoutinesModel.swift         A15 one bot's routines (20 s refresh while open, optimistic pause/resume, legacy
                               auto-pause, create); RoutinePresentation.swift: schedule picker + texts;
                               RoutinesView.swift: sheet opened from the Bot Chat toolbar (RoutinesToolbarButton)
@@ -222,6 +236,11 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
   session-scoped (`--session` / no scope).
 - Routines and kanban workers are tested with fakes only (`FakeCron` records `cron.manage` params,
   `FakeKanbanService` the worker calls): tests never send a real `cron.manage` mutation, terminate or reclaim.
+  The same holds for K6/K7/K9: estimate, decompose, specify, the model override, board create / rename /
+  archive / export / import and `PUT /orchestration` are exercised against `FakeKanbanService`
+  (`KanbanAIActionsTests`, `KanbanBoardManagementTests`, `KanbanIntegrationTests`) and the in-process stub server
+  (`KanbanManagementAPITests`); export/import paths are placeholders the fakes only record. Watched cards in
+  tests live in memory or a throwaway UserDefaults suite.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
