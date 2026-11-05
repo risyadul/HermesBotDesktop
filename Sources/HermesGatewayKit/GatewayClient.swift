@@ -48,14 +48,35 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
     private var readyPayload: JSONValue?
     private var openContinuation: CheckedContinuation<String?, Error>?
     private var pingTimer: DispatchSourceTimer?
-    public var onEvent: EventHandler?
+    private var disconnected = false
+    /// Set once the socket is gone (failure or `close()`); later calls throw it. A client is single-use.
+    private var terminalError: ClientError?
+    private var sessionInvalidated = false
+    // Handlers are written by consumers and read on URLSession's queue: always under `lock`.
+    private var _onEvent: EventHandler?
+    private var _onDisconnect: (@Sendable (_ reason: String) -> Void)?
+    private var _onWire: (@Sendable (_ outbound: Bool, _ line: String) -> Void)?
+    private var _negotiatedProtocol: String?
+
+    public var onEvent: EventHandler? {
+        get { lock.withLock { _onEvent } }
+        set { lock.withLock { _onEvent = newValue } }
+    }
     /// Called once when the socket is gone (server drop, transport failure or `close()`), with a
     /// token-free reason. Pending calls fail with the same error.
-    public var onDisconnect: (@Sendable (_ reason: String) -> Void)?
-    private var disconnected = false
+    public var onDisconnect: (@Sendable (_ reason: String) -> Void)? {
+        get { lock.withLock { _onDisconnect } }
+        set { lock.withLock { _onDisconnect = newValue } }
+    }
     /// Optional wire tap (direction, compact JSON) for evidence logs. Tokens never appear in frames.
-    public var onWire: (@Sendable (_ outbound: Bool, _ line: String) -> Void)?
-    public private(set) var negotiatedProtocol: String?
+    public var onWire: (@Sendable (_ outbound: Bool, _ line: String) -> Void)? {
+        get { lock.withLock { _onWire } }
+        set { lock.withLock { _onWire = newValue } }
+    }
+    public private(set) var negotiatedProtocol: String? {
+        get { lock.withLock { _negotiatedProtocol } }
+        set { lock.withLock { _negotiatedProtocol = newValue } }
+    }
 
     public init(url: URL, offeredProtocols: [String] = []) {
         self.url = url
@@ -64,12 +85,25 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
         self.session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
     }
 
-    /// Opens the socket and waits for `gateway.ready`. Returns the ready payload.
+    /// Opens the socket and waits for `gateway.ready`. Returns the ready payload. A client connects
+    /// once: after a failed connect, a drop or `close()` it stays closed (make a new client).
     @discardableResult
     public func connect(timeout: TimeInterval = 20) async throws -> JSONValue {
-        let t = offeredProtocols.isEmpty ? session.webSocketTask(with: url)
-            : session.webSocketTask(with: url, protocols: offeredProtocols)
-        lock.withLock { task = t }
+        do { return try await openAndAwaitReady(timeout: timeout) } catch {
+            failAll(error)
+            throw error
+        }
+    }
+
+    private func openAndAwaitReady(timeout: TimeInterval) async throws -> JSONValue {
+        // Created under the lock: `close()` may invalidate the session concurrently.
+        let t = try lock.withLock { () throws -> URLSessionWebSocketTask in
+            if let terminalError { throw terminalError }
+            let t = offeredProtocols.isEmpty ? session.webSocketTask(with: url)
+                : session.webSocketTask(with: url, protocols: offeredProtocols)
+            task = t
+            return t
+        }
         let proto: String? = try await withCheckedThrowingContinuation { cont in
             lock.lock(); openContinuation = cont; lock.unlock()
             t.resume()
@@ -88,10 +122,10 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
         return ready
     }
 
-    /// Closes the socket. Later `call`s fail fast with `notConnected` instead of sending on a
-    /// cancelled task (whose URLSession error would carry the token URL).
+    /// Closes the socket and invalidates the URLSession (which retains this client as its delegate).
+    /// Later `call`s fail fast with `closed` instead of sending on a cancelled task (whose URLSession
+    /// error would carry the token URL).
     public func close() {
-        pingTimer?.cancel(); pingTimer = nil
         let t = lock.withLock { () -> URLSessionWebSocketTask? in defer { task = nil }; return task }
         t?.cancel(with: .normalClosure, reason: nil)
         failAll(ClientError.closed("client close"))
@@ -117,7 +151,9 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
 
     /// Sends one request and awaits its `result` (throws `RPCError` on an `error` envelope).
     public func call(_ method: String, _ params: JSONValue = [:], timeout: TimeInterval = 120) async throws -> JSONValue {
-        guard let t = lock.withLock({ task }) else { throw ClientError.notConnected }
+        let (live, terminal) = lock.withLock { (task, terminalError) }
+        if let terminal { throw terminal }
+        guard let t = live else { throw ClientError.notConnected }
         let id = lock.withLock { () -> Int in defer { nextId += 1 }; return nextId }
         let frame: JSONValue = ["jsonrpc": "2.0", "id": .number(Double(id)), "method": .string(method), "params": params]
         let line = frame.compactJSON()
@@ -228,8 +264,21 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
         let r = readyContinuation; readyContinuation = nil
         let notify = !disconnected && readyPayload != nil
         if notify { disconnected = true }
-        let onDisconnect = self.onDisconnect
+        let onDisconnect = _onDisconnect
+        // Terminal: drop the task and timer so later calls throw `.closed`, not a stale transport error.
+        if terminalError == nil {
+            if let c = e as? ClientError, case .closed = c { terminalError = c }
+            else { terminalError = .closed(Redaction.describe(e, secrets: secrets)) }
+        }
+        let t = task; task = nil
+        let timer = pingTimer; pingTimer = nil
+        let invalidate = !sessionInvalidated
+        sessionInvalidated = true
         lock.unlock()
+        t?.cancel()
+        timer?.cancel()
+        // Breaks the session → delegate (self) retain cycle once the cancelled task finishes.
+        if invalidate { session.finishTasksAndInvalidate() }
         all.values.forEach { $0.resume(throwing: e) }
         o?.resume(throwing: e)
         r?.resume(throwing: e)
@@ -250,6 +299,11 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
             t.send(.string(#"{"jsonrpc":"2.0","id":\#(id),"method":"gateway.ping","params":{}}"# + "\n")) { _ in }
         }
         timer.resume()
-        pingTimer = timer
+        let started = lock.withLock { () -> Bool in
+            guard terminalError == nil else { return false }
+            pingTimer = timer
+            return true
+        }
+        if !started { timer.cancel() }
     }
 }

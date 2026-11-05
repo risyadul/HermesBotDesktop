@@ -27,7 +27,7 @@ public struct Bot: Sendable, Identifiable, Hashable {
     /// `profiles.list {include_sessions: false}` → bots in server order.
     public static func list(_ backend: Backend) async throws -> [Bot] {
         let r = try await backend.client.call("profiles.list", ["include_sessions": false])
-        return (r["profiles"]?.array ?? []).compactMap(Bot.init)
+        return SchemaLog.array(r, "profiles", method: "profiles.list").compactMap(Bot.init)
     }
 }
 
@@ -95,10 +95,14 @@ public final class BotChatSession: @unchecked Sendable {
     private let lock = NSLock()
     private var handler: (@Sendable (ChatEvent) -> Void)?
 
-    private init(backend: Backend, bot: Bot, result: JSONValue) {
+    private init(backend: Backend, bot: Bot, result: JSONValue) throws {
+        guard let sid = result["session_id"]?.string, !sid.isEmpty else {
+            throw GatewayClient.ClientError.badFrame("session.create: no session_id")
+        }
         self.backend = backend
         self.bot = bot
-        sessionId = result["session_id"]?.string ?? ""
+        sessionId = sid
+        // Optional: the stored row is lazy (created by the first prompt or `session.title`).
         storedSessionId = result["stored_session_id"]?.string ?? ""
         createInfo = result["info"] ?? .null
     }
@@ -116,18 +120,25 @@ public final class BotChatSession: @unchecked Sendable {
     /// (`agent/title_generator.py:563-571`, `auto_title_session` `:642-656`).
     /// `close_on_disconnect: true` reaps the live session when the socket drops
     /// (`session_lifecycle.py:1000-1017`).
+    /// If anything fails after `session.create`, the created session is closed and deleted (best
+    /// effort, token-free notes) before the original error is rethrown, so no session is orphaned.
     public static func open(_ backend: Backend, bot: Bot, title: String?) async throws -> BotChatSession {
         let r = try await backend.client.call("session.create", [
             "profile": .string(bot.name), "close_on_disconnect": true, "cols": 100,
         ])
-        let s = BotChatSession(backend: backend, bot: bot, result: r)
+        let s = try BotChatSession(backend: backend, bot: bot, result: r)
         s.subscription = backend.subscribe(sessionId: s.sessionId) { [weak s] type, payload, _ in
             s?.deliver(type: type, payload: payload)
         }
         s.disconnectSubscription = backend.onDisconnect { [weak s] reason in s?.emit(.disconnected(reason)) }
         if let title, !title.isEmpty {
-            s.titleResult = try await backend.client.call("session.title",
-                                                          ["session_id": .string(s.sessionId), "title": .string(title)])
+            do {
+                s.titleResult = try await backend.client.call("session.title",
+                                                              ["session_id": .string(s.sessionId), "title": .string(title)])
+            } catch {
+                await s.close(deleteStored: true)
+                throw error
+            }
         }
         return s
     }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Minimal dynamic JSON value. The gateway's wire shapes are open (extra keys appear over time),
 /// so the spike decodes into this and reads fields by path instead of freezing Codable structs.
@@ -58,6 +59,19 @@ public enum JSONValue: Sendable, Equatable, Codable, CustomStringConvertible {
     }
 
     public var description: String { compactJSON() }
+}
+
+/// Lenient decoders tolerate missing keys (open schema) but say so: a missing top-level list key is
+/// more likely a changed wire shape than an empty result. Messages carry key names only, never values.
+enum SchemaLog {
+    private static let logger = Logger(subsystem: "io.github.risyadul.hermesbot", category: "schema")
+
+    /// Warns when `key` is absent (or not an array) in `result` of `method`; returns the array or [].
+    static func array(_ result: JSONValue, _ key: String, method: String) -> [JSONValue] {
+        if let a = result[key]?.array { return a }
+        logger.warning("\(method, privacy: .public): result has no '\(key, privacy: .public)' array; treating as empty")
+        return []
+    }
 }
 
 extension JSONValue: ExpressibleByStringLiteral, ExpressibleByIntegerLiteral, ExpressibleByBooleanLiteral,

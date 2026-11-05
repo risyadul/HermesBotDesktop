@@ -222,16 +222,17 @@ extension GroupsAPI {
     /// non-null only when the page is full (`methods_groups.py:344-354`).
     public func listRooms(limit: Int = 500, offset: Int = 0) async throws -> (rooms: [RoomSummary], nextOffset: Int?) {
         let r = try await list(limit: limit, offset: offset)
-        return ((r["rooms"]?.array ?? []).compactMap(RoomSummary.init), r["next_offset"]?.int)
+        return (SchemaLog.array(r, "rooms", method: "groups.list").compactMap(RoomSummary.init), r["next_offset"]?.int)
     }
 
-    /// Every live room (follows `next_offset`).
+    /// Every live room (follows `next_offset` while it moves forward: a repeated or smaller offset
+    /// ends the walk instead of looping).
     public func allRooms() async throws -> [RoomSummary] {
         var out: [RoomSummary] = [], offset: Int? = 0
         while let o = offset, out.count < 5000 {
             let page = try await listRooms(offset: o)
             out += page.rooms
-            offset = page.nextOffset
+            offset = page.nextOffset.flatMap { $0 > o ? $0 : nil }
         }
         return out
     }
