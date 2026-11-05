@@ -38,6 +38,9 @@ final class RoomModel: ObservableObject, Identifiable {
     /// A composer that should take focus (Reply to @bot, Reply in thread).
     @Published private(set) var focusRequest: FocusRequest?
     let api: any RoomActions
+    /// Local per-room extras removed on disband (tests pass their own).
+    var pictures = RoomPictureStore.shared
+    var order = RoomOrderStore.shared
     /// Evidence hook: every applied sync (new events since the previous one).
     var onSync: ((RoomModel, [RoomEvent]) -> Void)?
     /// Every applied sync (the sidebar digest follows the open room through it).
@@ -144,6 +147,9 @@ final class RoomModel: ObservableObject, Identifiable {
     private func markDisbanded() {
         guard !disbanded else { return }
         RoomAttachmentStore.remove(room: room.roomId)
+        // Local extras of the room (C1.4 order, C1.8 picture) go with it.
+        pictures.removePicture(room: room.roomId)
+        order.forget(room.roomId)
         composer.close()
         poller.stop()
         onDisbanded?(self)

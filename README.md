@@ -154,8 +154,11 @@ have **not been tested** with this app yet.
 - **Files in Group Chat:** the backend's group rooms accept only text, so a file you attach (paperclip, ⌘V or
   drag and drop, up to 10 files of 50 MB each) is copied to
   `~/Library/Application Support/HermesBotApp/Room Attachments/<room>/` and the message names the copies'
-  paths; the room's bots open them with their file tools. This app shows them as attachments; Hermes Desktop
-  shows the paths as text. The copies are deleted when you disband the room.
+  paths; the room's bots open them with their file tools. This app shows them as attachments: images as a
+  thumbnail, other files as a chip with their kind and size. Click one for Quick Look; right-click for Quick
+  Look, Open, **Reveal in Finder** and Copy Path (web pages, SVG, archives and other files that can run code are
+  only revealed in Finder). If a copy was deleted, its chip says the bots can no longer open it either. Hermes
+  Desktop shows the paths as text. The copies are deleted when you disband the room.
 - **Routines:** **Routines** in a Bot Chat's toolbar lists the bot's scheduled tasks (Hermes cron jobs). Switch
   one off to pause it, on to resume it, delete it (asks first), or click it for its schedule, next and last
   run, last result, where results go and any error. **New Routine** asks for a name, the instruction and when
@@ -177,6 +180,10 @@ have **not been tested** with this app yet.
   mentionable and keeps its chats. A filter shows matching hidden bots without expanding the section. If
   Hermes does not save a pin or hide (another app changed the bot at the same time, or an older Hermes Agent),
   the row goes back and the sidebar says why.
+- **Room menu** (right-click a group chat): Open, **Pin to Top** / **Unpin**, **Move Up**, **Move Down**. Pinned
+  rooms sit at the top of Group Chats; drag a room onto another to put it in that place (pinned rooms among
+  pinned ones, the others among the others). New rooms appear at the top of the unpinned ones. Pins and order
+  are kept on this Mac only (app preferences), not in Hermes, and a disbanded room's pin is dropped.
 
 ## Managing bots
 
@@ -245,6 +252,15 @@ through the running Hermes backend.
   approval. Rooms you are not looking at are checked every 5–15 seconds. In messages, `@user` (a bot asking
   for you) is amber; mentions of bots are blue.
 - **Drafts** are kept per room and per thread while the app runs, so switching rooms does not lose them.
+- **Availability:** under the room name, "2 of 3 available" counts the members whose bot still exists and
+  whose last turn did not fail or wait on a retry. Hover the room picture for who is out and why.
+- **Room picture:** room menu (⋯) → **Choose Picture…** (PNG or JPEG, up to 15 MB, cropped to a 256 px square)
+  shows it instead of the members' avatars in the toolbar and the sidebar; **Remove Picture** goes back to the
+  avatars. The picture is kept on this Mac only, in
+  `~/Library/Application Support/HermesBotApp/Room Pictures/`, and deleted when you disband the room.
+- **Clarifying questions** from bots in a room cannot be answered here: Hermes does not pass them on to room
+  clients (only approvals). A bot that needs you should write `@user`, which shows the **@** badge; answer it in
+  the room.
 
 ## Importing Hermes Desktop group chats
 

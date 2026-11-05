@@ -216,12 +216,14 @@ struct RoomRowContent: View {
     @ObservedObject var digests: RoomDigestHub
     let live: RoomModel?
     let onScreen: Bool
+    /// C1.4: pinned to the top of Group Chats.
+    var pinned = false
     @ObservedObject private var avatars = AvatarStore.shared
 
     var body: some View {
         let digest = digests.digests[room.roomId]
         HStack(spacing: DS.Space.gutter) {
-            RoomAvatarStack(identities: room.members.map { avatars.identity(profile: $0.profile, title: $0.title) })
+            RoomAvatar(roomId: room.roomId, identities: room.members.map { avatars.identity(profile: $0.profile, title: $0.title) })
             VStack(alignment: .leading, spacing: DS.Space.s0 / 2) {
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.s2) {
                     Text(room.name).font(DS.Typeface.bodyMedium).foregroundStyle(DS.Palette.ink).lineLimit(1)
@@ -235,6 +237,12 @@ struct RoomRowContent: View {
                 }
                 Text(Self.subtitle(room: room, digest: digest))
                     .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).lineLimit(1)
+            }
+            if pinned {
+                Image(systemName: "pin.fill")
+                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                    .help("Pinned to the top")
+                    .accessibilityLabel("Pinned")
             }
             if let badge = digests.needsYou(room.roomId, onScreen: onScreen) {
                 NeedsYouBadge(kind: badge)

@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Group Chat rooms can be pinned and reordered in the sidebar (C1.4): right-click a room for **Pin to Top** /
+  **Unpin**, **Move Up** and **Move Down**, or drag it onto another room. Pinned rooms come first. Kept on this
+  Mac only (UserDefaults), never sent to Hermes.
+- Room availability and picture (C1.8): the room header reads "N of M available" (members whose bot still exists
+  and whose last turn did not fail or wait on a retry; hover for who is out). Room menu → **Choose Picture…** /
+  **Remove Picture** sets a local picture (256 px PNG in Application Support) shown instead of the members'
+  avatars in the toolbar and sidebar; it is deleted when the room is disbanded.
+- Group Chat attachments (C2.1): click a file or image for Quick Look; right-click for Quick Look, Open, Reveal in
+  Finder and Copy Path. Chips show kind and size, and a copy that was deleted says the bots can no longer open
+  it. Files that can run code are still only revealed in Finder, and only the app's own copies are checked
+  before a click.
+- C2.3 spike, documented in [docs/groups-contract.md §8](docs/groups-contract.md): room members' clarifying
+  questions cannot be answered from the app. `groups.state` reports only approvals and retries, and no
+  `groups.*` method answers a clarify; a member that needs the user should write `@user` (the "Needs you"
+  badge). Answering them is in the backlog (C2.4, needs a backend change).
 - First-run setup screens (E2) instead of a bare error: **Install Hermes Agent** when no `hermes` is found
   (docs link, the `HERMES_BOT_APP_HERMES_BIN` override with a Copy button, the places checked, Try Again);
   **Choose a model for Hermes** when the backend answers but `setup.runtime_check` (read-only) says no model can

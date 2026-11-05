@@ -20,7 +20,10 @@ struct SidebarView: View {
         _botMeta = ObservedObject(wrappedValue: model.botMeta)
     }
 
-    private var shownRooms: [RoomSummary] { model.rooms.filter { SidebarFilter.matches($0, query: query) } }
+    /// C1.4: pinned rooms first, then the user's order (local, `RoomOrderStore`).
+    @ObservedObject private var roomOrder = RoomOrderStore.shared
+
+    private var shownRooms: [RoomSummary] { roomOrder.sorted(model.rooms).filter { SidebarFilter.matches($0, query: query) } }
     private var roster: BotRoster {
         BotRoster(bots: model.bots, meta: botMeta.meta, query: query, hiddenExpanded: hiddenExpanded)
     }
@@ -58,6 +61,7 @@ struct SidebarView: View {
                     }
                     ForEach(shownRooms) { room in
                         row(.room(room.roomId)) { roomRow(room) }
+                            .roomOrdering(room, rooms: model.rooms, store: roomOrder) { select(.room(room.roomId)) }
                     }
                     sectionHeader("Bots") { EmptyView() }
                     if model.bots.isEmpty {
@@ -211,7 +215,7 @@ struct SidebarView: View {
     /// Last message + age, "needs you" badge, live dot (RoomDigests.swift).
     private func roomRow(_ room: RoomSummary) -> some View {
         RoomRowContent(room: room, digests: model.roomDigests, live: model.roomModels[room.roomId],
-                       onScreen: model.selection == .room(room.roomId))
+                       onScreen: model.selection == .room(room.roomId), pinned: roomOrder.isPinned(room.roomId))
     }
 
     private func botRow(_ bot: Bot) -> some View {
