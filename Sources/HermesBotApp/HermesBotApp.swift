@@ -32,6 +32,7 @@ struct HermesBotApp: App {
                 CommandGroup(after: .sidebar) {
                     Toggle("Animate Interface Changes", isOn: $motion)
                 }
+                CommandGroup(after: .newItem) { DesktopImportCommand(model: AppModel.shared) }
             }
         Settings { SettingsView() }
     }
@@ -149,10 +150,17 @@ struct RootView: View {
         .task { await model.connectAtLaunch() }
         .task(id: model.bots.map(\.name)) { AvatarStore.shared.load(bots: model.bots, backend: model.backend) }
         // Not `.sheet`: its slide and dimmer fade ignore the motion gate (MotionSheet.swift).
-        .motionSheet(isPresented: $model.showCreateRoom, motion: motion) {
-            CreateRoomView(bots: model.bots,
-                           onCreate: { name, members in await model.createRoom(name: name, members: members) },
-                           onClose: { model.showCreateRoom = false })
+        // Closed any way (Cancel, Escape, Create, the window): a Desktop-archive prefill goes with it.
+        .motionSheet(isPresented: Binding(get: { model.showCreateRoom },
+                                          set: { if $0 { model.showCreateRoom = true } else { model.closeCreateRoom() } }),
+                     motion: motion) {
+            CreateRoomView(bots: model.bots, prefill: model.createRoomPrefill,
+                           onCreate: { name, members in await model.createRoomFromSheet(name: name, members: members) },
+                           onClose: { model.closeCreateRoom() })
+        }
+        .motionSheet(isPresented: $model.showDesktopImport, motion: motion) {
+            DesktopImportView(archive: model.desktopArchive, onImport: { model.importDesktopRooms($0) },
+                              onRetry: { model.openDesktopImport() }, onClose: { model.closeDesktopImport() })
         }
         .motionSheet(isPresented: Binding(get: { model.botSheet != nil }, set: { if !$0 { model.botSheet = nil } }),
                      motion: motion) {
@@ -177,6 +185,22 @@ struct RootView: View {
                 withTransaction(SidebarView.selectionTransaction) { model.selection = .board(next) }
             })
             .paneArrival(motion: motion).id(PaneIdentity(slug, board))
+        } else if case .archive(let key)? = model.selection, let room = model.desktopArchive.room(key) {
+            DesktopArchiveRoomView(room: room, bots: model.bots,
+                                   canContinue: DesktopArchivePresentation.canContinue(
+                                       room, bots: model.bots, connected: model.phase.isConnected,
+                                       groupsAvailable: model.groupsAvailable),
+                                   onContinue: { model.continueArchivedRoom(room) },
+                                   onRemove: { model.removeArchivedRoom(key) })
+                .paneArrival(motion: motion).id(PaneIdentity(key))
+        } else if let screen = Onboarding.screen(phase: model.phase, issue: model.setupIssue, bots: model.bots,
+                                                 groupsAvailable: model.groupsAvailable) {
+            // E2: one guided first-run screen instead of a bare error (OnboardingView.swift).
+            OnboardingView(screen: screen,
+                           onTryAgain: { Task { await model.connect() } },
+                           onCheckAgain: { Task { await model.recheckSetup() } },
+                           onOpenBot: { name in withTransaction(SidebarView.selectionTransaction) { model.selection = .bot(name) } })
+                .navigationTitle("Hermes Bot")
         } else {
             placeholder
         }

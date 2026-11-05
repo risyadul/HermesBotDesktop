@@ -29,6 +29,7 @@ struct SidebarView: View {
     /// What the arrow keys walk: the rows on screen, in drawing order.
     private var order: [SidebarItem] {
         shownRooms.map { .room($0.roomId) } + roster.rows.map { .bot($0.name) } + shownBoards.map { .board($0.slug) }
+            + model.desktopArchive.sidebarRooms(query: query).map { .archive($0.id) }
     }
 
     var body: some View {
@@ -83,6 +84,10 @@ struct SidebarView: View {
                                       matches: { SidebarFilter.matches($0, query: query) }) { board in
                         row(.board(board.slug)) { KanbanBoardRowContent(row: board) }
                     }
+                    DesktopArchiveSection(archive: model.desktopArchive, query: query, selection: model.selection,
+                                          keyboardFocus: focused, space: selectionSpace, onSelect: select,
+                                          onContinue: { model.continueArchivedRoom($0) },
+                                          onRemove: { model.removeArchivedRoom($0) })
                 }
                 .padding(.horizontal, DS.Space.s2).padding(.bottom, DS.Space.s3)
             }

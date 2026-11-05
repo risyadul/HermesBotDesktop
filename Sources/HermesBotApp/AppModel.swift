@@ -18,6 +18,17 @@ final class AppModel: ObservableObject {
     /// Sidebar room rows: last message, age, "needs you" (RoomDigests.swift).
     let roomDigests = RoomDigestHub()
     @Published var showCreateRoom = false
+    /// Name and members the next New Group Chat sheet starts with ("Continue in a New Room" from the
+    /// Desktop archive); nil = the usual empty sheet.
+    @Published var createRoomPrefill: CreateRoomPrefill?
+    /// E2: what keeps a first run from working (Hermes missing, no model), shown as a guided screen
+    /// (Onboarding.swift); nil = nothing known.
+    @Published var setupIssue: SetupIssue?
+    /// The `setup.runtime_check` of the current connection, still running or done; `shutdown` waits for it.
+    var setupCheck: Task<Void, Never>?
+    /// E4 / D17: Hermes Desktop group chats imported read-only (DesktopArchiveModel.swift), and its sheet.
+    let desktopArchive = DesktopArchiveModel()
+    @Published var showDesktopImport = false
     /// The Edit / Duplicate / Delete bot sheet on screen (AppModel+BotManagement.swift).
     @Published var botSheet: BotSheet?
     /// `groups.capabilities` answered at connect. False on an older Hermes Agent without `groups.*`:
@@ -163,6 +174,7 @@ final class AppModel: ObservableObject {
 
     private func attemptConnect(waitForAttach: TimeInterval) async {
         phase = .connecting
+        setupIssue = nil
         if let lost = releasingLost {
             await lost.value
             releasingLost = nil
@@ -204,6 +216,7 @@ final class AppModel: ObservableObject {
             if groupsAvailable { await loadRooms() }
             guard backend === b else { return }
             phase = .connected
+            setupCheck = Task { await self.checkSetup() }
             kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) })
             if groupsAvailable, let groups { notifications.rooms.start(source: groups) }
 #if DEBUG
@@ -216,6 +229,7 @@ final class AppModel: ObservableObject {
             log("connect failed: \(msg)")
             // `backendLost` already showed why; its message is the one to keep.
             if case .failed = phase { return }
+            setupIssue = Onboarding.issue(for: error)
             phase = .failed(msg)
         }
     }
@@ -247,6 +261,7 @@ final class AppModel: ObservableObject {
         backend = nil
         connectTask = nil  // an attempt still loading bails out (`backend !== b`); Try Again may start anew
         releasingLost = Task.detached { b.shutdown() }  // stops an owned backend; an attached one is left running
+        setupIssue = nil
         phase = .failed("Lost the connection to Hermes (\(reason)).")
     }
 
@@ -350,6 +365,8 @@ final class AppModel: ObservableObject {
             await attempt.value
             connectTask = nil
         }
+        await setupCheck?.value  // a read-only check in flight finishes (or fails) before the socket closes
+        setupCheck = nil
         if let b = backend { unsubscribeDisconnect(b) }  // our own close is not a lost connection
         for m in roomModels.values { m.shutdown() }
         for m in activityModels.values { m.shutdown() }

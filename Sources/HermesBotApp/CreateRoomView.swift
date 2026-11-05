@@ -6,6 +6,8 @@ import SwiftUI
 
 struct CreateRoomView: View {
     let bots: [Bot]
+    /// Name and members to start with ("Continue in a New Room" from the Desktop archive).
+    var prefill: CreateRoomPrefill? = nil
     let onCreate: (String, [RoomMember]) async -> String?
     /// Closes the sheet (Cancel, Escape, or a successful create). The sheet is presented by
     /// `motionSheet`, not SwiftUI, so `\.dismiss` would not reach it.
@@ -62,7 +64,13 @@ struct CreateRoomView: View {
         .padding(DS.Space.s5).frame(width: DS.Size.sheetWidth)
         .background(DS.Palette.window)
         .defaultFocus($nameFocused, true)
-        .onAppear { nameFocused = true }
+        .onAppear {
+            nameFocused = true
+            if let prefill {
+                name = prefill.name
+                picked = Set(prefill.members).intersection(eligible.map(\.0.name))
+            }
+        }
     }
 
     private func memberToggle(_ bot: Bot) -> some View {
