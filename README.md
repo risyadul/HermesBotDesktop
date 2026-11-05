@@ -51,7 +51,11 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   enables it for every bot. Turning it off from the same panel disables it in every bot profile and removes it
   from Hermes; the bots' copies stay on disk, inactive.
 - **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
-  Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use.
+  Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use. **Terminate Run** and **Reclaim
+  Task** (Workers) stop a running worker process.
+- **Routines are real.** Routines you create, pause, resume or delete change that bot's Hermes cron jobs, the
+  same ones Hermes Desktop's Routines and `hermes cron` show. When it lists a bot's routines, the app pauses
+  any old-style delegated routine Hermes Desktop marks unsafe, as Hermes Desktop does.
 - **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
   elsewhere is rejected.
 - Setting `HERMES_HOME` does **not** isolate the app today; it always uses `~/.hermes`.
@@ -120,11 +124,36 @@ have **not been tested** with this app yet.
   needs `pdftoppm` on the backend machine) and other files. Files over a limit are refused with a message.
 - **Files from bots:** images show inline and other files as chips (Bot Chat and Group Chat). A file opens
   only when you click it, after a safety check that refuses credentials and system locations.
+- **Copy:** hover a message for Copy, or right-click it. A reply that came in several parts (text around tool
+  calls) also offers Copy Full Response, which copies all of that reply's text.
+- **While the bot is replying:** Return *steers* the running reply: your message is added below what it has
+  written so far and the bot continues from it. ⌘Return *queues* the message instead; queued messages wait
+  in a panel above the composer and are sent one at a time when the reply finishes. Each can be edited, sent
+  now (this stops the current reply) or deleted. Stop pauses the queue until you press Resume. A reply that
+  another Hermes app started is never steered from here: Return queues instead. If the bot cannot take a
+  correction, the message is queued, so nothing you typed is lost. Files and slash commands are never used
+  to steer (files are queued; slash commands run at once).
+- **Model and reasoning effort:** the row under the composer shows the chat's model and reasoning effort;
+  click either to change it. A change applies to this chat only (the same as `/model … --session`); it never
+  changes the bot's profile or any other bot. A model that costs more asks for confirmation first, and a
+  change made while the bot is replying takes effect when the reply finishes.
+- **Context usage:** the small gauge shows how full the conversation's context window is (`~` when
+  estimated); click it for a breakdown by category and how often the chat has been compacted. While Hermes
+  compacts the conversation the status reads "Compacting the conversation…".
 - **Files in Group Chat:** the backend's group rooms accept only text, so a file you attach (paperclip, ⌘V or
   drag and drop, up to 10 files of 50 MB each) is copied to
   `~/Library/Application Support/HermesBotApp/Room Attachments/<room>/` and the message names the copies'
   paths; the room's bots open them with their file tools. This app shows them as attachments; Hermes Desktop
   shows the paths as text. The copies are deleted when you disband the room.
+- **Routines:** **Routines** in a Bot Chat's toolbar lists the bot's scheduled tasks (Hermes cron jobs). Switch
+  one off to pause it, on to resume it, delete it (asks first), or click it for its schedule, next and last
+  run, last result, where results go and any error. **New Routine** asks for a name, the instruction and when
+  to run it: once in N minutes/hours/days, every hour, every day at a time, weekdays, a weekday, a day of the
+  month, every N minutes/hours/days, or a raw schedule (`every 2h`, `0 9 * * *`); repeating schedules can stop
+  after N runs. Results stay in the run history or go to the bot's Bot Chat, where the bot answers them;
+  **Continuity** lets each run see the previous run's output. Routines are stored like Hermes Desktop's (named
+  `[bot:<name>] …` in the bot's own cron store), so both apps show the same ones. They fire only while Hermes
+  runs: if this app started Hermes, quitting stops them (see [Keeping Hermes running](#keeping-hermes-running)).
 
 ## Sidebar
 
@@ -179,6 +208,22 @@ through the running Hermes backend.
   (a Settings switch for this key is planned). Notifications need the packaged `HermesBot.app`; a bare
   `swift run` binary shows the Dock badge only.
 
+## Using Group Chat
+
+- **Rename a room:** room menu (⋯) → **Rename…**. The new name shows at once; if Hermes refuses it, the old name
+  comes back and the note above the composer says why. Bots see the new name from their next turn.
+- **Threads:** hover a message (or right-click it) and choose **Reply in thread**. The thread opens in the right
+  column with its own composer; the room composer below the timeline always writes to the whole room. Replying
+  in thread to a room message starts a thread on it, and the first reply quotes that message, because bots only
+  see the messages of their own thread. Thread messages also show in the room timeline with a "Thread · …"
+  label; a message with a thread under it shows its reply count. Click either to open the thread.
+- **Reply to @bot and Copy:** hover a bot's message for **Reply to @bot** (puts `@bot` in the composer of that
+  message's thread; you still send) and **Copy** (the text as written). Your own messages offer Copy too.
+- **Sidebar rows** show the last message and how long ago it was. An amber **@** badge means a bot wrote
+  `@user` and you have not answered or opened the room since; an amber hand means a bot waits on your
+  approval. Rooms you are not looking at are checked every 5–15 seconds.
+- **Drafts** are kept per room and per thread while the app runs, so switching rooms does not lose them.
+
 ## Group Chat activity
 
 Bots in a Group Chat work in hidden sessions, so the room itself only shows when each bot starts, replies or
@@ -217,6 +262,12 @@ worker log, and create, move, assign, prioritize, comment on and archive cards.
   it up in its current turn within a few seconds. **Requeue with note** posts the note and restarts the task
   from scratch with it.
 
+- **Filters:** the filter button next to the search field shows one profile's cards at a time, shows archived
+  cards (an Archived lane), and groups the Running lane by profile (remembered).
+- **Workers:** **Workers** in the board header lists the cards being worked on right now: which bot runs which
+  card, for how long and its last heartbeat (amber after two minutes without one). **Inspect Run** shows the
+  run, the worker process and its log. **Terminate Run** and **Reclaim Task** stop the worker and put the card
+  back to Ready for the dispatcher; both ask first.
 - **Boards that go away:** if a board is deleted or archived while you have it open, it says so, stops
   refreshing and refuses changes; **Go to Another Board** opens one that still exists. It also leaves the
   sidebar at the next board list refresh.

@@ -9,6 +9,7 @@ import SwiftUI
 /// transcript from the history and re-shows requests still open. `close()` only detaches: the chat lives
 /// on in Hermes (no `session.close` / `session.delete`).
 /// Slash commands: ChatModel+Slash.swift. Attachments and server requests: ChatModel+Requests.swift.
+/// Queue and steering (B8): ChatModel+Queue.swift. Model, effort and context usage (B7, B9): ChatModel+Controls.swift.
 @MainActor
 final class ChatModel: ObservableObject, Identifiable {
     enum Phase: Equatable {
@@ -32,10 +33,39 @@ final class ChatModel: ObservableObject, Identifiable {
     /// `commands.catalog`, fetched once per chat (after open); nil until loaded.
     @Published var catalog: SlashCatalog?
     /// A client-side action in flight (slash command, compaction), shown in the composer status row.
-    @Published var activity: String?
+    @Published var activity: String? {
+        // A queued message held back by the action goes out once it ends.
+        didSet { if activity == nil, oldValue != nil { scheduleDrain() } }
+    }
     /// Hermes reclaimed the live session and the kit is re-resuming it (`session.reclaimed` until
     /// `.resumed` or an error): nothing is sent meanwhile.
     @Published private(set) var reconnecting = false
+
+    /// Messages waiting for the running turn to end (⌘Return, or a correction the turn refused), in send
+    /// order. Sent one at a time whenever the chat is idle, unless `queueParked`.
+    @Published var queue: [QueuedMessage] = []
+    /// Stop paused the queue: entries wait until Resume, Send now or a steer.
+    @Published var queueParked = false
+    /// The queued message being edited in the composer (its text is the draft meanwhile).
+    @Published var editingQueueId: UUID?
+    /// The composer draft from before Edit, restored when the edit is saved or cancelled.
+    var draftBeforeEdit = ""
+    /// Fallback drain after `message.complete` / `error` when no `session.info running:false` follows.
+    var drainTask: Task<Void, Never>?
+    var drainFallbackDelay: UInt64 = 1_000_000_000
+
+    /// The model, provider and effort the chat runs (`session.info`, optimistic while a pick is in flight).
+    @Published var modelInfo: SessionInfoSnapshot?
+    /// `model.options` for this chat; nil until loaded.
+    @Published var modelCatalog: ModelCatalog?
+    /// An expensive model pick waiting for the user's confirmation.
+    @Published var modelConfirm: ModelConfirm?
+    /// Context window occupancy (`session.info.usage`, `session.usage`, `message.complete.usage`).
+    @Published var contextUsage: ContextUsage?
+    @Published var contextBreakdown: ContextBreakdown?
+    @Published var breakdownLoading = false
+    /// Hermes is compacting the conversation (`status.update compacting|compressing` until it resumes or ends).
+    @Published var compacting = false
 
     private(set) var session: (any ChatSessionLink)?
     private let opener: ChatOpener
@@ -103,10 +133,15 @@ final class ChatModel: ObservableObject, Identifiable {
         // send here cannot redirect-interrupt that turn.
         if let t = s.inflight { transcript.resumeRunningTurn(t) }
         for r in s.openRequests { receive(r) }
+        modelInfo = s.openInfo
+        contextUsage = s.openInfo?.usage
         phase = .ready
         log("bot chat opened: profile=\(bot.name) session_id=\(s.sessionId) stored=\(s.storedSessionId) "
             + "history=\(s.history.count) open_requests=\(s.openRequests.count) running=\(s.inflight != nil)")
         loadCatalog()
+        loadModelOptions()
+        if contextUsage == nil { refreshUsage() }
+        drainQueue()
     }
 
     /// Detach only: the canonical chat stays in Hermes for Hermes Desktop and the next launch.
@@ -114,12 +149,16 @@ final class ChatModel: ObservableObject, Identifiable {
         closed = true
         openTask?.cancel()
         catalogTask?.cancel()
+        drainTask?.cancel()
         session?.detach()
         session = nil
         // Chips are local (never staged before a send); only pasted image files need cleaning up, including
         // those of sends still running or queued (detached, this chat no longer learns when they are read).
-        PasteboardAttachments.delete(pending.map(\.url) + sentTemporaryFiles + queuedTemporaryFiles, folder: pasteFolder)
+        let queuedFiles = queue.flatMap { $0.attachments.map(\.url) }
+        PasteboardAttachments.delete(pending.map(\.url) + sentTemporaryFiles + queuedTemporaryFiles + queuedFiles,
+                                     folder: pasteFolder)
         pending = []
+        queue = []
         sentTemporaryFiles = []
         queuedTemporaryFiles = []
     }
@@ -181,7 +220,7 @@ final class ChatModel: ObservableObject, Identifiable {
 
     /// The user line for a turn: the text, plus the attached file names (attachments carry no text of
     /// their own; file refs are model-facing only).
-    static func displayText(_ text: String, names: [String]) -> String {
+    nonisolated static func displayText(_ text: String, names: [String]) -> String {
         guard !names.isEmpty else { return text }
         let line = "Attached: " + names.joined(separator: ", ")
         return text.isEmpty ? line : text + "\n\n" + line
@@ -207,7 +246,7 @@ final class ChatModel: ObservableObject, Identifiable {
         }
     }
 
-    private func sent(_ chips: [PendingAttachment], status: String?) {
+    func sent(_ chips: [PendingAttachment], status: String?) {
         let ids = Set(chips.map(\.id))
         pending.removeAll { ids.contains($0.id) }
         let pasted = chips.map(\.url).filter { PasteboardAttachments.isPasted($0, folder: pasteFolder) }
@@ -266,9 +305,11 @@ final class ChatModel: ObservableObject, Identifiable {
     }
 
     /// Stop: decline the requests this turn is waiting on ("session interrupted", like Desktop), then
-    /// `session.interrupt`.
-    func stop() {
+    /// `session.interrupt`. An explicit Stop also pauses the queue (`queueParked`), as Desktop parks it;
+    /// Send now interrupts without pausing, so the settle sends the promoted message.
+    func stop(parkQueue: Bool = true) {
         guard let s = session else { return }
+        if parkQueue && !queue.isEmpty { queueParked = true }
         let open = requests
         dropRequests { _ in true }
         let serial = transcript.turnSerial
@@ -293,21 +334,34 @@ final class ChatModel: ObservableObject, Identifiable {
     // MARK: - events
 
     func apply(_ e: ChatEvent) {
+        let wasBusy = busy
         transcript.apply(e)
+        compacting = CompactionPhase.next(compacting, after: e)
         switch e {
         case .started: onTurnEvent?("message.start", self)
         case .delta: onTurnEvent?("message.delta", self)
         case .interim: onTurnEvent?("message.interim", self)
-        case .completed:
+        case .completed(let c):
             turnSettled()
+            if let u = c.usage { contextUsage = u } else if wasBusy { refreshUsage() }
+            scheduleDrain()
             onTurnEvent?("message.complete", self)
         case .idle:
             turnSettled()
+            drainQueue()
         case .error, .disconnected:
             if case .disconnected = e { dropRequests { _ in true } }
             reconnecting = false
             turnSettled()
+            if case .error = e { scheduleDrain() }
             onTurnEvent?("turn.failed", self)
+        case .info(let info):
+            modelInfo = info
+            if let u = info.usage { contextUsage = u }
+        case .usage(let u):
+            contextUsage = u
+        case .status(let kind, _) where kind == "compacted" || kind == "ready":
+            refreshUsage()
         case .request(let r): receive(r)
         case .requestCancelled(let id, _): dropRequests { $0.id == id }
         case .approvalsCancelled(let ids):
@@ -327,6 +381,7 @@ final class ChatModel: ObservableObject, Identifiable {
             if let inflight { transcript.resumeRunningTurn(inflight) }
             log("bot chat re-resumed after reclaim: session_id=\(session?.sessionId ?? "?") "
                 + "history=\(history.count) running=\(inflight != nil)")
+            drainQueue()
         default: break
         }
     }

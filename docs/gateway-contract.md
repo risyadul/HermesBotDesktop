@@ -457,12 +457,26 @@ Errors use the M0 envelope; app/harness render them only through `Redaction.desc
 | `groups.approve` | `{room_id, member_id, task_id, execution_generation, choice: once\|deny, request_id}` | `{approved: true, result: {resolved: 1}}` | `:437` |
 | `groups.retry` | `{room_id, task_id}` | `{retried: true, task: {room_id, task_id, thread_id, turn_id, status: "queued", execution_generation, cancel_generation}}` | `:448` |
 | `groups.disband` | `{room_id, cancel_id}` | `{tombstone: {disbanded_at, event: room.disbanded}}` | `:397` |
+| `groups.rename` | `{room_id, event_id: "hba-rename-<uuid>", name}` | `{room: {…room, revision + 1, event: room.renamed}}`; name stripped, 1–200 chars; no worker needed; 4117 room error, 5117 other | `:483` → `hosted_rooms.rename_room` |
 
 App rules on top of the wire:
 - Room ids are minted by the app: `hba-` + 12 hex (`AppModel.createRoom`). Members are the user's bots
   with `member_id = handle = profile = profile name` and `display_name` from `profiles.list`; names that
   fail the identifier rule (`^[A-Za-z0-9][A-Za-z0-9._:-]*$`, ≤128) or are `all`/`everyone` are not
   offered (`RoomMember.forBot`) [src + test]. Create needs 2–6 bots in the UI.
+- Threads [src + test]: the room composer sends `thread_id: "main"`; the thread pane sends the thread's id.
+  "Reply in thread" on a `main` message starts `hba-t-<seq>` (anchored on that message), on a thread message
+  continues its thread (including ids other clients minted). The policy plans each thread on its own and a
+  member's prompt holds only that thread's messages (`hosted_room_discussion.py` `_pending_discussion`,
+  `_thread_messages`), so the first message of an anchored thread quotes the anchor (`> Author: …`,
+  `RoomThreads.opening`). `groups.log` carries `payload.thread_id` on user/member messages and on
+  `turn.*`/`room.activity`; events without one count as `main`.
+- Sidebar digests [src + test]: `RoomDigestHub` lists rooms every 5 s (an unsettled room) or 15 s, reads
+  `groups.log` only for rooms whose `latest_seq` moved (≤ 40 events from the last seq held), and asks
+  `groups.state` only for rooms with an unsettled discussion (approvals exist only while a turn runs). The
+  open room feeds it from its own polls. "Needs you" = a member message matching `@user` (Hermes Desktop's
+  rule, not inside e-mail addresses or longer handles) newer than the user's last message and than the seq
+  last on screen (persisted per room), or a pending approval.
 - `groups.send` `text` ≤ 64 KiB (`hosted_room_discussion.py:198-203`). `RoomComposer` blocks a
   second submit while one send is in flight; a user may post while bots work (the newer message
   supersedes the older one in the same thread) [src + test].
@@ -1410,3 +1424,39 @@ pure functions (`swift test`); the backend behavior is read from source (citatio
   M1 `BotChatSession.open` is kept in the kit only for non-canonical sessions and the harnesses. The UI itself
   (cards, composer, chips, media views) is covered by headless model tests and window layout tests, not by a
   live run against a backend.
+
+## 15. Bot Chat controls (P1: B7, B8, B9)
+
+Kit: `ChatControls.swift`; app: `ChatModel+Queue.swift`, `ChatModel+Controls.swift`. All [src + test] against
+`tui_gateway` and Hermes Desktop's composer; none proven against a live backend yet.
+
+- **Steer (B8):** `session.redirect {session_id, text}` → `{status: redirected | queued | rejected, text}`
+  (`methods_session_interrupt.py`). `queued` = turn-build window or compression in flight (the backend runs it
+  next). `4010` = the agent has no active-turn redirect. The app records the user line before the RPC (the
+  redirect aborts the model request, so its events can race the reply), keeps it on `redirected` / `queued`,
+  and on `rejected` or an error takes it back and puts the text in its local queue. Only turns this client
+  started are steered; a turn joined from a resume or started by another client is never redirected (Return
+  queues). Slash commands and files are never steered.
+- **Queue (B8):** client-side, per chat, like Desktop's composer queue. Entries are sent with the normal
+  `prompt.submit` path one at a time when the chat is idle: on `session.info running:false` at once, else 1 s
+  after `message.complete` / `error`. Stop parks the queue; Send now while busy promotes the entry and
+  interrupts without parking.
+- **Model (B7):** `model.options {session_id, profile, explicit_only: true}` (Desktop `requestModelOptions`);
+  `config.set {session_id, key: "model", value: "<model> --provider <slug> --session"}` (+
+  `confirm_expensive_model: true` after a `confirm_required` reply). Always `--session`:
+  `resolve_persist_behavior` then never writes `config.yaml`, so a pick changes this chat only (Desktop uses
+  `--session` for secondary surfaces; the app treats every Bot Chat that way). `deferred: true` = picked
+  mid-turn, applied at the next turn start. `4009` from an older backend refusing a mid-turn switch keeps the
+  pick (Desktop `isBusySessionModelSwitch`).
+- **Reasoning (B7):** `config.set {session_id, key: "reasoning", value: <none|minimal|low|medium|high|xhigh|max|ultra>}`
+  with no `scope`: session-scoped (`create_reasoning_override`). Display words the same key accepts (`show`,
+  `hide`, …) write global display config and are refused client-side.
+- **Model / effort / usage state:** `session.info` carries `model`, `provider`, `reasoning_effort`,
+  `reasoning_effort_wire`, `usage` (`server.py` `_session_info`); the kit emits `.info` before the frame's
+  `.idle` / `.other`. The resume reply's `info` seeds it on open.
+- **Context (B9):** `usage.context_used / context_max / context_percent / context_estimated / compressions`
+  from `session.info`, the `session.usage {usage}` event, `message.complete.usage`, or `session.usage`
+  (fetched after a turn without usage and after compaction). The popover reads `session.context_breakdown`.
+- **Compacting (B9):** `status.update` `compacting` (auto) / `compressing` (manual) starts it; `compacted` /
+  `ready`, the first model output or tool start after it, the turn's end, an error, a disconnect or
+  `session.info running:false` ends it (Desktop `store/compaction.ts`).

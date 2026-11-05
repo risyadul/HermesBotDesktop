@@ -45,6 +45,7 @@ struct BotChatView: View {
         .navigationSubtitle("@\(chat.bot.name)" + (chat.bot.model.map { " · \($0)" } ?? ""))
         .toolbar {
             ToolbarItem(placement: .navigation) { AvatarView(identity: identity, size: DS.Size.avatarHero) }
+            ToolbarItem(placement: .primaryAction) { RoutinesToolbarButton(bot: chat.bot) }  // A15, RoutinesView.swift
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     // System inspector animation with motion on; a no-animation transaction with it off.
@@ -68,11 +69,12 @@ struct BotChatView: View {
                 let items = TranscriptItem.build(chat.lines)
                 let tail = EagerTail.start(of: items) { $0.approximateLines }
                 let gaps = TranscriptItem.gaps(items)
+                let full = ChatCopy.fullResponses(chat.lines)
                 VStack(alignment: .leading, spacing: 0) {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(items[..<tail]) { item in transcriptRow(item).padding(.top, gaps[item.id] ?? 0) }
+                        ForEach(items[..<tail]) { item in transcriptRow(item, full: full).padding(.top, gaps[item.id] ?? 0) }
                     }
-                    ForEach(items[tail...]) { item in transcriptRow(item).padding(.top, gaps[item.id] ?? 0) }
+                    ForEach(items[tail...]) { item in transcriptRow(item, full: full).padding(.top, gaps[item.id] ?? 0) }
                     ServerRequestCards(chat: chat, identity: identity)
                         .padding(.top, chat.requests.isEmpty ? 0 : DS.Space.timeline)
                 }
@@ -106,11 +108,20 @@ struct BotChatView: View {
         }
     }
 
-    private func transcriptRow(_ item: TranscriptItem) -> some View {
+    private func transcriptRow(_ item: TranscriptItem, full: [UUID: String]) -> some View {
         let fromUser: Bool
         if case .line(let l, _) = item { fromUser = l.role == .user } else { fromUser = false }
-        return row(item).id(item.id)
+        return copyable(row(item), item, full: full).id(item.id)
             .transition(motion ? .arrive(from: fromUser ? .bottomTrailing : .bottomLeading) : .identity)
+    }
+
+    /// B2: Copy message (and Copy full response for a reply in several parts) on hover and in the context menu.
+    @ViewBuilder private func copyable<V: View>(_ view: V, _ item: TranscriptItem, full: [UUID: String]) -> some View {
+        if case .line(let line, _) = item, ChatCopy.copyable(line) {
+            view.messageCopyActions(line, fullResponse: full[line.id])
+        } else {
+            view
+        }
     }
 
     @ViewBuilder private func row(_ item: TranscriptItem) -> some View {

@@ -55,15 +55,15 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 
 - [x] **D1** Native notifications for replies and approvals, with Approve/Deny actions (M)
 - [x] **D2** Dock badge for pending approvals and questions (S)
-- [ ] **B2** Copy message and Copy full response (S)
-- [ ] **B8** Queue messages while the bot is busy; steer the running turn (`session.redirect`); queue panel (M)
-- [ ] **B7** Model and reasoning effort per chat (`model.options`, `config.set`) (M)
-- [ ] **B9** Context usage gauge and "Compacting" indicator (`session.usage`, `session.context_breakdown`) (M)
-- [ ] **C1.2** Threads in rooms: Reply in thread (`thread_id`) (M)
-- [ ] **C1.1** Rename a room (`groups.rename`) (S)
-- [ ] **C1.5** "Needs you" badge when a bot writes `@user` (S)
-- [ ] **C1.6** Per-message actions in rooms: Reply to @bot, Copy (S)
-- [ ] **C1.7** Last-message preview in room rows; per-room drafts (S)
+- [x] **B2** Copy message and Copy full response (S)
+- [x] **B8** Queue messages while the bot is busy; steer the running turn (`session.redirect`); queue panel (M)
+- [x] **B7** Model and reasoning effort per chat (`model.options`, `config.set`) (M)
+- [x] **B9** Context usage gauge and "Compacting" indicator (`session.usage`, `session.context_breakdown`) (M)
+- [x] **C1.2** Threads in rooms: Reply in thread (`thread_id`) (M)
+- [x] **C1.1** Rename a room (`groups.rename`) (S)
+- [x] **C1.5** "Needs you" badge when a bot writes `@user` (S)
+- [x] **C1.6** Per-message actions in rooms: Reply to @bot, Copy (S)
+- [x] **C1.7** Last-message preview in room rows; per-room drafts (S)
 - [x] **A1** Bot row context menu: Open, Pin, Hide, Copy @handle; Edit, Duplicate, Delete and Manage groups join
       it with A8, A11, A12 and A5 (S)
 - [x] **A2** Pin bots to the top; Hide/Unhide with a "Hidden (n)" section, stored in the profile's `ui_meta` (S–M)
@@ -75,13 +75,13 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
       `profiles.set_asset`, `hermes profile describe`) (M)
 - [x] **A9** Advanced bot settings, model and provider first, then SOUL, skills, toolsets, MCP
       (`profiles.describe` / `profiles.configure`, `model.options`) (L, split per section)
-- [ ] **A15** Routines (scheduled tasks) per bot: list, pause/resume, delete, details, create with a schedule
+- [x] **A15** Routines (scheduled tasks) per bot: list, pause/resume, delete, details, create with a schedule
       picker, deliver results to Bot Chat (`cron.manage`) (L)
 - [x] **A11** Duplicate a bot (`profiles.create {clone_from}`) (S)
 - [x] **A12** Delete a bot (never `default`), with confirmation (`hermes profile delete --yes`) (S)
 - [ ] **C2.2** Change room members: create a new room with the new members and carry a summary over (M)
-- [ ] **K4** Kanban filters and search: by profile, archived, group Running by profile (S)
-- [ ] **K5** Kanban workers: active workers, inspect run, terminate, reclaim (M)
+- [x] **K4** Kanban filters and search: by profile, archived, group Running by profile (S)
+- [x] **K5** Kanban workers: active workers, inspect run, terminate, reclaim (M)
 
 ## P3: everything else
 

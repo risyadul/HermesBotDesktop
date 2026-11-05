@@ -492,7 +492,11 @@ toolbar. Minimum window 820 × 520.
   maximum is what still fits at the 820 pt minimum next to a 280 pt sidebar column, so dragging it
   wide, or shrinking a window with a wide inspector, never pushes it past the window edge.
 - **Kanban board:** toolbar (board name + task count, New Task, card details toggle), a header row
-  (board switcher when there are two or more boards, filter field 220 pt, dispatcher chip), a note bar
+  (board switcher when there are two or more boards, filter field 220 pt, the filter menu: profile, Show
+  archived, Group Running by profile, its symbol filled while a profile or archived is on; Workers as
+  `button-secondary`, opening a 560 × 420 sheet of worker rows on `surface` with an amber heartbeat line after
+  two minutes without one; dispatcher chip; Running grouped by profile shows a caption per group: 18 pt
+  avatar, @name, count), a note bar
   (failed action in danger, the server's create warning in attention), then the lanes in server order
   as a horizontally scrolling row of 248 pt `surface` columns (card radius) with label + count; an empty
   archive lane is hidden and the dispatcher-only lanes (running, review, scheduled) show a lock and
@@ -565,7 +569,22 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   stroke in a guessed background colour), so it reads over the sidebar material and the toolbar and
   neither tile is clipped.
 - `sidebar-row`: avatar, title, subtitle; hover tint; the selection background is one shared shape that
-  slides between rows.
+  slides between rows. A room row puts the last message's age (caption, muted, `5m` / `3h` / `2d` / `Nov 3`)
+  after its title and the last message ("Alpha: …", "You: …") as its subtitle, falling back to the members
+  before any message. Its trailing slot holds the `needs-you` badge, else the breathing round dot.
+- `needs-you` badge: a small `attention` capsule (soft fill, hairline ring) with an SF Symbol: `at` when a bot
+  wrote `@user` that the user has neither answered nor seen, `hand.raised.fill` when a bot waits on an
+  approval. Never on the room that is on screen.
+- `thread-pane`: the room's inspector column shows an open thread instead of the Activity panel (Activity
+  takes the column back and closes the thread): "Thread" (`title-pane`) + its first message (meta, muted) and
+  a close button, the message the thread hangs off, a `round-divider` with the reply count, the thread's rows,
+  and its own composer ("Reply in thread"). In the room timeline a thread message has a `thread-link` above it
+  ("Thread · <first message>", caption muted, text-bubble symbol) and the message a thread hangs off has one
+  below it ("2 replies ›"); both tint `hover` on hover and open the thread.
+- `message-actions`: on hover, a strip of icon buttons over the message's top trailing corner (window fill,
+  hairline ring, control radius, no shadow): Reply to @bot (`at`, bot messages), Reply in thread
+  (`text.bubble`, not inside the thread pane) and Copy (`doc.on.doc`). The same actions are the message's
+  context menu.
 - `status-chip`: avatar 20, member name, state label. States come only from real room data: `waiting`
   (no terminal turn yet; bot-colour hairline at 45%), `replied` (ink label + checkmark), `passed` and
   `cancelled` (muted label, full opacity), `failed` (danger label, ring and symbol), `needs retry` and
@@ -623,7 +642,19 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `composer`: surface box with focus ring in graphite; Send is `button-primary`; a hint row below shows
   the Return shortcut and, in Group Chat, the sync footer ("Synced 10:42:07 · every 5s · seq 12"). Typing
   `@` opens member suggestions above the box (click, or Tab for the first match); they only edit the
-  draft.
+  draft. In Bot Chat the button says what Return does: Send, Steer (a reply runs; ⌘Return queues), Queue
+  (a reply runs that this chat cannot steer, or files are attached) or Save (a queued message is being
+  edited). The row below leads with the chat's controls in `caption`, muted, hover tint: the model
+  (name truncates in the middle, 150 pt cap), the reasoning effort (brain symbol + level, symbol only on a
+  narrow row) and the context gauge (28 × 4 pt ink bar on a hairline track + percentage, `~` when
+  estimated; click for the breakdown popover). Key hints drop first when the row is narrow. Status on the
+  right: an action in flight, then "Compacting the conversation…", then "<bot> is replying".
+- `queue-panel` (Bot Chat): above the composer, `surface` fill, card radius: a caption header ("2 queued",
+  "· paused" after Stop, with Resume), then one row per message (two lines, `meta`) with Edit, Send now and
+  Delete as 22 pt icon buttons; the row being edited has the `selected` fill and the graphite ring.
+- `message-actions` (Bot Chat): hovering a message shows Copy (and Copy full response for a reply in
+  several parts) at its top trailing corner on a `window` plate with a hairline; the same actions are in its
+  context menu.
 - `empty-state`: SF Symbol (28 pt, muted), `title-state`, one sentence, optional primary action.
   Variants: connecting (with step list), connection failed (Try again), nothing selected, empty room,
   new 1:1 chat.

@@ -28,10 +28,13 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                             ChatTranscript (submit gate, turn settling, tool lines, history seeding), Redaction (token-safe errors),
                             ServeProcess (owned backend), GatewayClient (JSON-RPC/WS),
                             GroupsAPI (raw groups.* calls), GroupChat (typed groups.* views + calls),
-                            RoomTimeline (log reducer, phases, send gate, poll policy, RoomSync),
-                            RoomPoller (one generation-guarded poll loop per room), JSONValue
+                            RoomTimeline (log reducer, phases, send gate, poll policy, RoomSync, RoomThreads),
+                            RoomPoller (one generation-guarded poll loop per room), RoomDigest (sidebar
+                            preview, age, @user rule), JSONValue
   CanonicalBotChat.swift      the bot's one "Bot Chat": find -> resume, create only when absent, detach-only teardown
   ChatAttachments.swift       image/pdf/file attach RPCs, client-side checks, prompt text
+  ChatControls.swift          composer controls: session.redirect, model.options, config.set model (--session) and
+                              reasoning (no scope), session.usage / context_breakdown, CompactionPhase
   MediaTags.swift             MEDIA:<path> parsing + MediaSafety (deny rules for Open/Reveal)
   ServerRequests.swift        server->client requests (approval, clarify, sudo, secret): frames, answers, cancel
   SlashCommands.swift         commands.catalog (curated like Desktop) + invocation classification
@@ -39,7 +42,11 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   PluginREST.swift            /api/plugins/<name>/ REST client (session token header, loopback, no redirects;
                               streamed answers capped: 8 MB JSON, downloads per call; multipart upload; `+` in
                               query values sent as %2B)
-  KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models
+  KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models;
+                              KanbanWorkers.swift: K5 /workers/active, /runs/{id}[/inspect|/terminate]
+  Routines.swift              A15 cron.manage: RoutineJob/RoutineList, Desktop's naming ([bot:<name>]), prompt
+                              (plain in the bot's own store, v2 delegation when the scope is unproven), add
+                              payload, tag-filter fallback; `{success: false}` replies throw
   BotActivityAPI.swift        bot-activity plugin calls; install/enable/remove via plugins.manage (pinned ref,
                               provenance check); BotActivityProfileSwitch: per-profile `plugins enable/disable`;
                               BotActivityFeed.swift: paging merge, cursor, member phases
@@ -64,8 +71,13 @@ Sources/HermesBotApp/       SwiftUI app:
   ChatModel.swift             one Bot Chat 1:1 (open/seed/send gate, wraps ChatTranscript)
   ChatModel+Slash.swift       slash command execution and directives
   ChatModel+Requests.swift    attachments staging and server request cards state
+  ChatModel+Queue.swift       B8: Return steers (session.redirect), ⌘Return queues, auto-drain, Stop pauses, edit
+  ChatModel+Controls.swift    B7/B9: model + reasoning per chat (optimistic, rollback, confirm), context usage
   ChatSessionLink.swift       protocol ChatModel needs from a chat (BotChatSession in prod, fake in tests)
-  ChatComposer.swift          composer: paperclip, drop/paste, slash menu, Send/Stop
+  ChatComposer.swift          composer: paperclip, drop/paste, slash menu, Send/Steer/Queue/Save, Stop, status row
+  ChatComposerControls.swift  model menu, reasoning menu, context gauge + breakdown popover
+  ChatQueuePanel.swift        queued messages above the composer (Edit, Send now, Delete, Resume)
+  MessageCopy.swift           B2: Copy message / Copy full response (hover + context menu)
   SlashCommandMenu.swift      slash menu keyboard model
   AttachmentChips.swift       staged attachment chips, pasteboard file import
   ToolActivityRow.swift       compact tool-call row
@@ -94,15 +106,27 @@ Sources/HermesBotApp/       SwiftUI app:
   KanbanBoardModel.swift      one board: polling (suspendable), lanes, optimistic actions + rollback, details,
                               `.gone` when the board is deleted or archived while open (KanbanService)
   KanbanBoardView.swift       board pane: header, lanes, cards, card menus, dispatcher chip
+  KanbanBoardFilters.swift    K4 filter menu: profile (client-side), Show archived (include_archived),
+                              Group Running by profile (@AppStorage hba.kanbanGroupRunning)
+  KanbanWorkersModel.swift    K5 Workers sheet state: polling /workers/active while open, inspect, terminate,
+                              reclaim; KanbanWorkersView.swift: the sheet
+  RoutinesModel.swift         A15 one bot's routines (20 s refresh while open, optimistic pause/resume, legacy
+                              auto-pause, create); RoutinePresentation.swift: schedule picker + texts;
+                              RoutinesView.swift: sheet opened from the Bot Chat toolbar (RoutinesToolbarButton)
   KanbanTaskInspector.swift   card details inspector (attachments, message worker / requeue), New Task sheet;
                               KanbanSidebar.swift: Boards rows
   KanbanAttachments.swift     card attachments on disk: upload read + size cap, download name sanitising,
                               caches folder, open-or-reveal check (never runs files)
   BotChatView.swift           Bot Chat pane (transcript, composer, streaming text)
   BotInspector.swift          bot details inspector, DefaultTag
-  RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions)
+  RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions, rename, per-thread
+                              drafts, Reply to @bot / Reply in thread); talks to `any RoomActions`
   RoomView.swift              Group Chat pane; RoomRows.swift (ribbon, timeline rows),
-                              RoomActionViews.swift (approval/retry cards, @mentions), CreateRoomView.swift
+                              RoomActionViews.swift (approval/retry cards, @mentions), CreateRoomView.swift,
+                              RoomRenameView.swift, RoomThreadViews.swift (thread pane, thread links,
+                              message action strip)
+  RoomDigests.swift           RoomDigestHub (sidebar room rows: groups.list → log tails → state for unsettled
+                              rooms, seen-through per room in UserDefaults) and the room row view
   RoomActivityModel.swift     per-room Activity inspector state: bot-activity polling, plugin enable/remove;
                               RoomActivityPresentation.swift (rows, chips, turn-state fallback),
                               RoomActivityPanel.swift (panel, enable sheet)
@@ -111,8 +135,10 @@ Sources/HermesBotApp/       SwiftUI app:
 Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, GroupChat logic + groups.* wire
                             shapes, RoomPoller lifecycle + room availability
                             + parity suites: CanonicalBotChat, BotChatRebind (reclaim/session.info), ChatAttachment,
-                            ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand (ParityTestSupport: fakes)
-Tests/HermesBotAppTests/    ChatModel (with FakeChatLink), BotChatUIModel, MediaViews; app regressions: Try Again reconnects after a failed load (ConnectFlow + real
+                            ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand, ChatControls
+                            (ParityTestSupport: fakes)
+Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls), BotChatUIModel, MediaViews, RoomModel Group Chat
+                            actions + RoomDigestHub (with FakeRoomActions); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate; real-window suites are opt-in
@@ -192,7 +218,10 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
   `profiles.set_asset`, `hermes --profile <name> config unset model`), Duplicate (`profiles.create`) and Delete
   (`hermes profile delete --yes`). Tests never do any of this for real: kit tests use a scripted fake gateway
   and `FakeCommandRunner`, app tests a fake `BotProfileService` (`BotManagementTests`); no profile is created,
-  edited or deleted, no hermes runs, no asset is uploaded.
+  edited or deleted, no hermes runs, no asset is uploaded. Bot Chat model and effort picks are
+  session-scoped (`--session` / no scope).
+- Routines and kanban workers are tested with fakes only (`FakeCron` records `cron.manage` params,
+  `FakeKanbanService` the worker calls): tests never send a real `cron.manage` mutation, terminate or reclaim.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend

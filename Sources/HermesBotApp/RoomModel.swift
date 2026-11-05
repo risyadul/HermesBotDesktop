@@ -25,13 +25,23 @@ final class RoomModel: ObservableObject, Identifiable {
     @Published private(set) var notes: [String] = []
     @Published private(set) var lastSync: Date?
     @Published private(set) var busyActions: Set<String> = []
-    /// Files picked, pasted or dropped for the next message (copied into the room's folder on send).
+    /// Files picked, pasted or dropped for the next message (copied into the room's folder on send). They go
+    /// with the main composer's message; thread replies are text only.
     @Published var pending: [PendingAttachment] = []
-    /// The text of a send that failed, for the composer to take back (then set to nil).
-    @Published var restoredDraft: String?
-    let api: GroupsAPI
+    /// Composer drafts per thread (`main` = the room composer). They live here, not in the view, so they
+    /// survive switching panes; a send that fails puts its text back.
+    @Published var drafts: [String: String] = [:]
+    /// The thread shown in the thread pane (nil: closed).
+    @Published var openThread: String?
+    /// A composer that should take focus (Reply to @bot, Reply in thread).
+    @Published private(set) var focusRequest: FocusRequest?
+    let api: any RoomActions
     /// Evidence hook: every applied sync (new events since the previous one).
     var onSync: ((RoomModel, [RoomEvent]) -> Void)?
+    /// Every applied sync (the sidebar digest follows the open room through it).
+    var onApplied: ((RoomModel) -> Void)?
+    /// The room's row changed name (renamed here, or elsewhere and seen by a poll).
+    var onRoomChanged: ((RoomSummary) -> Void)?
     /// The room was disbanded (here) or found retired: the app drops it from the sidebar.
     var onDisbanded: ((RoomModel) -> Void)?
     private let poller: RoomPoller
@@ -39,9 +49,21 @@ final class RoomModel: ObservableObject, Identifiable {
     private var wantsPolling = false
     /// App shutdown: polling never restarts.
     private var shutDown = false
+    /// The name of a `groups.rename` in flight: polls keep showing it until the call returns.
+    private var pendingName: String?
+    /// The room revision a confirmed rename produced: a sync that was already in flight carries an older
+    /// `groups.state` row (the old name) and must not put it back.
+    private var renamedRevision = 0
+    /// Anchored threads whose quoted opening message was already sent (the log may not show it yet).
+    private var openedThreads: Set<String> = []
     private(set) var pollCount = 0
 
-    init(room: RoomSummary, api: GroupsAPI) {
+    struct FocusRequest: Equatable {
+        let thread: String
+        let id = UUID()
+    }
+
+    init(room: RoomSummary, api: any RoomActions) {
         id = room.roomId; self.room = room; self.api = api
         poller = RoomPoller(source: api, roomId: room.roomId)
         poller.onUpdate = { [weak self] u in self?.apply(u) }
@@ -53,6 +75,8 @@ final class RoomModel: ObservableObject, Identifiable {
     var pollInterval: TimeInterval { RoomPollPolicy.interval(driver: driver, timeline: timeline) }
     /// Something is still happening: a task is queued/running/stopping or the latest message is unsettled.
     var active: Bool { RoomPollPolicy.busy(driver: driver, timeline: timeline) }
+    /// The room view is on screen: what it shows counts as seen (sidebar "needs you").
+    var isOnScreen: Bool { wantsPolling }
     var pollGeneration: Int { poller.generation }
     var droppedStaleSyncs: Int { poller.droppedStale }
 
@@ -79,8 +103,17 @@ final class RoomModel: ObservableObject, Identifiable {
     func nudge() { poller.nudge() }
 
     private func apply(_ u: RoomPoller.Update) {
-        timeline = u.timeline; driver = u.state.driver; room = u.state.room; lastSync = Date(); pollCount += 1
+        timeline = u.timeline; driver = u.state.driver; lastSync = Date(); pollCount += 1
+        let incoming = u.state.room.revision < renamedRevision ? room : u.state.room
+        setRoom(pendingName.map { incoming.renamed($0) } ?? incoming)
         onSync?(self, u.newEvents)
+        onApplied?(self)
+    }
+
+    private func setRoom(_ r: RoomSummary) {
+        let renamed = r.name != room.name
+        room = r
+        if renamed { onRoomChanged?(r) }
     }
 
     private func syncFailed(_ error: Error) {
@@ -122,11 +155,21 @@ final class RoomModel: ObservableObject, Identifiable {
 
     // MARK: actions
 
-    /// Same gate shape as Bot Chat: true only when accepted (the view clears its draft then). Refused
+    /// Sends the composer draft of `thread` and clears it when accepted (Return, Send button).
+    @discardableResult
+    func submit(thread: String = RoomThreads.main) -> Bool {
+        guard send(drafts[thread] ?? "", thread: thread) else { return false }
+        drafts[thread] = ""
+        return true
+    }
+
+    /// Same gate shape as Bot Chat: true only when accepted (the caller clears its draft then). Refused
     /// (draft kept, nothing sent) while a send is in flight or once the room is closing/disbanded —
-    /// whichever path called it (Return, button, script).
-    func send(_ draft: String) -> Bool {
-        let chips = pending.filter(\.isReady)
+    /// whichever path called it (Return, button, script). `thread` is the `thread_id`: `main` from the room
+    /// composer, a thread id from the thread pane. The first message of a thread started from a `main`
+    /// message quotes that message (members only see their thread, `RoomThreads.opening`).
+    func send(_ draft: String, thread: String = RoomThreads.main) -> Bool {
+        let chips = thread == RoomThreads.main ? pending.filter(\.isReady) : []
         guard chips.count <= RoomAttachments.maxFiles else {
             note("at most \(RoomAttachments.maxFiles) files per message, message not posted")
             return false
@@ -138,6 +181,7 @@ final class RoomModel: ObservableObject, Identifiable {
         setChips(ids, .sending)
         let files = chips.compactMap(\.checked), roomId = room.roomId
         let eventId = "hba-msg-\(UUID().uuidString.lowercased())"
+        let quote = openingQuote(thread)
         Task {
             defer { composer.finishSend(); nudge() }
             // Copied off the main thread: ten files from another volume (no APFS clone) would stall the UI.
@@ -154,34 +198,49 @@ final class RoomModel: ObservableObject, Identifiable {
             let copies: [URL]
             switch copied {
             case .failure(let error):
-                return sendFailed(ids, draft: draft, note: "\(Redaction.describe(error)) Message not posted.")
+                return sendFailed(ids, draft: draft, thread: thread, note: "\(Redaction.describe(error)) Message not posted.")
             case .success(let c):
                 copies = c
             }
-            let text = RoomAttachments.compose(text: typed, paths: copies.map(\.path))
+            var text = RoomAttachments.compose(text: typed, paths: copies.map(\.path))
+            if let quote { text = RoomThreads.opening(text, quoting: quote.author, quote.text) }
             guard text.utf8.count <= RoomComposer.maxTextBytes else {
                 RoomAttachmentStore.discard(copies)
-                return sendFailed(ids, draft: draft, note: "The message and its file list are too long. Message not posted.")
+                let what = copies.isEmpty ? "The message is" : "The message and its file list are"
+                return sendFailed(ids, draft: draft, thread: thread, note: "\(what) too long. Message not posted.")
             }
             do {
-                let e = try await api.sendMessage(roomId: roomId, eventId: eventId, text: text, threadId: "main")
-                AppModel.shared.log("groups.send → seq=\(e.seq) (ACK only; replies arrive through polling)")
+                let e = try await api.sendMessage(roomId: roomId, eventId: eventId, text: text, threadId: thread)
+                AppModel.shared.log("groups.send → seq=\(e.seq) thread=\(thread) (ACK only; replies arrive through polling)")
+                if quote != nil { openedThreads.insert(thread) }
                 // Sent: pasted originals now live as the room's copies.
                 PasteboardAttachments.delete(pending.filter { ids.contains($0.id) }.map(\.url))
                 pending.removeAll { ids.contains($0.id) }
             } catch {
                 // The copies stay: a timed-out send may still have been posted, and its paths must keep working.
-                sendFailed(ids, draft: draft, note: "send failed, the message may not have been posted: \(Redaction.describe(error))")
+                sendFailed(ids, draft: draft, thread: thread,
+                           note: "send failed, the message may not have been posted: \(Redaction.describe(error))")
             }
         }
         return true
     }
 
-    /// A send that did not go out: its chips are ready again and its text goes back to the composer.
-    private func sendFailed(_ ids: Set<UUID>, draft: String, note text: String) {
+    /// A send that did not go out: its chips are ready again and its text goes back to its composer (unless
+    /// the user already typed something new there).
+    private func sendFailed(_ ids: Set<UUID>, draft: String, thread: String, note text: String) {
         note(text)
         setChips(ids, .ready)
-        restoredDraft = draft
+        if (drafts[thread] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { drafts[thread] = draft }
+    }
+
+    /// The message a new anchored thread quotes: only for its first message (no user message in the
+    /// thread yet, none sent from here), and only while the anchor is in the log.
+    private func openingQuote(_ thread: String) -> (author: String, text: String)? {
+        guard let seq = RoomThreads.anchorSeq(of: thread), !openedThreads.contains(thread),
+              !timeline.events.contains(where: { $0.kind == "message.user" && RoomThreads.id(of: $0) == thread }),
+              let line = timeline.lines(room: room).first(where: { $0.id == seq }),
+              line.kind == .user || line.kind == .member else { return nil }
+        return (line.author, RoomAttachments.split(line.text).text)
     }
 
     private func setChips(_ ids: Set<UUID>, _ state: PendingAttachment.State) {
@@ -190,7 +249,7 @@ final class RoomModel: ObservableObject, Identifiable {
 
     func stop() {
         perform("stop") { api in
-            let n = try await api.stopRoom(roomId: self.room.roomId)
+            let n = try await api.stopRoom(roomId: self.room.roomId, cancelId: "hba-stop-\(UUID().uuidString.lowercased())")
             return "groups.stop → cancelled \(n) task(s)"
         }
     }
@@ -216,7 +275,7 @@ final class RoomModel: ObservableObject, Identifiable {
         guard composer.beginClosing() else { return disbanded }
         poller.stop()
         do {
-            _ = try await api.disbandRoom(roomId: room.roomId)
+            _ = try await api.disbandRoom(roomId: room.roomId, cancelId: "hba-disband-\(UUID().uuidString.lowercased())")
             note("disbanded")
             markDisbanded()
             return true
@@ -228,7 +287,7 @@ final class RoomModel: ObservableObject, Identifiable {
         }
     }
 
-    private func perform(_ key: String, _ op: @escaping @MainActor (GroupsAPI) async throws -> String) {
+    private func perform(_ key: String, _ op: @escaping @MainActor (any RoomActions) async throws -> String) {
         guard composer.isOpen, !busyActions.contains(key) else { return }
         busyActions.insert(key)
         Task {
@@ -241,6 +300,86 @@ final class RoomModel: ObservableObject, Identifiable {
             busyActions.remove(key)
             nudge()
         }
+    }
+
+    /// `groups.rename` (room menu → Rename…). Optimistic: the new name shows at once (toolbar, sidebar) and
+    /// polls keep it while the call runs; a failure puts the old name back and says why in the note bar.
+    /// False (nothing sent) for a blank, too long or unchanged name, a rename already in flight, or a room
+    /// that is closing/closed.
+    @discardableResult
+    func rename(_ raw: String) -> Bool {
+        guard composer.isOpen, pendingName == nil, let name = RoomSummary.normalizedName(raw), name != room.name else { return false }
+        let previous = room.name, roomId = room.roomId
+        let eventId = "hba-rename-\(UUID().uuidString.lowercased())"
+        pendingName = name
+        busyActions.insert("rename")
+        setRoom(room.renamed(name))
+        Task {
+            do {
+                let renamed = try await api.renameRoom(roomId: roomId, eventId: eventId, name: name)
+                pendingName = nil
+                renamedRevision = max(renamedRevision, renamed.revision)
+                setRoom(renamed.roomId == roomId ? renamed : room.renamed(renamed.name))
+                note("groups.rename → \(renamed.name)")
+            } catch {
+                pendingName = nil
+                if room.name == name { setRoom(room.renamed(previous)) }
+                note("rename failed: \(Redaction.describe(error))")
+            }
+            busyActions.remove("rename")
+            nudge()
+        }
+        return true
+    }
+}
+
+// MARK: - threads and per-message actions
+
+extension RoomModel {
+    /// Binding target for a composer: the draft of `thread`.
+    func draft(_ thread: String) -> String { drafts[thread] ?? "" }
+
+    func setDraft(_ text: String, thread: String) { drafts[thread] = text }
+
+    /// "Reply in thread" on the message at `seq`: opens its thread (a new one anchored on it for a `main`
+    /// message) in the thread pane and focuses that composer.
+    func replyInThread(seq: Int) {
+        guard let e = timeline.events.first(where: { $0.seq == seq }) else { return }
+        showThread(RoomThreads.replyThread(for: e))
+    }
+
+    func showThread(_ thread: String) {
+        guard thread != RoomThreads.main else { return closeThread() }
+        openThread = thread
+        focusRequest = FocusRequest(thread: thread)
+    }
+
+    func closeThread() {
+        openThread = nil
+        focusRequest = FocusRequest(thread: RoomThreads.main)
+    }
+
+    /// "Reply to @bot" on a member message: puts `@handle ` in front of the draft of the composer that owns
+    /// the message's thread (opening the thread pane for a thread message) and focuses it. Only edits the
+    /// draft; the user still sends.
+    func replyToMember(seq: Int) {
+        guard let e = timeline.events.first(where: { $0.seq == seq }), e.kind == "message.member",
+              let member = room.member(e.memberId) else { return }
+        let thread = RoomThreads.id(of: e)
+        if thread != RoomThreads.main { openThread = thread }
+        drafts[thread] = Self.seedMention(member.handle, into: draft(thread))
+        focusRequest = FocusRequest(thread: thread)
+    }
+
+    /// `@handle ` in front of `draft`, unless the draft already mentions that handle. Trailing whitespace
+    /// folds to one space so the caret lands after the mention (Hermes Desktop `replyToMember`).
+    nonisolated static func seedMention(_ handle: String, into draft: String) -> String {
+        let tag = "@\(handle)"
+        let pattern = "(?<![A-Za-z0-9._:-])" + NSRegularExpression.escapedPattern(for: tag) + "(?![A-Za-z0-9._:-])"
+        if draft.range(of: pattern, options: .regularExpression) != nil { return draft }
+        let seeded = "\(tag) \(draft)"
+        guard let r = seeded.range(of: "\\s+$", options: .regularExpression) else { return seeded }
+        return seeded.replacingCharacters(in: r, with: " ")
     }
 }
 
