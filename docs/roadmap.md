@@ -4,7 +4,7 @@ Planned work for Hermes Bot for macOS, compared against the Hermes desktop app's
 Kanban features, plus ideas that are specific to a native Mac app. Items are tracked here as a checklist; tick an
 item when it ships and note it in [CHANGELOG.md](../CHANGELOG.md).
 
-Last reviewed: 2026-11-05, against Hermes Agent `main` (`8a7a5a905fc`).
+Last reviewed: 2026-11-06, against Hermes Agent `main` (`8a7a5a905fc`).
 
 ## Ground rules
 
@@ -126,17 +126,19 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
       notifications when a card finishes or is blocked, Boards section in the sidebar (M)
 
 ### macOS integration
-- [ ] **D5** ⌘1…9 to switch bots, ⌘K quick switcher (S)
-- [ ] **D8** Quick Look for bot files and attachments; drag files out to Finder (S)
-- [ ] **D13** Room templates: saved member sets and an opening prompt (S)
-- [ ] **D15** Mute notifications per bot or room (S). Done: the Settings switch for `notificationsEnabled`
-      (Settings → Notifications → Show notifications).
+- [x] **D5** ⌘1…9 to switch bots, ⌘K quick switcher (S)
+- [x] **D8** Quick Look for bot files and attachments; drag files out to Finder (S)
+- [x] **D13** Room templates: saved member sets and an opening prompt (S)
+- [x] **D15** Mute notifications per bot or room (S); also the Settings switch for `notificationsEnabled`
+      (Settings → Notifications → Show notifications). A muted item posts no banner but still counts in the
+      Dock badge.
 - [ ] **D3** Menu bar extra: bot status and quick send (M)
 - [ ] **D4** Global hotkey "quick ask" panel (M)
 - [ ] **D6** macOS Services / Share: "Send to Hermes bot" (M)
 - [ ] **D7** Shortcuts actions: "Ask <bot>", "Send to group" (M)
-- [ ] **D9** Open a Bot Chat or room in its own window (M)
-- [ ] **D10** Search across Bot Chats and rooms (M)
+- [x] **D9** Open a Bot Chat or room in its own window (M)
+- [x] **D10** Search across Bot Chats and rooms (M): what the app holds (opened Bot Chats, room logs and
+      tails); older history is not fetched
 - [ ] **D12** "Summarize since I left" for rooms (M)
 
 ### Migration

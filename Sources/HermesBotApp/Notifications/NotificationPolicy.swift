@@ -27,9 +27,11 @@ enum NotificationPolicy {
 
     /// Only while the app is not frontmost, only when enabled. A bot hidden from the roster never notifies
     /// about its replies (Desktop: "a hidden bot never toasts"); requests and approvals still do, because the
-    /// bot is blocked on the user.
-    static func shouldPost(_ event: AttentionEvent, appActive: Bool, enabled: Bool, botHidden: Bool) -> Bool {
-        guard enabled, !appActive else { return false }
+    /// bot is blocked on the user. A muted bot or room (D15, `NotificationMutes`) never notifies at all; it still
+    /// counts in the Dock badge.
+    static func shouldPost(_ event: AttentionEvent, appActive: Bool, enabled: Bool, botHidden: Bool,
+                           muted: Bool = false) -> Bool {
+        guard enabled, !appActive, !muted else { return false }
         if case .botReplied = event, botHidden { return false }
         if case .botReplied(_, _, let text) = event, text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         return true

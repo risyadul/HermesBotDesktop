@@ -62,6 +62,9 @@ final class RoomDigestHub: ObservableObject {
 
     enum NeedsYou: Equatable { case approval, mention }
 
+    /// The newest events held for a room (D10 searches them for rooms whose pane is not open).
+    func tail(_ roomId: String) -> [RoomEvent] { tails[roomId] ?? [] }
+
     // MARK: feeding
 
     /// The open room's model applied a poll: its full timeline replaces the tail, its driver status gives

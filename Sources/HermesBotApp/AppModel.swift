@@ -40,6 +40,15 @@ final class AppModel: ObservableObject {
     let botMeta = BotMetaModel()
     /// Native notifications and the Dock badge (D1, D2: Notifications/).
     let notifications: NotificationCoordinator
+    // macOS integration (AppModel+Navigation.swift): the ⌘K / ⇧⌘F palette (D5, D10) and its message jumps, the
+    // sidebar rows ⌘1…9 pick (D5), room templates (D13) and muted bots and rooms (D15).
+    @Published var palette: PaletteMode?
+    @Published var sidebarOrder: [SidebarItem] = []
+    /// The room "Save as Template…" is saving (its sheet is on screen).
+    @Published var templateSource: RoomSummary?
+    let jumps = MessageJumpCenter()
+    let roomTemplates = RoomTemplateStore()
+    let mutes = NotificationMutes()
     var selectedBot: String? { if case .bot(let n)? = selection { return n }; return nil }
     private(set) var backend: Backend?
     private var disconnectToken: UUID?
@@ -61,6 +70,7 @@ final class AppModel: ObservableObject {
         notifications = NotificationCoordinator(poster: poster)
         poster?.onRoute = { [weak self] route in self?.handleNotification(route) }
         notifications.botHidden = { [weak self] name in self?.botMeta[name].hidden ?? false }
+        notifications.muted = { [weak self] item in self?.mutes.isMuted(item) ?? false }
         // One background room poller: the sidebar digests' passes feed the notification watcher.
         roomDigests.attention = notifications.rooms
         // A board deleted or archived elsewhere leaves the selection (its pane would show a dead board).

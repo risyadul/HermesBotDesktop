@@ -21,6 +21,8 @@ final class NotificationCoordinator {
     var appActive: () -> Bool = { NSApp?.isActive ?? true }
     var enabled: () -> Bool = { NotificationPolicy.isEnabled() }
     var botHidden: (String) -> Bool = { _ in false }
+    /// D15: the bot or room is muted (no banner; the badge still counts it).
+    var muted: (SidebarItem) -> Bool = { _ in false }
     var setBadge: (String?) -> Void = { label in NSApp?.dockTile.badgeLabel = label }
     private(set) var badge: String?
     private var chatRequests: [String: [ServerRequest]] = [:]
@@ -104,7 +106,8 @@ final class NotificationCoordinator {
     private func consider(_ event: AttentionEvent) {
         let hidden: Bool
         if case .botReplied(let bot, _, _) = event { hidden = botHidden(bot) } else { hidden = false }
-        guard NotificationPolicy.shouldPost(event, appActive: appActive(), enabled: enabled(), botHidden: hidden) else { return }
+        guard NotificationPolicy.shouldPost(event, appActive: appActive(), enabled: enabled(), botHidden: hidden,
+                                            muted: muted(NotificationMutes.target(of: event))) else { return }
         poster?.post(NotificationContent(event))
     }
 

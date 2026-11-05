@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- macOS integration (D5, D8, D9, D10, D13, D15):
+  - **⌘1…⌘9** select the first nine group chats and bots the sidebar shows (listed in a new **Go** menu), and
+    **⌘K** opens a quick switcher with fuzzy search over group chats, bots and boards.
+  - **Search Messages (⇧⌘F)**, also Tab in the switcher: searches the Bot Chats opened since launch and every
+    group chat's loaded log or recent events, shows each hit with its context, and opens the chat scrolled to
+    the message. Nothing extra is fetched for a search.
+  - **Quick Look** for files bots send and Group Chat attachments (click an image, Space over a tile, or the
+    context menu), and **drag them out** to Finder. Both re-run the file safety check first; reveal-only formats
+    are not previewed.
+  - **Open in New Window** for a Bot Chat or group chat (row menu, ⌘-double-click, or the Go menu). The window
+    uses the same chat and room models as the main window, so there is no second connection or poller; a room
+    shown in two windows keeps polling until both have closed it. These windows reopen at the next launch.
+  - **Room templates:** Save as Template… on a group chat keeps its bots and an opening prompt; File → New Group
+    Chat from Template prefills New Group Chat and puts the prompt in the new room's composer (not sent).
+  - **Mute Notifications** per bot or group chat (row menu). Muted items post no notifications, approvals
+    included, but still count in the Dock badge.
 - First-run setup screens (E2) instead of a bare error: **Install Hermes Agent** when no `hermes` is found
   (docs link, the `HERMES_BOT_APP_HERMES_BIN` override with a Copy button, the places checked, Try Again);
   **Choose a model for Hermes** when the backend answers but `setup.runtime_check` (read-only) says no model can

@@ -26,6 +26,8 @@ struct RoomView: View {
     @FocusState private var composerFocused: Bool
     @State private var paste = AttachmentPasteMonitor()
     @State private var dropTargeted = false
+    /// This view as one of the room's viewers (D9: the room can show in two windows).
+    @State private var viewer = PaneViewer()
     /// Persisted Activity panel visibility, bound through a @State copy as in BotChatView (an @AppStorage
     /// write reaches the view outside the toggle's transaction, so the no-animation path still slid it).
     @AppStorage("hba.roomActivity") private var storedActivity = false
@@ -101,11 +103,11 @@ struct RoomView: View {
         }
         .onChange(of: showActivity) { _, shown in storedActivity = shown }
         .onAppear {
-            model.start()
+            model.start(viewer: viewer.id)
             let model = model
             paste.install(canAttach: { model.composer.isOpen }, attach: { model.addAttachments($0) })
         }
-        .onDisappear { model.stopPolling() }
+        .onDisappear { model.stopPolling(viewer: viewer.id) }
         .onChange(of: model.lastSync) { _, sync in
             if sync != nil { memory.setBaselineIfNeeded(model.timeline.cursor) }
         }
@@ -191,6 +193,7 @@ struct RoomView: View {
                 .animation(motion ? DS.Motion.ease : nil, value: actions.map(\.id))
             }
             .defaultScrollAnchor(.bottom)
+            .messageJumpTarget(.room(model.id), proxy: proxy)  // D10: Search Messages → this message
             .onChange(of: model.timeline.cursor) { _, _ in
                 guard let id = model.lines.last?.id else { return }
                 withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(id, anchor: .bottom) }

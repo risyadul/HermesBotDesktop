@@ -93,6 +93,7 @@ struct BotChatView: View {
             .environmentObject(disclosure)
             .opacity(transcriptSettled ? 1 : 0)
             .onAppear { settle(proxy) }
+            .messageJumpTarget(.bot(chat.bot.name), proxy: proxy)  // D10: Search Messages → this message
             .onChange(of: chat.lines.last?.text) { _, _ in
                 if let id = TranscriptItem.build(chat.lines).last?.id { proxy.scrollTo(id, anchor: .bottom) }
             }

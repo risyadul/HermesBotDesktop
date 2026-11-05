@@ -107,7 +107,24 @@ Sources/HermesBotApp/       SwiftUI app:
                               passes and the open room's poller; it does not poll), NotificationCoordinator
                               (chats + rooms → posts, withdrawals,
                               badge), UserNotificationPoster (UNUserNotificationCenter; .app bundle only, never
-                              under XCTest), AppModel+Notifications (click and Approve/Deny routing)
+                              under XCTest), AppModel+Notifications (click and Approve/Deny routing),
+                              NotificationMutes (D15: muted bots/rooms in UserDefaults `hba.mutedNotifications`;
+                              no banner, the Dock badge still counts them)
+  AppCommands.swift           D5/D9/D10/D13 menus: Go (⌘K, ⇧⌘F, ⌘1…9, Open in New Window), File → room
+                              templates; SidebarItemMenu (Open in New Window, Save as Template…, Mute) for rows
+  QuickSwitch.swift           pure: SidebarShortcuts (⌘1…9 = rooms then bots in sidebar order), FuzzyMatch,
+                              QuickSwitch candidates/ranking, MessageSearch (sources from loaded transcripts,
+                              open room logs and RoomDigestHub tails; snippets); CommandPaletteView.swift: the
+                              ⌘K / ⇧⌘F palette; AppModel+Navigation.swift: PaletteMode, MessageJumpCenter +
+                              MessageJumpTarget (scroll a pane to a found message), search sources
+  PaneWindows.swift           D9: WindowGroup(for: SidebarItem) content on the main window's models, SidebarItem
+                              Codable token, PaneViewers (RoomModel / RoomActivityModel poll while ANY view shows
+                              them; one poller per room however many windows), connectOnce (first window connects)
+  QuickLook.swift             D8: QuickLookPolicy (previewable = checked and not reveal-only; Space bar rule),
+                              MediaDrag (drag out = file URL re-checked by MediaSafety at drag time),
+                              QuickLookController (QLPreviewPanel data source; the app delegate is its controller)
+  RoomTemplates.swift         D13: RoomTemplateStore (UserDefaults `hba.roomTemplates`, 2–6 members, prompt), the
+                              Save as Template sheet, File menu items; creating from one reuses CreateRoomPrefill
   KanbanHub.swift             board list for the sidebar, per-board models (pruned when unlisted), polling paused
                               while no main window is on screen (setActive), dispatcher polling while a board shows
   DispatcherStatusModel.swift the one dispatcher status model (board chip + Settings), generation-guarded (K8)
@@ -175,8 +192,10 @@ Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatMo
                             no real room is created, sent to, renamed or disbanded); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
-                            create-room sheet vs the motion gate; real-window suites are opt-in
-                            (WindowTestGate: HERMES_BOT_APP_WINDOW_TESTS=1)
+                            create-room sheet vs the motion gate; macOS integration (PaneWindowTests,
+                            QuickSwitchTests, QuickLookTests, RoomTemplateMuteTests); real-window suites are opt-in
+                            (WindowTestGate: HERMES_BOT_APP_WINDOW_TESTS=1; PaneWindowLiveTests hosts one room in
+                            two windows, local opt-in only)
 scripts/run-app-evidence.sh  scripted app run with a watchdog
 scripts/sigint-regression.sh Ctrl+C cleanup check against a fake backend (scripts/fixtures/)
 ```

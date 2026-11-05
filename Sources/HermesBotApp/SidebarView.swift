@@ -58,6 +58,7 @@ struct SidebarView: View {
                     }
                     ForEach(shownRooms) { room in
                         row(.room(room.roomId)) { roomRow(room) }
+                            .contextMenu { SidebarItemMenu(item: .room(room.roomId), model: model) }
                     }
                     sectionHeader("Bots") { EmptyView() }
                     if model.bots.isEmpty {
@@ -98,6 +99,7 @@ struct SidebarView: View {
             Hairline()
             footer
         }
+        .onChange(of: order, initial: true) { _, rows in model.sidebarOrder = rows }  // ⌘1…9 (D5)
     }
 
     /// A3: the standard filter field (a rounded text field, as on the Kanban board); never bound to ⌘F, which
@@ -184,6 +186,7 @@ struct SidebarView: View {
             }
         }
         .disabled(model.backend == nil || model.botSheet != nil)
+        SidebarItemMenu(item: .bot(bot.name), model: model)  // D9, D15
     }
 
     private func sectionHeader<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {
@@ -206,6 +209,7 @@ struct SidebarView: View {
         }
         .buttonStyle(SidebarRowStyle(selected: model.selection == item, keyboardFocus: focused, space: selectionSpace))
         .accessibilityAddTraits(model.selection == item ? .isSelected : [])
+        .modifier(OpenInWindowGesture(item: item))  // D9: ⌘-double-click
     }
 
     /// Last message + age, "needs you" badge, live dot (RoomDigests.swift).

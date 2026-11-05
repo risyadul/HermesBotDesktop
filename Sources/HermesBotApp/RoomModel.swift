@@ -47,8 +47,10 @@ final class RoomModel: ObservableObject, Identifiable {
     /// The room was disbanded (here) or found retired: the app drops it from the sidebar.
     var onDisbanded: ((RoomModel) -> Void)?
     private let poller: RoomPoller
-    /// The room view is on screen (start/stopPolling); a failed disband resumes polling only then.
-    private var wantsPolling = false
+    /// The room views on screen (start/stopPolling; D9: the main window and its own window can both show
+    /// it); a failed disband resumes polling only while one is.
+    private var viewers = PaneViewers()
+    private var wantsPolling: Bool { !viewers.isEmpty }
     /// App shutdown: polling never restarts.
     private var shutDown = false
     /// The name of a `groups.rename` in flight: polls keep showing it until the call returns.
@@ -84,21 +86,28 @@ final class RoomModel: ObservableObject, Identifiable {
 
     // MARK: polling
 
-    func start() {
-        wantsPolling = true
+    /// A room view appeared. One poller however many views show the room (`RoomPoller.start` is a no-op
+    /// while it runs).
+    func start(viewer: ObjectIdentifier = PaneViewers.anonymous) {
+        viewers.add(viewer)
         guard !shutDown, composer.isOpen else { return }
         poller.start()
     }
 
-    func stopPolling() {
-        wantsPolling = false
+    /// A room view went away; polling stops when no other view (another window, D9) still shows the room.
+    func stopPolling(viewer: ObjectIdentifier = PaneViewers.anonymous) {
+        viewers.remove(viewer)
+        guard viewers.isEmpty else { return }
         poller.stop()
     }
+
+    var isPolling: Bool { poller.isRunning }
 
     /// App quit: stop for good (a later failed disband must not restart polling).
     func shutdown() {
         shutDown = true
-        stopPolling()
+        viewers.removeAll()
+        poller.stop()
     }
 
     /// Ends the current wait so the next sync runs now (after a send/stop/retry/approve).
