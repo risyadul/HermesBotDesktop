@@ -36,7 +36,8 @@ All notable changes to this project are documented here. The format follows
   own clear error. A binary in a group/world-writable directory without the sticky bit is refused.
 - Group Chat availability check: when the backend lacks `groups.*`, "+" is disabled and the app shows
   "Group Chat needs Hermes Agent v2026.9.14 or later".
-- Clickable links in messages (http and https only).
+- Clickable links in messages (http and https only), blue and underlined, also in your own messages. In Group
+  Chat, @mentions of the room's bots are blue.
 - `scripts/package-app.sh` builds an ad-hoc signed `HermesBot.app` and zip; a release workflow attaches it to
   GitHub Releases for `v*` tags.
 - GitHub Actions CI (build and test on macOS), pull request template, Code of Conduct and this changelog.

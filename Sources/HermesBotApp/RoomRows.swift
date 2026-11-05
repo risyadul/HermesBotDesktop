@@ -140,6 +140,7 @@ struct UserBubble: View {
             VStack(alignment: .trailing, spacing: DS.Space.s0) {
                 Text(Self.mentions(text, handles: mentionHandles))
                     .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
+                    .tint(DS.Palette.link)
                     .lineSpacing(DS.Typeface.proseLineSpacing)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -156,17 +157,11 @@ struct UserBubble: View {
         .accessibilityLabel("You: \(text)")
     }
 
-    /// @mentions of real members (and @all/@everyone) in bold ink: graphite is the accent.
+    /// The user's text with its http(s) links clickable (blue, underlined) and @mentions of real members (and
+    /// @all/@everyone) in semibold blue, as in the bots' messages.
     static func mentions(_ text: String, handles: Set<String>) -> AttributedString {
-        var a = AttributedString(text)
-        guard let re = try? NSRegularExpression(pattern: "(?<![\\w@])@([A-Za-z0-9][A-Za-z0-9._:-]*)") else { return a }
-        let ns = text as NSString
-        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            let h = ns.substring(with: m.range(at: 1))
-            guard handles.contains(h) || ["all", "everyone"].contains(h.lowercased()),
-                  let r = Range(m.range, in: text), let ar = Range(r, in: a) else { continue }
-            a[ar].font = DS.Typeface.bodyStrong
-        }
+        var a = TextStyling.linkified(text)
+        TextStyling.highlightMentions(&a, handles: handles)
         return a
     }
 }

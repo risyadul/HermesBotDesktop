@@ -24,6 +24,11 @@ enum DS {
         static let attention = dynamic(light: 0x955A00, dark: 0xF0BE5E)
         static let attentionSoft = dynamic(light: 0xFDF3E1, dark: 0x3A2F1A)
         static let statusOK = Color(hex: 0x1C7A82)
+        /// Links and @mentions of bots in message text: the one blue in the app, so "clickable / addressed"
+        /// reads at a glance (graphite stays the accent for controls). ≥ 4.5:1 on window and user bubble.
+        static let linkLight: UInt32 = 0x0B63CE
+        static let linkDark: UInt32 = 0x6CB4FF
+        static let link = dynamic(light: linkLight, dark: linkDark)
         /// Translucent so they also read over the sidebar material (solid equivalents in DESIGN.md).
         static let hairline = dynamic(light: (0x000000, 0.09), dark: (0xFFFFFF, 0.10))
         static let hover = dynamic(light: (0x000000, 0.045), dark: (0xFFFFFF, 0.06))

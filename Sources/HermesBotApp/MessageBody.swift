@@ -9,16 +9,20 @@ import SwiftUI
 /// (`MediaAttachmentList`).
 struct MessageBody: View, Equatable {
     let text: String
+    /// Room member handles whose @mentions are highlighted (Group Chat); empty in Bot Chat.
+    var mentions: Set<String> = []
     var body: some View {
         let content = Self.content(text)
         VStack(alignment: .leading, spacing: DS.Space.s3) {
             if !content.blocks.isEmpty {
-                MarkdownView(blocks: content.blocks)
+                // Links take the tint: blue, not the graphite app accent. Media chips keep theirs.
+                MarkdownView(blocks: content.blocks).tint(DS.Palette.link)
             }
             if !content.media.isEmpty {
                 MediaAttachmentList(refs: content.media)
             }
         }
+        .environment(\.mentionHandles, mentions)
         // Model text is untrusted: a rendered link opens only as a web page, never a file, share or app scheme.
         .environment(\.openURL, OpenURLAction { url in Self.opensLink(url) ? .systemAction : .discarded })
     }

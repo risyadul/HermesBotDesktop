@@ -541,6 +541,10 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   text), horizontal rules, GFM tables (header in `body` 600, hairline rules between rows, chip-radius
   hairline frame, columns sized to their content, cells wrap) and fenced code as `code-block` (language
   label and Copy in a caption row, horizontal scroll). Raw HTML stays text. Links open only as http/https.
+- `link` (`#0B63CE` light / `#6CB4FF` dark, ≥ 4.5:1 on window, surface and user bubble): the one blue in
+  the app. Links in bot and user messages are `link` and underlined; a link that would not open (an
+  autolinked `mailto:`) is plain text. In Group Chat, @mentions of room members (and @all / @everyone) are
+  `link` at 600; other @words stay ink.
 - `bot-turn` (Bot Chat): only the first bot-side row of a turn carries the avatar and name; later text,
   Thought and tool rows of the same turn line up under it at the content inset.
 - `thought-row`: "Thinking" (muted, mini spinner) and open while reasoning streams, as a 160 pt preview

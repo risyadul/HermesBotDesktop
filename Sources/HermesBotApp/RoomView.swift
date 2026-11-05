@@ -143,7 +143,7 @@ struct RoomView: View {
             UserBubble(text: text, time: row.time, mentionHandles: Set(model.room.members.map(\.handle)))
         case .member(let memberId, let author, let text):
             MemberMessage(identity: identity(memberId, title: author), author: author, time: row.time) {
-                MessageBody(text: text).equatable()
+                MessageBody(text: text, mentions: Set(model.room.members.map(\.handle))).equatable()
             }
         case .passes(let passes):
             PassLine(passes: passes, memory: memory, identity: { identity($0.memberId, title: $0.author) })
