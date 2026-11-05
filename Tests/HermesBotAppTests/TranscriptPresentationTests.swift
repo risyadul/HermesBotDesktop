@@ -16,8 +16,8 @@ final class TranscriptPresentationTests: XCTestCase {
     func testTitlesFollowDesktop() {
         XCTAssertEqual(ToolRowPresentation(tool("terminal", args: ["command": "python3 script/apply-jira.py CUST-6564 --stack android"])).title,
                        "Ran python3 script/apply-jira.py CUST-6564 --stack android")
-        XCTAssertEqual(ToolRowPresentation(tool("execute_code", args: ["code": "import json, re\n# note\nx = 1\nprint(x)"])).title,
-                       "Ran code import json, re + 2 commands", "comments and blank lines are not commands")
+        XCTAssertEqual(ToolRowPresentation(tool("execute_code", args: ["code": "import json, re\n\nx = 1\nprint(x)"])).title,
+                       "Ran code import json, re + 2 commands", "blank lines are not commands")
         XCTAssertEqual(ToolRowPresentation(tool("mcp_atlassian_getjiraissue", "{\"key\":1}", label: "Atlassian · getjiraissue")).title,
                        "Atlassian · getjiraissue", "a connector label replaces the tool name")
         XCTAssertEqual(ToolRowPresentation(tool("read_file", args: ["path": "/tmp/a.swift"])).title, "Read /tmp/a.swift")
@@ -27,6 +27,21 @@ final class TranscriptPresentationTests: XCTestCase {
         let long = ToolRowPresentation(tool("terminal", args: ["command": .string(String(repeating: "a", count: 400))])).title
         XCTAssertEqual(long.count, "Ran ".count + 160)
         XCTAssertTrue(long.hasSuffix("…"))
+    }
+
+    func testShellSummaryPeelsPlumbingLikeDesktop() {
+        let cases: [(String, String)] = [
+            ("cd /Users/x/agent-knowledge-workflow && python3 script/apply-jira.py CUST-6564 --stack android 2>&1 | tail -20; echo \"x_exit=${PIPESTATUS[0]}\"",
+             "python3 script/apply-jira.py CUST-6564 --stack android"),
+            ("cd /repo && git status && git diff --stat", "git status + 1 command"),
+            ("cd /repo && export A=1 && FOO=bar make test > out.log", "FOO=bar make test"),
+            ("echo 'a && b'; ls", "echo 'a && b' + 1 command"),
+            ("cd /only", "cd /only"),
+            ("ls -la | grep x", "ls -la | grep x"),
+            ("", ""),
+        ]
+        for (input, expected) in cases { XCTAssertEqual(ShellSummary.summarize(input), expected, input) }
+        XCTAssertEqual(ToolRowPresentation(tool("terminal", args: ["command": "cd /a && npm test"])).title, "Ran npm test")
     }
 
     func testCountsFromResults() {

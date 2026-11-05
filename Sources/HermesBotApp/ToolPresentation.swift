@@ -110,18 +110,9 @@ struct ToolRowPresentation: Equatable {
         return (name, fallback.map { oneLine($0) })
     }
 
-    /// One line of a shell command or code: the first meaningful segment, "+ N commands" for the rest
-    /// (`summarize-command.ts:184-215`), cut to 160 characters.
-    static func summarizeCommand(_ command: String) -> String {
-        let segments = command.split(separator: "\n")
-            .flatMap { $0.components(separatedBy: " && ") }
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        guard let first = segments.first else { return oneLine(command) }
-        let head = oneLine(first)
-        let rest = segments.count - 1
-        return rest > 0 ? "\(head) + \(rest) command\(rest == 1 ? "" : "s")" : head
-    }
+    /// One line of a shell command or code: Desktop's `summarizeShellCommand` (`lib/summarize-command.ts`),
+    /// then cut to 160 characters.
+    static func summarizeCommand(_ command: String) -> String { oneLine(ShellSummary.summarize(command)) }
 
     static func oneLine(_ s: String, limit: Int = 160) -> String {
         let flat = s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -261,5 +252,113 @@ enum ToolCategory: Int, Comparable, CaseIterable {
         let clauses = counts.keys.sorted().map { $0.clause(counts[$0]!) }
         return clauses.enumerated().map { i, c in i == 0 ? c : c.prefix(1).lowercased() + c.dropFirst() }
             .joined(separator: ", ")
+    }
+}
+
+/// Port of Hermes Desktop's `summarizeShellCommand` (`apps/desktop/src/lib/summarize-command.ts`): agents wrap
+/// the real command in plumbing (`cd <dir> && <cmd> 2>&1 | tail -N; echo "x_exit=$?"`), so the title shows
+/// the command that matters. Split on top-level `&&` `||` `;` and newlines (quote-aware), strip pipe tails
+/// (`| head`, `| tail`, …), drop redirects, skip setup heads (`cd`, `export`, …) and status echoes; one
+/// survivor is shown as is, several as "first + N commands". Display only: details keep the full command.
+enum ShellSummary {
+    static let silentHeads: Set<String> = ["cd", "pushd", "popd", "export", "set", "unset", "source", ".", "true", "false", ":"]
+    static let pipeTailHeads: Set<String> = ["head", "tail", "wc", "sort", "uniq"]
+
+    static func summarize(_ raw: String) -> String {
+        let original = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !original.isEmpty else { return "" }
+        let segments = split(original)
+        if segments.count <= 1 {
+            let c = clean(original)
+            return c.isEmpty ? original : c
+        }
+        let core = segments.map(clean).filter { !$0.isEmpty && !silentHeads.contains(head($0)) && !isBoundaryEcho($0) }
+        if core.isEmpty { return original }
+        if core.count == 1 { return core[0] }
+        return "\(core[0]) + \(core.count - 1) \(core.count == 2 ? "command" : "commands")"
+    }
+
+    static func split(_ input: String) -> [String] {
+        var segments: [String] = [], buf = "", quote: Character?
+        let chars = Array(input)
+        var i = 0
+        while i < chars.count {
+            let ch = chars[i]
+            if let q = quote {
+                buf.append(ch)
+                if ch == q && (i == 0 || chars[i - 1] != "\\") { quote = nil }
+                i += 1; continue
+            }
+            if ch == "\"" || ch == "'" { quote = ch; buf.append(ch); i += 1; continue }
+            let next: Character? = i + 1 < chars.count ? chars[i + 1] : nil
+            if (ch == "&" && next == "&") || (ch == "|" && next == "|") {
+                segments.append(buf); buf = ""; i += 2; continue
+            }
+            if ch == ";" || ch == "\n" || ch == "\r\n" { segments.append(buf); buf = ""; i += 1; continue }
+            buf.append(ch); i += 1
+        }
+        segments.append(buf)
+        return segments.map { stripPipeTail($0.trimmingCharacters(in: .whitespaces)) }.filter { !$0.isEmpty }
+    }
+
+    static func words(_ segment: String) -> [String] {
+        var out: [String] = [], buf = "", quote: Character?
+        let chars = Array(segment)
+        for (i, ch) in chars.enumerated() {
+            if let q = quote {
+                buf.append(ch)
+                if ch == q && (i == 0 || chars[i - 1] != "\\") { quote = nil }
+                continue
+            }
+            if ch == "\"" || ch == "'" { quote = ch; buf.append(ch); continue }
+            if ch.isWhitespace {
+                if !buf.isEmpty { out.append(buf); buf = "" }
+                continue
+            }
+            buf.append(ch)
+        }
+        if !buf.isEmpty { out.append(buf) }
+        return out
+    }
+
+    static func basename(_ word: String) -> String { word.split(separator: "/").last.map(String.init) ?? word }
+
+    /// The command word, skipping `FOO=bar` env assignments.
+    static func head(_ segment: String) -> String {
+        let tokens = words(segment)
+        let first = tokens.first { $0.range(of: #"^[A-Za-z_]\w*="#, options: .regularExpression) == nil }
+        return basename(first ?? "")
+    }
+
+    static func stripPipeTail(_ segment: String) -> String {
+        let w = words(segment)
+        var out: [String] = []
+        for (i, word) in w.enumerated() {
+            if word == "|", i + 1 < w.count, pipeTailHeads.contains(basename(w[i + 1])) { break }
+            out.append(word)
+        }
+        return out.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Drops redirects (`2>&1`, `> file`, `< file`).
+    static func clean(_ segment: String) -> String {
+        let w = words(segment)
+        var out: [String] = []
+        var i = 0
+        while i < w.count {
+            let word = w[i]
+            if word.range(of: #"^\d*(?:>>?|<)$"#, options: .regularExpression) != nil { i += 2; continue }
+            if word.range(of: #"^\d*(?:>&|<&)\d+$"#, options: .regularExpression) != nil { i += 1; continue }
+            out.append(word); i += 1
+        }
+        return out.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Banner and status echoes (`echo "---"`, `echo "x_exit=$?"`), not arbitrary `echo $VALUE`.
+    static func isBoundaryEcho(_ segment: String) -> Bool {
+        let w = words(segment)
+        guard basename(w.first ?? "") == "echo" else { return false }
+        let rest = w.dropFirst().joined(separator: " ")
+        return rest.range(of: #"-{2,}|_exit=|(?:^|\s|=)\$[?{]|PIPESTATUS"#, options: .regularExpression) != nil
     }
 }
