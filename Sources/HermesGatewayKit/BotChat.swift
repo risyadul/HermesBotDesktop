@@ -307,7 +307,10 @@ public final class BotChatSession: @unchecked Sendable {
         switch type {
         case "message.start": e = .started
         case "message.delta": e = .delta(payload?["text"]?.string ?? "")
-        case "reasoning.delta", "thinking.delta": e = .reasoning(payload?["text"]?.string ?? "")
+        // `thinking.delta` is spinner and provider-wait text, not reasoning: Desktop keeps it out of the
+        // transcript (`message-stream.ts:243-252`), so it is not a Thought here either.
+        case "reasoning.delta": e = .reasoning(payload?["text"]?.string ?? "")
+        case "reasoning.available": e = .reasoningAvailable(payload?["text"]?.string ?? "")
         case "message.interim": e = .interim(payload?["text"]?.string ?? "", alreadyStreamed: payload?["already_streamed"]?.bool ?? false)
         case "status.update": e = .status(kind: payload?["kind"]?.string ?? "", text: payload?["text"]?.string ?? "")
         case "message.complete": e = .completed(ChatCompletion(payload: payload))

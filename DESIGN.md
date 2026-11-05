@@ -535,8 +535,24 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   `needs approval` (attention fill, ring, semibold label and a symbol: the most urgent chip). A
   room-level chip leads the ribbon and is the only room-level working indicator: `Working · 1 running`,
   `Waiting for bots`, `Idle`, `Blocked` (danger ring).
-- `message-member` / `message-user`: see Layout. Text is selectable; markdown inline styles render,
-  fenced code renders as `code-block` with horizontal scroll.
+- `message-member` / `message-user`: see Layout. Text is selectable and renders as markdown blocks:
+  headings (h1 `title-state`, h2-h3 `title-pane`, deeper `body` 600), paragraphs (a single newline is a
+  line break), bulleted and numbered lists (nested, muted markers), block quotes (hairline bar, muted
+  text), horizontal rules, GFM tables (header in `body` 600, hairline rules between rows, chip-radius
+  hairline frame, columns sized to their content, cells wrap) and fenced code as `code-block` (language
+  label and Copy in a caption row, horizontal scroll). Raw HTML stays text. Links open only as http/https.
+- `bot-turn` (Bot Chat): only the first bot-side row of a turn carries the avatar and name; later text,
+  Thought and tool rows of the same turn line up under it at the content inset.
+- `thought-row`: "Thinking" (muted, mini spinner) and open while reasoning streams, as a 160 pt preview
+  that keeps its latest lines in view; "Thought" and collapsed once the step ends or when loaded from
+  history. Reasoning text is `meta`, muted, behind a hairline bar. The user's toggle wins.
+- `tool-row` / `tool-group`: a tool call is a category glyph (spinner while running, danger cross when
+  failed), a title in plain words ("Ran git status", "Ran code import json + 3 commands", "Read
+  a.swift", or the connector label "Atlassian · getjiraissue"), then muted caption meta: a count from the
+  result ("3 items", "360 stdout_bytes") and the duration. Click expands what it did: command or
+  arguments, diff, output and exit code as `code-block`s (cut at 20,000 characters). Two or more adjacent
+  calls fold into a `tool-group`: one muted summary line ("Ran 2 commands, used 1 tool"), collapsed by
+  default; while a call runs, the collapsed line shows it after a mini spinner.
 - `action-card`: approval and retry, in the attention role. Approval: hand symbol, member avatar and
   "<member> needs your approval", the flagged reason (`description`), the exact command in a
   `code-block` under a "Command" label, then Approve once (`button-primary`) and Deny (`button-danger`).

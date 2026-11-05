@@ -1,8 +1,9 @@
 import Foundation
 
 public struct ChatLine: Identifiable, Sendable, Equatable {
-    /// `tool`: one tool call (`tool` carries its state); `system`: client notes such as slash output.
-    public enum Role: Sendable, Equatable { case user, bot, error, tool, system }
+    /// `tool`: one tool call (`tool` carries its state); `system`: client notes such as slash output;
+    /// `thought`: the bot's reasoning for one step (`reasoning.delta`, history `reasoning`), shown collapsed.
+    public enum Role: Sendable, Equatable { case user, bot, error, tool, system, thought }
     public let id: UUID
     public let role: Role
     public var text: String
@@ -28,6 +29,18 @@ public struct ToolLine: Sendable, Equatable {
     public var state: State
     public var duration: Double?
     public var summary: String?
+    /// Connector label (`App · action`) from `labels`, shown instead of the tool name.
+    public var label: String?
+    public var args: JSONValue?
+    /// Live calls only: history does not carry results.
+    public var result: JSONValue?
+    public var inlineDiff: String?
+
+    public init(toolId: String, name: String, state: State, duration: Double? = nil, summary: String? = nil,
+                label: String? = nil, args: JSONValue? = nil, result: JSONValue? = nil, inlineDiff: String? = nil) {
+        self.toolId = toolId; self.name = name; self.state = state; self.duration = duration; self.summary = summary
+        self.label = label; self.args = args; self.result = result; self.inlineDiff = inlineDiff
+    }
 }
 
 /// A turn that was running when the chat was resumed: `running` / `status` and the `inflight` snapshot
@@ -90,6 +103,10 @@ public struct ChatTranscript: Sendable, Equatable {
     /// The running turn was started by this client's `beginTurn` (false for remote and seeded turns).
     public private(set) var turnIsLocal = false
     private var liveIndex: Int?
+    /// The Thought line still receiving `reasoning.delta` (sealed by text, a tool or the end of the turn).
+    private var thoughtIndex: Int?
+    /// Index of the first line of the running turn (`reasoning.available` looks for text after it).
+    private var turnStart = 0
     /// The live bubble came from a resume snapshot (`resumeRunningTurn`), not from deltas seen here.
     private var liveSeeded = false
     /// The user line of the latest local turn (`retractUnsent`).
@@ -110,13 +127,17 @@ public struct ChatTranscript: Sendable, Equatable {
         let line = ChatLine(role: .user, text: text)
         unsentUserId = line.id
         lines.append(line)
+        thoughtIndex = nil; turnStart = lines.count
         return text
     }
 
     /// The submit of the turn `beginTurn` just accepted failed before reaching the backend: its user line
     /// is removed (the caller restores the draft, so a resend does not show it twice) and the turn fails.
     public mutating func retractUnsent(_ message: String) {
-        if let id = unsentUserId { lines.removeAll { $0.id == id } }
+        if let id = unsentUserId, let i = lines.firstIndex(where: { $0.id == id }) {
+            removeLine(at: i)
+            if turnStart > i { turnStart -= 1 }
+        }
         unsentUserId = nil
         fail(message)
     }
@@ -126,6 +147,7 @@ public struct ChatTranscript: Sendable, Equatable {
     public mutating func abandon(_ note: String) {
         guard busy else { return }
         sealLive()
+        sealThought()
         settleTools(.failed)
         busy = false
         appendSystem(note)
@@ -136,18 +158,23 @@ public struct ChatTranscript: Sendable, Equatable {
     @discardableResult
     public mutating func seed(history: [ChatHistoryMessage]) -> Bool {
         guard !busy else { return false }
-        liveIndex = nil; liveSeeded = false; segments = []; interimBoundary = 0; draftingTool = nil
-        lines = history.map { m in
+        liveIndex = nil; liveSeeded = false; segments = []; interimBoundary = 0; draftingTool = nil; thoughtIndex = nil
+        lines = history.flatMap { m -> [ChatLine] in
             switch m.role {
-            case .user: return ChatLine(role: .user, text: m.text)
-            case .assistant: return ChatLine(role: .bot, text: m.text)
-            case .system: return ChatLine(role: .system, text: m.text)
+            case .user: return [ChatLine(role: .user, text: m.text)]
+            case .assistant:
+                // A step's reasoning comes before its text, as Desktop rebuilds it (`hydration.ts:478-513`).
+                let thought = m.reasoning.map { ChatLine(role: .thought, text: $0) }
+                let text = m.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : ChatLine(role: .bot, text: m.text)
+                return [thought, text].compactMap { $0 }
+            case .system: return [ChatLine(role: .system, text: m.text)]
             case .tool:
                 let name = m.toolName ?? "tool"
-                return ChatLine(role: .tool, text: m.toolContext ?? "",
-                                tool: ToolLine(toolId: "", name: name, state: .done))
+                return [ChatLine(role: .tool, text: m.toolContext ?? "",
+                                 tool: ToolLine(toolId: "", name: name, state: .done, label: m.toolLabel, args: m.toolArgs))]
             }
         }
+        turnStart = lines.count
         return true
     }
 
@@ -157,11 +184,12 @@ public struct ChatTranscript: Sendable, Equatable {
     public mutating func resumeRunningTurn(_ t: InflightTurn) {
         busy = true
         turnSerial += 1; turnIsLocal = false
-        segments = []; interimBoundary = 0; draftingTool = nil
+        segments = []; interimBoundary = 0; draftingTool = nil; thoughtIndex = nil
         let user = t.user.trimmingCharacters(in: .whitespacesAndNewlines)
         if !user.isEmpty, lines.last.map({ $0.role == .user && $0.text == user }) != true {
             lines.append(ChatLine(role: .user, text: user))
         }
+        turnStart = lines.count
         lines.append(ChatLine(role: .bot, text: t.assistant, streaming: true))
         liveIndex = lines.count - 1
         liveSeeded = true
@@ -171,10 +199,10 @@ public struct ChatTranscript: Sendable, Equatable {
     public mutating func appendSystem(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        if let i = liveIndex {
-            // Keep the live bubble last so the turn's deltas keep growing it.
+        if let i = [liveIndex, thoughtIndex].compactMap({ $0 }).min() {
+            // Keep the live bubble and Thought last so the turn's deltas keep growing them.
             lines.insert(ChatLine(role: .system, text: t), at: i)
-            liveIndex = i + 1
+            liveIndex = liveIndex.map { $0 + 1 }; thoughtIndex = thoughtIndex.map { $0 + 1 }
         } else {
             lines.append(ChatLine(role: .system, text: t))
         }
@@ -183,6 +211,7 @@ public struct ChatTranscript: Sendable, Equatable {
     /// Ends the turn with an error (send failed, `error` event, socket gone).
     public mutating func fail(_ message: String) {
         sealLive()
+        sealThought()
         settleTools(.failed)
         lines.append(ChatLine(role: .error, text: message))
         busy = false
@@ -192,16 +221,19 @@ public struct ChatTranscript: Sendable, Equatable {
         switch e {
         case .started:
             beginRemoteTurnIfIdle()
+            sealThought()
             _ = live()
         case .delta(let d):
             guard !d.isEmpty else { return }
             beginRemoteTurnIfIdle()
+            sealThought()
             let i = live()
             lines[i].text += d
             deltaCount += 1
         case .interim(let text, _):
             let t = Self.trimLeading(text)
             guard !t.isEmpty else { return }
+            sealThought()
             if let i = liveIndex {
                 lines[i].text = t; lines[i].streaming = false; lines[i].interim = true
                 liveIndex = nil; liveSeeded = false
@@ -227,7 +259,14 @@ public struct ChatTranscript: Sendable, Equatable {
             startTool(t)
         case .toolCompleted(let c):
             completeTool(c)
-        case .reasoning, .status, .other, .request, .requestCancelled, .approvalsCancelled, .resumed:
+        case .reasoning(let d):
+            guard !d.isEmpty else { return }
+            beginRemoteTurnIfIdle()
+            appendReasoning(d)
+        case .reasoningAvailable(let text):
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, busy || liveIndex != nil else { return }
+            replaceReasoning(text)
+        case .status, .other, .request, .requestCancelled, .approvalsCancelled, .resumed:
             break
         }
     }
@@ -235,17 +274,55 @@ public struct ChatTranscript: Sendable, Equatable {
     /// Flushes what streamed so far before the row (ordering), sealing it as a segment the final text
     /// may repeat (deduplicated by `finalTail` like a kept streamed bubble), then adds a running row.
     private mutating func startTool(_ t: ToolStart) {
-        if let i = liveIndex {
-            let tail = lines[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if tail.isEmpty { lines.remove(at: i) } else { lines[i].streaming = false; segments.append(tail) }
-            liveIndex = nil; liveSeeded = false
-        }
+        sealThought()
+        flushLiveAsSegment()
         if !t.toolId.isEmpty, let i = toolIndex(t.toolId) {
             lines[i].tool?.state = .running
             return
         }
         lines.append(ChatLine(role: .tool, text: t.context ?? t.label ?? "",
-                              tool: ToolLine(toolId: t.toolId, name: t.name, state: .running)))
+                              tool: ToolLine(toolId: t.toolId, name: t.name, state: .running, label: t.label, args: t.args)))
+    }
+
+    /// `reasoning.delta`: grows the open Thought, or opens one. Text streaming in the live bubble is a step
+    /// that ended (new reasoning starts the next step), so it is sealed as a segment first, as `startTool` does.
+    private mutating func appendReasoning(_ d: String) {
+        if let i = thoughtIndex { lines[i].text += d; return }
+        // Whitespace before any reasoning opens nothing: an empty "Thinking" row would only flicker.
+        let first = Self.trimLeading(d)
+        guard !first.isEmpty else { return }
+        flushLiveAsSegment()
+        lines.append(ChatLine(role: .thought, text: first, streaming: true))
+        thoughtIndex = lines.count - 1
+    }
+
+    /// `reasoning.available`: the step's think-tag content, stripped and cut to 500 characters by the backend
+    /// (`agent/turn_response_intake.py:103-117`), for providers that do not stream reasoning. As in Desktop
+    /// (`use-message-stream/index.ts:515-545`) it is used only while the turn shows no reply text yet. A
+    /// Thought already streaming for this step is kept (the event would only truncate it); otherwise the
+    /// step gets its own Thought at the end, after any earlier step's Thought and tools.
+    private mutating func replaceReasoning(_ text: String) {
+        guard thoughtIndex == nil else { return }
+        let turn = min(turnStart, lines.count)..<lines.count
+        guard !lines[turn].contains(where: { $0.role == .bot && !$0.text.isEmpty }) else { return }
+        // An empty bubble from `message.start` goes, so the reply text that follows lands below the Thought.
+        flushLiveAsSegment()
+        lines.append(ChatLine(role: .thought, text: text.trimmingCharacters(in: .whitespacesAndNewlines), streaming: true))
+        thoughtIndex = lines.count - 1
+    }
+
+    private mutating func sealThought() {
+        guard let i = thoughtIndex else { return }
+        thoughtIndex = nil
+        if lines[i].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { removeLine(at: i) } else { lines[i].streaming = false }
+    }
+
+    /// Seals what streamed so far as a segment the final text may repeat (deduplicated by `finalTail`).
+    private mutating func flushLiveAsSegment() {
+        guard let i = liveIndex else { return }
+        let tail = lines[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        liveIndex = nil; liveSeeded = false
+        if tail.isEmpty { removeLine(at: i) } else { lines[i].streaming = false; segments.append(tail) }
     }
 
     private mutating func completeTool(_ c: ToolCompletion) {
@@ -254,12 +331,20 @@ public struct ChatTranscript: Sendable, Equatable {
             lines[i].tool?.state = state
             lines[i].tool?.duration = c.duration
             lines[i].tool?.summary = c.summary
+            lines[i].tool?.result = c.result
+            lines[i].tool?.inlineDiff = c.inlineDiff
+            if lines[i].tool?.args == nil { lines[i].tool?.args = c.args }
+            if lines[i].tool?.label == nil { lines[i].tool?.label = c.label }
             return
         }
-        // No start seen (joined mid-turn): upsert a settled row, before the live bubble if any.
+        // No start seen (joined mid-turn): upsert a settled row, before the live bubble or Thought if any.
         let line = ChatLine(role: .tool, text: "", tool: ToolLine(toolId: c.toolId, name: c.name, state: state,
-                                                                  duration: c.duration, summary: c.summary))
-        if let i = liveIndex { lines.insert(line, at: i); liveIndex = i + 1 } else { lines.append(line) }
+                                                                  duration: c.duration, summary: c.summary, label: c.label,
+                                                                  args: c.args, result: c.result, inlineDiff: c.inlineDiff))
+        if let i = [liveIndex, thoughtIndex].compactMap({ $0 }).min() {
+            lines.insert(line, at: i)
+            liveIndex = liveIndex.map { $0 + 1 }; thoughtIndex = thoughtIndex.map { $0 + 1 }
+        } else { lines.append(line) }
     }
 
     private func toolIndex(_ toolId: String) -> Int? {
@@ -273,6 +358,7 @@ public struct ChatTranscript: Sendable, Equatable {
     }
 
     private mutating func complete(_ c: ChatCompletion) {
+        sealThought()
         let streamed = liveIndex.map { lines[$0].text } ?? ""
         let tail = streamed.trimmingCharacters(in: .whitespacesAndNewlines)
         var final = c.text.map(Self.trimLeading) ?? ""
@@ -291,12 +377,12 @@ public struct ChatTranscript: Sendable, Equatable {
         let start = (c.responsePreviewed || c.responseReused) ? 0 : min(interimBoundary, segments.count)
         let shown = Self.finalTail(final, Array(segments[start...]))
         if let i = liveIndex {
+            liveIndex = nil
             if shown.isEmpty {
-                lines.remove(at: i)
+                removeLine(at: i)
             } else {
                 lines[i].text = shown; lines[i].streaming = false
             }
-            liveIndex = nil
         } else if !shown.isEmpty {
             lines.append(ChatLine(role: .bot, text: shown))
         }
@@ -320,6 +406,7 @@ public struct ChatTranscript: Sendable, Equatable {
         busy = true
         turnSerial += 1; turnIsLocal = false
         segments = []; interimBoundary = 0
+        thoughtIndex = nil; turnStart = lines.count
     }
 
     private mutating func live() -> Int {
@@ -331,8 +418,16 @@ public struct ChatTranscript: Sendable, Equatable {
 
     private mutating func sealLive() {
         guard let i = liveIndex else { return }
-        if lines[i].text.isEmpty { lines.remove(at: i) } else { lines[i].streaming = false }
         liveIndex = nil; liveSeeded = false
+        if lines[i].text.isEmpty { removeLine(at: i) } else { lines[i].streaming = false }
+    }
+
+    /// Every removal of a transcript line goes through here so the held indices (live bubble, open
+    /// Thought) keep pointing at their lines.
+    private mutating func removeLine(at i: Int) {
+        lines.remove(at: i)
+        if let l = liveIndex { liveIndex = l > i ? l - 1 : (l == i ? nil : l) }
+        if let t = thoughtIndex { thoughtIndex = t > i ? t - 1 : (t == i ? nil : t) }
     }
 
     /// `finalTail` in `turnController.ts:112-124`: drop leading segments the final text repeats.

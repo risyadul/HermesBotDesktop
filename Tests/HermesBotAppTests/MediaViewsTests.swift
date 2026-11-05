@@ -220,16 +220,14 @@ final class MessageBodyMediaTests: XCTestCase {
         let text = "Hello **there**\n\n```\nlet x = 1\n```\nbye"
         let content = MessageBody.content(text)
         XCTAssertTrue(content.media.isEmpty)
-        XCTAssertEqual(content.blocks, MessageBody.blocks(text))
+        XCTAssertEqual(content.blocks, MarkdownBlock.parse(text))
     }
 
     func testTagsAreRemovedFromDisplayedText() {
         let content = MessageBody.content("Here is the chart:\nMEDIA:/tmp/out/chart.png\nand the data MEDIA:/tmp/out/data.csv")
         XCTAssertEqual(content.media.map(\.path), ["/tmp/out/chart.png", "/tmp/out/data.csv"])
         XCTAssertEqual(content.media.map(\.kind), [.image, .file])
-        let shown = content.blocks.map { block -> String in
-            switch block { case .prose(let s), .code(let s): return s }
-        }.joined(separator: "\n")
+        let shown = content.blocks.map(\.plainText).joined(separator: "\n")
         XCTAssertFalse(shown.contains("MEDIA:"), shown)
         XCTAssertTrue(shown.contains("Here is the chart:"), shown)
     }
@@ -244,7 +242,7 @@ final class MessageBodyMediaTests: XCTestCase {
         let text = "```\nMEDIA:/tmp/a.png\n```"
         let content = MessageBody.content(text)
         XCTAssertTrue(content.media.isEmpty)
-        XCTAssertEqual(content.blocks, [.code("MEDIA:/tmp/a.png")])
+        XCTAssertEqual(content.blocks, [.code(language: nil, "MEDIA:/tmp/a.png")])
     }
 
     func testPartialTagsRenderAsTextWithoutCrashing() {

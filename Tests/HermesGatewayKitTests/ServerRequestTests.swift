@@ -178,7 +178,7 @@ final class ServerRequestTests: XCTestCase {
         XCTAssertEqual(events.all, [
             .toolGenerating(name: "terminal"),
             .toolStarted(ToolStart(toolId: "t1", name: "terminal", context: "ls -la", label: "Terminal")),
-            .toolCompleted(ToolCompletion(toolId: "t1", name: "terminal", duration: 1.5, summary: "3 files")),
+            .toolCompleted(ToolCompletion(toolId: "t1", name: "terminal", duration: 1.5, summary: "3 files", result: ["ok": true])),
             .toolCompleted(ToolCompletion(toolId: "t2", name: "web", failed: true)),
             .requestCancelled(id: "srq-9", reason: "timeout"),
             .approvalsCancelled(requestIds: ["q-1", "q-2"]),

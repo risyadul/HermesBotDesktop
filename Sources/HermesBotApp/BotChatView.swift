@@ -10,6 +10,8 @@ struct BotChatView: View {
     @AppStorage("hba.botInspector") private var storedInspector = true
     @State private var showInspector = UserDefaults.standard.object(forKey: "hba.botInspector") as? Bool ?? true
     @State private var dropTargeted = false
+    /// Open/closed Thought and tool rows, kept across row re-creation (DisclosureStore).
+    @StateObject private var disclosure = DisclosureStore()
     @Environment(\.motionEnabled) private var motion
 
     private var identity: BotIdentity { avatars.identity(profile: chat.bot.name, title: chat.bot.title) }
@@ -60,14 +62,14 @@ struct BotChatView: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                // Older bubbles lazy, the ones seen on open laid out eagerly (EagerTail).
-                let lines = chat.lines
-                let tail = EagerTail.start(of: lines) { EagerTail.lines($0.text) }
+                // Older rows lazy, the ones seen on open laid out eagerly (EagerTail).
+                let items = TranscriptItem.build(chat.lines)
+                let tail = EagerTail.start(of: items) { $0.approximateLines }
                 VStack(alignment: .leading, spacing: DS.Space.timeline) {
                     LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
-                        ForEach(lines[..<tail]) { line in transcriptRow(line) }
+                        ForEach(items[..<tail]) { item in transcriptRow(item) }
                     }
-                    ForEach(lines[tail...]) { line in transcriptRow(line) }
+                    ForEach(items[tail...]) { item in transcriptRow(item) }
                     ServerRequestCards(chat: chat, identity: identity)
                 }
                 .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.s4).padding(.bottom, DS.Space.s3)
@@ -76,8 +78,9 @@ struct BotChatView: View {
                 .animation(motion ? DS.Motion.spring : nil, value: chat.requests.map(\.id))
             }
             .defaultScrollAnchor(.bottom)
+            .environmentObject(disclosure)
             .onChange(of: chat.lines.last?.text) { _, _ in
-                if let id = chat.lines.last?.id { proxy.scrollTo(id, anchor: .bottom) }
+                if let id = TranscriptItem.build(chat.lines).last?.id { proxy.scrollTo(id, anchor: .bottom) }
             }
             .onChange(of: chat.requests.last?.id) { _, id in
                 if let id { proxy.scrollTo("request-\(id)", anchor: .bottom) }
@@ -85,9 +88,50 @@ struct BotChatView: View {
         }
     }
 
-    private func transcriptRow(_ line: ChatLine) -> some View {
-        bubble(line).id(line.id)
-            .transition(motion ? .arrive(from: line.role == .user ? .bottomTrailing : .bottomLeading) : .identity)
+    private func transcriptRow(_ item: TranscriptItem) -> some View {
+        let fromUser: Bool
+        if case .line(let l, _) = item { fromUser = l.role == .user } else { fromUser = false }
+        return row(item).id(item.id)
+            .transition(motion ? .arrive(from: fromUser ? .bottomTrailing : .bottomLeading) : .identity)
+    }
+
+    @ViewBuilder private func row(_ item: TranscriptItem) -> some View {
+        switch item {
+        case .line(let line, let header):
+            if TranscriptItem.isBotSide(line.role) {
+                botSide(header: header, note: line.role == .bot ? (line.interim ? "interim" : (line.streaming ? "streaming" : nil)) : nil,
+                        combines: line.role == .bot) {
+                    botContent(line)
+                }
+            } else {
+                bubble(line)
+            }
+        case .tools(let lines, let header):
+            botSide(header: header, note: nil, combines: false) { ToolGroupView(lines: lines).padding(.leading, -DS.Space.s2) }
+        }
+    }
+
+    /// The first bot-side item of a turn carries the avatar and name; the rest line up under its text.
+    @ViewBuilder private func botSide<Content: View>(header: Bool, note: String?, combines: Bool = true,
+                                                     @ViewBuilder content: () -> Content) -> some View {
+        if header {
+            // Thought and tool rows hold their own buttons: kept as separate accessibility elements.
+            MemberMessage(identity: identity, author: chat.bot.title, time: 0, trailingNote: note,
+                          combinesAccessibility: combines) { content() }
+        } else {
+            content()
+                .frame(maxWidth: DS.Size.memberWidth, alignment: .leading)
+                .padding(.leading, DS.Size.contentInset)
+        }
+    }
+
+    /// Thought and tool rows have their own hover inset: pulled left so their labels line up with the text.
+    @ViewBuilder private func botContent(_ line: ChatLine) -> some View {
+        switch line.role {
+        case .thought: ThoughtRow(line: line).padding(.leading, -DS.Space.s2)
+        case .tool: ToolActivityRow(line: line).padding(.leading, -DS.Space.s2)
+        default: StreamingText(text: line.text, streaming: line.streaming, caret: identity.color)
+        }
     }
 
     /// `empty-state` (new Bot Chat variant): centred in the pane, the bot's own avatar instead of a symbol.
@@ -149,11 +193,8 @@ struct BotChatView: View {
         switch line.role {
         case .user:
             UserBubble(text: line.text, time: 0)
-        case .bot:
-            MemberMessage(identity: identity, author: chat.bot.title, time: 0,
-                          trailingNote: line.interim ? "interim" : (line.streaming ? "streaming" : nil)) {
-                StreamingText(text: line.text, streaming: line.streaming, caret: identity.color)
-            }
+        case .bot, .thought, .tool:
+            botContent(line)
         case .error:
             HStack(alignment: .top, spacing: DS.Space.s2) {
                 Image(systemName: "exclamationmark.triangle.fill").font(DS.Typeface.iconSmall)
@@ -161,8 +202,6 @@ struct BotChatView: View {
             }
             .font(DS.Typeface.meta).foregroundStyle(DS.Palette.danger)
             .padding(.leading, DS.Size.contentInset)
-        case .tool:
-            ToolActivityRow(line: line)
         case .system:
             SystemNoteRow(text: line.text)
         }

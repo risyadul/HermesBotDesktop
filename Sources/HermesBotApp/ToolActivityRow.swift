@@ -1,107 +1,205 @@
 import HermesGatewayKit
 import SwiftUI
 
-/// What a tool row shows, derived from a `.tool` transcript line (unit tested).
-struct ToolRowPresentation: Equatable {
-    let name: String
-    let context: String
-    let summary: String?
-    let state: ToolLine.State
-    let duration: String?
-
-    init(_ line: ChatLine) {
-        let tool = line.tool
-        name = tool?.name ?? "tool"
-        context = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        summary = tool?.summary.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        state = tool?.state ?? .done
-        duration = tool?.duration.map(Self.format)
-    }
-
-    /// "0.4s", "12s", "2m 05s".
-    static func format(_ seconds: Double) -> String {
-        if seconds < 10 { return String(format: "%.1fs", max(0, seconds)) }
-        let s = Int(seconds.rounded())
-        return s < 60 ? "\(s)s" : String(format: "%dm %02ds", s / 60, s % 60)
-    }
-
-    var symbol: String? {
-        switch state {
-        case .running: return nil
-        case .done: return "checkmark.circle.fill"
-        case .failed: return "xmark.circle.fill"
-        }
-    }
-
-    var expandable: Bool { summary != nil }
-
-    var accessibilityLabel: String {
-        let status: String
-        switch state {
-        case .running: status = "running"
-        case .done: status = "done"
-        case .failed: status = "failed"
-        }
-        return ["Tool \(name)", context.isEmpty ? nil : context, status, duration].compactMap { $0 }.joined(separator: ", ")
-    }
-}
-
-/// Compact tool-call row: state (spinner, check, cross), tool name, one-line context, duration. Click
-/// expands the summary when the call returned one.
+/// One tool call, as in Hermes Desktop: category glyph (spinner while running, cross when failed), title
+/// ("Ran git status", "Atlassian · getjiraissue"), muted count and duration. Click expands what the call
+/// did: command or arguments, diff, output, exit code.
 struct ToolActivityRow: View {
     let line: ChatLine
-    @State private var expanded = false
+    @EnvironmentObject private var disclosure: DisclosureStore
     @Environment(\.motionEnabled) private var motion
 
     var body: some View {
         let p = ToolRowPresentation(line)
+        let expanded = p.expandable && disclosure.isOpen(.row, line.id)
         VStack(alignment: .leading, spacing: DS.Space.s1) {
             Button {
                 guard p.expandable else { return }
-                if motion { withAnimation(DS.Motion.ease) { expanded.toggle() } } else { expanded.toggle() }
+                toggle(disclosure, .row, line.id, to: !expanded, motion: motion)
             } label: {
                 HStack(spacing: DS.Space.s2) {
-                    Group {
-                        if let symbol = p.symbol {
-                            Image(systemName: symbol).font(DS.Typeface.iconSmall)
-                                .foregroundStyle(p.state == .failed ? DS.Palette.danger : DS.Palette.statusOK)
-                        } else {
-                            ProgressView().controlSize(.mini)
-                        }
-                    }
-                    .frame(width: DS.Space.s4)
-                    Text(p.name).font(DS.Typeface.code).foregroundStyle(DS.Palette.ink).lineLimit(1)
-                    if !p.context.isEmpty {
-                        Text(p.context).font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                    ToolStateGlyph(state: p.state, symbol: p.symbol)
+                    Text(p.title).font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
+                        .lineLimit(1).truncationMode(.tail)
+                    if let context = p.context {
+                        Text(context).font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                             .lineLimit(1).truncationMode(.tail)
                     }
-                    Spacer(minLength: DS.Space.s2)
-                    if let d = p.duration {
-                        Text(d).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).monospacedDigit()
+                    ForEach([p.count, p.duration].compactMap { $0 }, id: \.self) { meta in
+                        Text(meta).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).monospacedDigit()
+                            .fixedSize()
                     }
                     if p.expandable {
                         Image(systemName: "chevron.right").font(DS.Typeface.iconSmall).foregroundStyle(DS.Palette.muted)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                     }
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
                 .contentShape(Rectangle())
             }
             .buttonStyle(SuggestionRowStyle(highlighted: false))
             .accessibilityLabel(p.accessibilityLabel)
-            .accessibilityHint(p.expandable ? (expanded ? "Hides the result summary" : "Shows the result summary") : "")
-            if expanded, let summary = p.summary {
-                Text(summary).font(DS.Typeface.meta).foregroundStyle(DS.Palette.ink)
-                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.s2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
+            .accessibilityHint(p.expandable ? (expanded ? "Hides the details" : "Shows what the tool did") : "")
+            if expanded {
+                ToolDetailsView(details: p.details)
+                    .padding(.leading, DS.Space.s5)
                     .transition(motion ? .opacity : .identity)
             }
         }
         .frame(maxWidth: DS.Size.memberWidth, alignment: .leading)
-        .padding(.leading, DS.Size.contentInset - DS.Space.s2)
     }
+}
+
+struct ToolStateGlyph: View {
+    let state: ToolLine.State
+    let symbol: String?
+    var body: some View {
+        Group {
+            if let symbol {
+                Image(systemName: symbol).font(DS.Typeface.iconSmall)
+                    .foregroundStyle(state == .failed ? DS.Palette.danger : DS.Palette.muted)
+            } else {
+                ProgressView().controlSize(.mini)
+            }
+        }
+        .frame(width: DS.Space.s4)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ToolDetailsView: View {
+    let details: [ToolDetail]
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s2) {
+            ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
+                switch detail {
+                case .code(let label, let language, let text):
+                    VStack(alignment: .leading, spacing: DS.Space.s1) {
+                        Text(label).font(DS.Typeface.captionStrong).foregroundStyle(DS.Palette.muted)
+                        CodeBlock(text: text, language: language)
+                    }
+                case .text(let label, let text):
+                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.s2) {
+                        Text(label).font(DS.Typeface.captionStrong).foregroundStyle(DS.Palette.muted)
+                        Text(text).font(DS.Typeface.meta).foregroundStyle(DS.Palette.ink)
+                            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Two or more adjacent tool calls: one summary line ("Ran 2 commands, used 1 tool"), collapsed by
+/// default like Hermes Desktop. While a call runs, the collapsed line also shows what is running now.
+struct ToolGroupView: View {
+    let lines: [ChatLine]
+    @EnvironmentObject private var disclosure: DisclosureStore
+    @Environment(\.motionEnabled) private var motion
+
+    var body: some View {
+        let summary = ToolCategory.summary(lines.map { $0.tool?.name ?? "tool" })
+        let running = lines.last { $0.tool?.state == .running }.map { ToolRowPresentation($0).title }
+        let failed = lines.contains { $0.tool?.state == .failed }
+        let expanded = disclosure.isOpen(.group, lines[0].id)
+        VStack(alignment: .leading, spacing: DS.Space.s1) {
+            Button {
+                toggle(disclosure, .group, lines[0].id, to: !expanded, motion: motion)
+            } label: {
+                HStack(spacing: DS.Space.s2) {
+                    Text(summary).font(DS.Typeface.body).foregroundStyle(DS.Palette.muted).lineLimit(1)
+                    if failed {
+                        Image(systemName: "xmark.circle.fill").font(DS.Typeface.iconSmall).foregroundStyle(DS.Palette.danger)
+                            .accessibilityHidden(true)
+                    }
+                    Image(systemName: "chevron.down").font(DS.Typeface.iconSmall).foregroundStyle(DS.Palette.muted)
+                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                    if !expanded, let running {
+                        ProgressView().controlSize(.mini)
+                        Text(running).font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(SuggestionRowStyle(highlighted: false))
+            .accessibilityLabel(summary + (failed ? ", a call failed" : "") + (running.map { ", running \($0)" } ?? ""))
+            .accessibilityHint(expanded ? "Hides the tool calls" : "Shows each tool call")
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(lines) { ToolActivityRow(line: $0) }
+                }
+                .transition(motion ? .opacity : .identity)
+            }
+        }
+        .frame(maxWidth: DS.Size.memberWidth, alignment: .leading)
+    }
+}
+
+/// A step's reasoning: "Thinking" and open while it streams (the latest lines in a short scrolling
+/// preview), "Thought" and collapsed once done or when loaded from history, as in Hermes Desktop
+/// (`ThinkingDisclosure`, `message-parts.tsx:203-342`). The user's toggle wins over both defaults.
+struct ThoughtRow: View {
+    let line: ChatLine
+    @EnvironmentObject private var disclosure: DisclosureStore
+    @Environment(\.motionEnabled) private var motion
+
+    static let previewHeight: CGFloat = 160
+
+    var body: some View {
+        let expanded = disclosure.isOpen(.thought, line.id, fallback: line.streaming)
+        VStack(alignment: .leading, spacing: DS.Space.s1) {
+            Button {
+                toggle(disclosure, .thought, line.id, to: !expanded, motion: motion)
+            } label: {
+                HStack(spacing: DS.Space.s2) {
+                    Text(line.streaming ? "Thinking" : "Thought").font(DS.Typeface.body).foregroundStyle(DS.Palette.muted)
+                    if line.streaming { ProgressView().controlSize(.mini) }
+                    Image(systemName: "chevron.right").font(DS.Typeface.iconSmall).foregroundStyle(DS.Palette.muted)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(SuggestionRowStyle(highlighted: false))
+            .accessibilityLabel(line.streaming ? "Thinking" : "Thought")
+            .accessibilityHint(expanded ? "Hides the reasoning" : "Shows the reasoning")
+            if expanded {
+                Group {
+                    if line.streaming {
+                        ScrollView { reasoning }.frame(maxHeight: Self.previewHeight).defaultScrollAnchor(.bottom)
+                    } else {
+                        reasoning
+                    }
+                }
+                .padding(.leading, DS.Space.s2)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(DS.Palette.hairline).frame(width: DS.Stroke.ring)
+                }
+                .padding(.leading, DS.Space.s2)
+                .transition(motion ? .opacity : .identity)
+            }
+        }
+        .frame(maxWidth: DS.Size.memberWidth, alignment: .leading)
+    }
+
+    private var reasoning: some View {
+        Text(MarkdownView.styled(MarkdownBlock.inline(line.text)))
+            .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+            .lineSpacing(DS.Typeface.proseLineSpacing)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+@MainActor
+private func toggle(_ store: DisclosureStore, _ kind: DisclosureStore.Kind, _ id: UUID, to open: Bool, motion: Bool) {
+    if motion { withAnimation(DS.Motion.ease) { store.set(kind, id, open) } } else { store.set(kind, id, open) }
 }
 
 /// Client notes (slash command output, notices, history system rows): muted, leading, no bubble.

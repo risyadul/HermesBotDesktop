@@ -5,7 +5,8 @@ import Foundation
 public enum ChatEvent: Sendable, Equatable {
     case started                                   // message.start (no payload)
     case delta(String)                             // message.delta {text, rendered?}
-    case reasoning(String)                         // reasoning.delta / thinking.delta {text}
+    case reasoning(String)                         // reasoning.delta {text}: streamed model reasoning
+    case reasoningAvailable(String)                // reasoning.available {text}: a step's think-tag content (≤500 chars), not streamed
     case interim(String, alreadyStreamed: Bool)    // message.interim {text, already_streamed}
     case status(kind: String, text: String)        // status.update {kind, text}
     case toolGenerating(name: String)              // tool.generating {name}: transient status, no row

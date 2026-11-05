@@ -113,6 +113,7 @@ do {
             box.add(["t": .number(t), "type": "message.delta", "text": .string(d)])
             streamed.addWire(d)
         case .reasoning(let d): box.add(["t": .number(t), "type": "reasoning.delta", "chars": .number(Double(d.count))])
+        case .reasoningAvailable(let d): box.add(["t": .number(t), "type": "reasoning.available", "chars": .number(Double(d.count))])
         case .interim(let s, _): box.add(["t": .number(t), "type": "message.interim", "text": .string(s)])
         case .status(let k, let s): box.add(["t": .number(t), "type": "status.update", "kind": .string(k), "text": .string(s)])
         case .completed(let c):

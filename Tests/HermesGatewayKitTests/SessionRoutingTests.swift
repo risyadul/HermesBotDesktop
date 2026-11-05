@@ -25,6 +25,23 @@ final class SessionRoutingTests: XCTestCase {
         ["jsonrpc": "2.0", "id": .string(id), "method": "approval", "params": ["session_id": .string(sid), "command": "ls"]]
     }
 
+    func testThinkingDeltaIsNotReasoningButReasoningEventsAre() async throws {
+        let gw = try await FakeGateway.start()
+        defer { gw.stop() }
+        let (backend, s) = try await open(gw)
+        defer { backend.client.close() }
+        let events = Collector<ChatEvent>()
+        s.onEvent { events.add($0) }
+        for (type, text) in [("thinking.delta", "waiting for provider"), ("reasoning.delta", "step"),
+                             ("reasoning.available", "whole step")] {
+            gw.push(["jsonrpc": "2.0", "method": "event",
+                     "params": ["type": .string(type), "session_id": "rt-1", "payload": ["text": .string(text)]]])
+        }
+        try await Parity.waitUntil { events.all.count == 3 }
+        XCTAssertEqual(events.all, [.other("thinking.delta"), .reasoning("step"), .reasoningAvailable("whole step")],
+                       "spinner text from thinking.delta never becomes a Thought")
+    }
+
     func testRequestBeforeOnEventIsDeliveredInOrder() async throws {
         let gw = try await FakeGateway.start()
         defer { gw.stop() }

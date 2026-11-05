@@ -167,6 +167,8 @@ struct MemberMessage<Content: View>: View {
     let author: String
     let time: Double
     var trailingNote: String? = nil
+    /// Read as one element (default). Off when the content holds its own controls (Thought, tool rows).
+    var combinesAccessibility = true
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -182,7 +184,7 @@ struct MemberMessage<Content: View>: View {
             }
             .frame(maxWidth: DS.Size.memberWidth, alignment: .leading)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: combinesAccessibility ? .combine : .contain)
     }
 }
 

@@ -13,8 +13,13 @@ All notable changes to this project are documented here. The format follows
 - Slash commands in Bot Chat: type `/` to see the commands your bot offers, including skills. `/new`, `/reset`
   and `/clear` compact the conversation instead of resetting it; `/compress` and `/stop` work; commands that
   only make sense in Hermes Desktop or the terminal are not offered.
-- Tool activity in Bot Chat: each tool a bot uses shows as a line that finishes with its duration and result
-  summary, or is marked as failed.
+- Tool activity in Bot Chat, as in Hermes Desktop: each call reads as what it did ("Ran git status",
+  "Atlassian · getjiraissue") with a count and duration, and expands to its command, arguments, diff and
+  output. Two or more calls in a row fold into one collapsible line such as "Ran 2 commands, used 1 tool".
+- The bot's reasoning shows as "Thinking" while it streams and as a collapsed "Thought" afterwards,
+  including for past messages.
+- Messages render as markdown in Bot Chat and Group Chat: headings, tables, numbered and nested lists,
+  quotes, rules, and code blocks with a Copy button.
 - Bots can ask you questions in Bot Chat: approval requests (once, for the session, always, or deny),
   clarifying questions, and password or secret prompts. Requests the app cannot show are left for other
   Hermes apps to answer.
@@ -77,6 +82,7 @@ All notable changes to this project are documented here. The format follows
 - A reply that was already running when the Bot Chat opened can no longer show twice or keep the chat
   blocked; Stop always unblocks it.
 - A message that failed to send is no longer shown twice when you send it again.
+- Hermes' "waiting for the provider" notices no longer show up as bot reasoning.
 - Opening a bot with a long Bot Chat history no longer drops the connection with "Message too long": the app
   accepts backend messages up to 128 MB instead of 1 MB.
 - Opening a Group Chat with long messages no longer shows an empty timeline until you scroll, and opens

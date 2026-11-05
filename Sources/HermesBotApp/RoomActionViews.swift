@@ -71,7 +71,7 @@ struct ActionCard: View {
                 if let c = a.command {
                     VStack(alignment: .leading, spacing: DS.Space.s1) {
                         Text("Command").font(DS.Typeface.captionStrong).foregroundStyle(DS.Palette.muted)
-                        CodeBlock(text: c)
+                        CodeBlock(text: c, header: false)
                     }
                 }
                 HStack(spacing: DS.Space.s2) {

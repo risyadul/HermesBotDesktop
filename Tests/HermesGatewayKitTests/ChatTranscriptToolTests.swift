@@ -104,3 +104,156 @@ final class ChatTranscriptToolTests: XCTestCase {
         XCTAssertEqual(t, before)
     }
 }
+
+/// Thought lines: streamed reasoning, `reasoning.available`, and reasoning from history.
+final class ChatTranscriptThoughtTests: XCTestCase {
+    private func roles(_ t: ChatTranscript) -> [ChatLine.Role] { t.lines.map(\.role) }
+
+    func testReasoningStreamsIntoAThoughtSealedByTextToolsAndTheEnd() {
+        var t = ChatTranscript()
+        _ = t.beginTurn("go")
+        t.apply(.reasoning("Let me ")); t.apply(.reasoning("think."))
+        XCTAssertEqual(roles(t), [.user, .thought])
+        XCTAssertEqual(t.lines[1].text, "Let me think.")
+        XCTAssertTrue(t.lines[1].streaming)
+        t.apply(.delta("Checking."))
+        XCTAssertEqual(roles(t), [.user, .thought, .bot])
+        XCTAssertFalse(t.lines[1].streaming, "text seals the Thought")
+        t.apply(.toolStarted(ToolStart(toolId: "t1", name: "terminal", args: ["command": "ls"])))
+        XCTAssertEqual(t.lines[3].tool?.args, ["command": "ls"])
+        t.apply(.toolCompleted(ToolCompletion(toolId: "t1", name: "terminal", duration: 1, result: ["output": "a"])))
+        XCTAssertEqual(t.lines[3].tool?.result, ["output": "a"])
+        t.apply(.reasoning("Next step."))
+        XCTAssertEqual(roles(t), [.user, .thought, .bot, .tool, .thought], "new reasoning after a tool is a new Thought")
+        t.apply(.completed(ChatCompletion(text: "Checking.\n\nDone.")))
+        XCTAssertEqual(roles(t), [.user, .thought, .bot, .tool, .thought, .bot])
+        XCTAssertFalse(t.lines[4].streaming)
+        XCTAssertEqual(t.lines.last?.text, "Done.", "the final does not repeat the text sealed before the tool")
+        XCTAssertFalse(t.busy)
+    }
+
+    func testReasoningWhileTextStreamsStartsANewStepAfterIt() {
+        var t = ChatTranscript()
+        _ = t.beginTurn("go")
+        t.apply(.delta("Part one."))
+        t.apply(.reasoning("hmm"))
+        XCTAssertEqual(roles(t), [.user, .bot, .thought])
+        XCTAssertFalse(t.lines[1].streaming)
+        t.apply(.completed(ChatCompletion(text: "Part one. Part two.")))
+        XCTAssertEqual(t.lines.filter { $0.role == .bot }.map(\.text), ["Part one.", "Part two."])
+    }
+
+    func testReasoningAvailableNeverTruncatesAStreamingThoughtAndIsIgnoredAfterText() {
+        var t = ChatTranscript()
+        _ = t.beginTurn("go")
+        t.apply(.reasoning("streamed in full"))
+        t.apply(.reasoningAvailable("streamed in"))
+        XCTAssertEqual(t.lines.filter { $0.role == .thought }.map(\.text), ["streamed in full"],
+                       "the open Thought is kept: the event is cut to 500 characters")
+        t.apply(.delta("Answer"))
+        t.apply(.reasoningAvailable("late"))
+        XCTAssertEqual(t.lines.filter { $0.role == .thought }.map(\.text), ["streamed in full"], "ignored once text shows")
+
+        var fresh = ChatTranscript()
+        _ = fresh.beginTurn("go")
+        fresh.apply(.reasoningAvailable("all at once"))
+        XCTAssertEqual(roles(fresh), [.user, .thought])
+        fresh.apply(.completed(ChatCompletion(text: "ok")))
+        XCTAssertEqual(roles(fresh), [.user, .thought, .bot])
+        XCTAssertFalse(fresh.lines[1].streaming)
+
+        var idle = ChatTranscript()
+        idle.apply(.reasoningAvailable("stray"))
+        XCTAssertTrue(idle.lines.isEmpty, "no turn, nothing to attach it to")
+    }
+
+    func testReasoningAfterMessageStartKeepsTheReplyBelowTheThought() {
+        for reasoning in [ChatEvent.reasoning("why"), .reasoningAvailable("why")] {
+            var t = ChatTranscript()
+            _ = t.beginTurn("go")
+            t.apply(.started)
+            t.apply(reasoning)
+            t.apply(.delta("Answer"))
+            XCTAssertEqual(roles(t), [.user, .thought, .bot], "\(reasoning)")
+            t.apply(.completed(ChatCompletion(text: "Answer")))
+            XCTAssertEqual(t.lines.map(\.text), ["go", "why", "Answer"])
+        }
+    }
+
+    func testEachUnstreamedStepGetsItsOwnThoughtInOrder() {
+        var t = ChatTranscript()
+        _ = t.beginTurn("go")
+        t.apply(.started)
+        t.apply(.reasoningAvailable("step one plan"))
+        t.apply(.toolStarted(ToolStart(toolId: "t1", name: "terminal")))
+        t.apply(.toolCompleted(ToolCompletion(toolId: "t1", name: "terminal")))
+        t.apply(.reasoningAvailable("step two plan"))
+        t.apply(.toolStarted(ToolStart(toolId: "t2", name: "terminal")))
+        t.apply(.completed(ChatCompletion(text: "Done")))
+        XCTAssertEqual(roles(t), [.user, .thought, .tool, .thought, .tool, .bot])
+        XCTAssertEqual(t.lines.filter { $0.role == .thought }.map(\.text), ["step one plan", "step two plan"])
+    }
+
+    func testBlankReasoningBeforeMessageStartDoesNotCorruptTheLiveBubble() {
+        // Before the fix: a blank Thought sat before the live bubble, and removing it left the bubble's index
+        // one past the end (index out of range on the next delta).
+        for next in [ChatEvent.delta("Hello"), .completed(ChatCompletion(text: "Hello")), .interim("Hello", alreadyStreamed: false),
+                     .toolStarted(ToolStart(toolId: "t", name: "terminal"))] {
+            var t = ChatTranscript()
+            _ = t.beginTurn("hi")
+            t.apply(.reasoning("\n"))
+            XCTAssertEqual(roles(t), [.user], "whitespace before any reasoning opens no Thought")
+            t.apply(.started)
+            t.apply(next)
+            t.apply(.completed(ChatCompletion(text: "Hello")))
+            XCTAssertFalse(t.busy, "\(next)")
+            XCTAssertEqual(t.lines.first?.text, "hi")
+        }
+        var t = ChatTranscript()
+        _ = t.beginTurn("hi")
+        t.apply(.reasoning("\n")); t.apply(.reasoning("\nPlan"))
+        XCTAssertEqual(t.lines.last?.text, "Plan", "leading whitespace is trimmed up to the first reasoning text")
+    }
+
+    func testErrorSealsTheThought() {
+        var t = ChatTranscript()
+        _ = t.beginTurn("go")
+        t.apply(.reasoning("thinking"))
+        t.apply(.error("boom"))
+        XCTAssertEqual(roles(t), [.user, .thought, .error])
+        XCTAssertFalse(t.lines[1].streaming)
+    }
+
+    func testHistoryReasoningToolArgsAndLabels() {
+        let messages: JSONValue = [
+            ["role": "user", "text": "continue"],
+            ["role": "assistant", "text": "", "reasoning": "plan it"],
+            ["role": "assistant", "text": "Melanjutkan", "reasoning_content": "why"],
+            ["role": "tool", "name": "terminal", "context": "ls", "args": ["command": "ls -la"]],
+            ["role": "tool", "name": "mcp_atlassian_getjiraissue", "context": "{}",
+             "labels": [["text": "Atlassian · getjiraissue"]]],
+            ["role": "assistant", "text": "   ", "reasoning": "  "],
+        ]
+        let history = ChatHistoryMessage.decode(messages)
+        XCTAssertEqual(history.count, 5, "an assistant row with only blank text and reasoning is dropped")
+        var t = ChatTranscript()
+        t.seed(history: history)
+        XCTAssertEqual(t.lines.map(\.role), [.user, .thought, .thought, .bot, .tool, .tool])
+        XCTAssertEqual(t.lines[1].text, "plan it")
+        XCTAssertEqual(t.lines[2].text, "why")
+        XCTAssertFalse(t.lines[1].streaming)
+        XCTAssertEqual(t.lines[4].tool?.args, ["command": "ls -la"])
+        XCTAssertEqual(t.lines[5].tool?.label, "Atlassian · getjiraissue")
+    }
+
+    func testToolCompletionPayloadCarriesResultDiffAndFailureInResult() {
+        let c = ToolCompletion(payload: ["tool_id": "t", "name": "patch", "args": ["path": "a"], "inline_diff": "-a\n+b",
+                                         "result": ["error": "no such file"], "labels": [["text": "Files · patch"]]])
+        XCTAssertTrue(c.failed, "a non-empty result.error is a failure")
+        XCTAssertEqual(c.inlineDiff, "-a\n+b")
+        XCTAssertEqual(c.label, "Files · patch")
+        XCTAssertEqual(c.args, ["path": "a"])
+        XCTAssertFalse(ToolCompletion(payload: ["tool_id": "t", "name": "x", "result": ["error": ""]]).failed)
+        XCTAssertNil(ToolCompletion(payload: ["tool_id": "t", "name": "x", "result": .null]).result)
+    }
+}

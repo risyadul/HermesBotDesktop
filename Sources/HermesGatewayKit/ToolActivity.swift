@@ -9,14 +9,17 @@ public struct ToolStart: Sendable, Equatable {
     /// ≈80-char preview of the call.
     public let context: String?
     public let label: String?
+    /// The call's arguments (`args`), when sent.
+    public let args: JSONValue?
 
-    public init(toolId: String, name: String, context: String? = nil, label: String? = nil) {
-        self.toolId = toolId; self.name = name; self.context = context; self.label = label
+    public init(toolId: String, name: String, context: String? = nil, label: String? = nil, args: JSONValue? = nil) {
+        self.toolId = toolId; self.name = name; self.context = context; self.label = label; self.args = args
     }
 
     init(payload p: JSONValue?) {
         self.init(toolId: p?["tool_id"]?.string ?? "", name: p?["name"]?.string ?? "tool",
-                  context: p?["context"]?.string ?? p?["preview"]?.string, label: Self.labelText(p))
+                  context: p?["context"]?.string ?? p?["preview"]?.string, label: Self.labelText(p),
+                  args: p?["args"].flatMap { $0 == .null ? JSONValue?.none : $0 })
     }
 
     static func labelText(_ p: JSONValue?) -> String? {
@@ -25,54 +28,89 @@ public struct ToolStart: Sendable, Equatable {
     }
 }
 
-/// `tool.complete` payload: `{tool_id, name, duration_s?, result, summary?, labels?, …}`
-/// (`contracts/events.py:283-299`). The contract has no error field; like Desktop
-/// (`gateway-event/tools.ts`) a truthy `payload.error` marks a failed call.
+/// `tool.complete` payload: `{tool_id, name, args, labels?, inline_diff?, duration_s?, result, summary?, …}`
+/// (`contracts/events.py:283-299`, emitter `tool_progress.py:331-362`). The contract has no error field;
+/// like Desktop (`gateway-event/tools.ts`) a truthy `payload.error` marks a failed call, and so does a
+/// non-empty `result.error` string (failures live inside `result`, `message-parts.tsx:123-127`).
 public struct ToolCompletion: Sendable, Equatable {
     public let toolId: String
     public let name: String
     public let duration: Double?
     public let summary: String?
     public let failed: Bool
+    public let label: String?
+    public let args: JSONValue?
+    /// The tool's result: JSON when the backend could parse it, else the raw string.
+    public let result: JSONValue?
+    /// Unified diff of a file edit.
+    public let inlineDiff: String?
 
-    public init(toolId: String, name: String, duration: Double? = nil, summary: String? = nil, failed: Bool = false) {
+    public init(toolId: String, name: String, duration: Double? = nil, summary: String? = nil, failed: Bool = false,
+                label: String? = nil, args: JSONValue? = nil, result: JSONValue? = nil, inlineDiff: String? = nil) {
         self.toolId = toolId; self.name = name; self.duration = duration; self.summary = summary; self.failed = failed
+        self.label = label; self.args = args; self.result = result; self.inlineDiff = inlineDiff
     }
 
     init(payload p: JSONValue?) {
-        let error = p?["error"]
-        let failed: Bool
-        switch error {
-        case .bool(let b)?: failed = b
-        case .string(let s)?: failed = !s.isEmpty
-        case .object?, .array?, .number?: failed = true
-        default: failed = false
-        }
+        let result = p?["result"].flatMap { $0 == .null ? JSONValue?.none : $0 }
+        let failed = Self.truthy(p?["error"]) || (result?["error"]?.string.map { !$0.isEmpty } ?? false)
         self.init(toolId: p?["tool_id"]?.string ?? "", name: p?["name"]?.string ?? "tool",
-                  duration: p?["duration_s"]?.double, summary: p?["summary"]?.string, failed: failed)
+                  duration: p?["duration_s"]?.double, summary: p?["summary"]?.string, failed: failed,
+                  label: ToolStart.labelText(p), args: p?["args"].flatMap { $0 == .null ? JSONValue?.none : $0 },
+                  result: result, inlineDiff: p?["inline_diff"]?.string.flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    private static func truthy(_ v: JSONValue?) -> Bool {
+        switch v {
+        case .bool(let b)?: return b
+        case .string(let s)?: return !s.isEmpty
+        case .object?, .array?, .number?: return true
+        default: return false
+        }
     }
 }
 
 /// One past message of a resumed session (`TranscriptMessage`, `contracts/common.py:158-176`, projection
-/// `session_history.py:285-364`). Tool rows carry `name` + `context` only; tool results are not in history.
+/// `session_history.py:285-364`). Tool rows carry `name`, `context`, `args` and `labels`; tool results,
+/// durations and errors are not in history. Assistant rows carry their step's reasoning as `reasoning` or
+/// `reasoning_content` (`_HISTORY_ASSISTANT_DETAIL_KEYS`, `session_history.py:275-281`, `:356`).
 public struct ChatHistoryMessage: Sendable, Equatable {
     public enum Role: String, Sendable { case user, assistant, tool, system }
     public let role: Role
     public let text: String
     public let toolName: String?
     public let toolContext: String?
+    /// Assistant rows: the reasoning of that step (shown as a collapsed Thought).
+    public let reasoning: String?
+    /// Tool rows: the call's arguments and its connector label (`App · action`).
+    public let toolArgs: JSONValue?
+    public let toolLabel: String?
 
-    public init(role: Role, text: String, toolName: String? = nil, toolContext: String? = nil) {
+    public init(role: Role, text: String, toolName: String? = nil, toolContext: String? = nil, reasoning: String? = nil,
+                toolArgs: JSONValue? = nil, toolLabel: String? = nil) {
         self.role = role; self.text = text; self.toolName = toolName; self.toolContext = toolContext
+        self.reasoning = reasoning; self.toolArgs = toolArgs; self.toolLabel = toolLabel
     }
 
     init?(_ v: JSONValue) {
         guard let role = v["role"]?.string.flatMap(Role.init(rawValue:)) else { return nil }
         if v["display_kind"]?.string == "hidden" { return nil }
         let text = v["text"]?.string ?? v["content"]?.string ?? ""
-        if role != .tool && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
-        self.init(role: role, text: text, toolName: role == .tool ? (v["name"]?.string ?? "tool") : nil,
-                  toolContext: role == .tool ? v["context"]?.string : nil)
+        let reasoning = role == .assistant ? Self.reasoning(v) : nil
+        if role != .tool && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && reasoning == nil { return nil }
+        let tool = role == .tool
+        self.init(role: role, text: text, toolName: tool ? (v["name"]?.string ?? "tool") : nil,
+                  toolContext: tool ? v["context"]?.string : nil, reasoning: reasoning,
+                  toolArgs: tool ? v["args"].flatMap { $0 == .null ? JSONValue?.none : $0 } : nil,
+                  toolLabel: tool ? ToolStart.labelText(v) : nil)
+    }
+
+    /// `reasoning`, else `reasoning_content`, when it is non-blank text.
+    private static func reasoning(_ v: JSONValue) -> String? {
+        for key in ["reasoning", "reasoning_content"] {
+            if let s = v[key]?.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return s }
+        }
+        return nil
     }
 
     /// Decodes a `messages` array (resume / history / compress results), dropping unknown and empty rows.
