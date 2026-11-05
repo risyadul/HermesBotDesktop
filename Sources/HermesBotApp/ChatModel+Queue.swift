@@ -91,10 +91,12 @@ extension ChatModel {
         guard isReady, !reconnecting, canSteerTurn, let s = session else { return false }
         let text = trimmedDraft
         guard let lineId = transcript.redirect(text) else { return false }
+        let prompt = modelText(text)
         draft = ""
+        history.reset()
         Task {
             do {
-                let status = try await s.redirect(text)
+                let status = try await s.redirect(prompt)
                 self.log("session.redirect → status=\(status)")
                 switch status {
                 case "redirected": break
@@ -130,6 +132,7 @@ extension ChatModel {
         pending.removeAll { ids.contains($0.id) }
         queue.append(QueuedMessage(text: trimmedDraft, attachments: chips))
         draft = ""
+        history.reset()
         drainQueue()
         return true
     }
@@ -143,9 +146,10 @@ extension ChatModel {
         guard transcript.beginTurn(display) != nil else { return }
         queue.removeAll { $0.id == entry.id }
         let files = entry.attachments.compactMap(\.checked)
+        let prompt = modelText(entry.text)
         Task {
             do {
-                let r = try await s.submit(entry.text, files: files)
+                let r = try await s.submit(prompt, files: files)
                 self.sent(entry.attachments, status: r["status"]?.string)
             } catch {
                 // Back to the head of the queue, paused, so a failing send cannot loop.
@@ -201,8 +205,8 @@ extension ChatModel {
     func beginQueueEdit(_ id: UUID) {
         guard editingQueueId == nil, let entry = queue.first(where: { $0.id == id }) else { return }
         draftBeforeEdit = draft
+        editingQueueId = id  // first: the queued text is not saved as the bot's draft (B12)
         draft = entry.text
-        editingQueueId = id
     }
 
     /// Writes the composer text back into the message (an emptied text-only message is deleted).
@@ -225,8 +229,8 @@ extension ChatModel {
     }
 
     private func endQueueEdit() {
+        editingQueueId = nil  // first: the restored draft is saved again (B12)
         draft = draftBeforeEdit
         draftBeforeEdit = ""
-        editingQueueId = nil
     }
 }

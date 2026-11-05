@@ -137,13 +137,15 @@ struct UserBubble: View {
     var attachments: [MediaRef] = []
     /// The room the message was sent in: its attachments are that room's copies (`RoomAttachmentList`).
     var roomId = ""
+    /// Bot Chat Find in chat (B13): matches highlighted; empty elsewhere.
+    @Environment(\.findQuery) private var find
 
     var body: some View {
         HStack {
             Spacer(minLength: DS.Size.userBubbleInset)
             VStack(alignment: .trailing, spacing: DS.Space.s0) {
                 if !text.isEmpty {
-                    Text(Self.mentions(text, handles: mentionHandles))
+                    Text(Self.mentions(text, handles: mentionHandles, find: find))
                         .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
                         .tint(DS.Palette.link)
                         .lineSpacing(DS.Typeface.proseLineSpacing)
@@ -170,9 +172,10 @@ struct UserBubble: View {
 
     /// The user's text with its http(s) links clickable (blue, underlined) and @mentions of real members (and
     /// @all/@everyone) in semibold blue, as in the bots' messages.
-    static func mentions(_ text: String, handles: Set<String>) -> AttributedString {
+    static func mentions(_ text: String, handles: Set<String>, find: String = "") -> AttributedString {
         var a = TextStyling.linkified(text)
         TextStyling.highlightMentions(&a, handles: handles)
+        TextStyling.highlightFind(&a, query: find)
         return a
     }
 }

@@ -13,10 +13,17 @@ public struct ChatLine: Identifiable, Sendable, Equatable {
     public var interim: Bool
     /// Set for `.tool` lines.
     public var tool: ToolLine?
+    /// When the line landed (B5): the history row's `timestamp`, else when it appeared here; a reply's text
+    /// is re-stamped when its turn completes (Desktop counts a reply from its completion). nil when unknown.
+    public var at: Date?
+    /// Wall-clock seconds the turn ran, on the last reply text of a turn this client watched from its start
+    /// (Desktop `durationS`: start → `message.complete`, at least 1 s). nil for history and joined turns.
+    public var turnDuration: TimeInterval?
 
-    public init(role: Role, text: String, streaming: Bool = false, interim: Bool = false, tool: ToolLine? = nil) {
+    public init(role: Role, text: String, streaming: Bool = false, interim: Bool = false, tool: ToolLine? = nil,
+                at: Date? = Date()) {
         id = UUID(); self.role = role; self.text = text; self.streaming = streaming; self.interim = interim
-        self.tool = tool
+        self.tool = tool; self.at = at
     }
 }
 
@@ -111,6 +118,9 @@ public struct ChatTranscript: Sendable, Equatable {
     private var liveSeeded = false
     /// The user line of the latest local turn (`retractUnsent`).
     private var unsentUserId: UUID?
+    /// When the running turn began here (local `beginTurn` or a remote turn's first event); nil for a turn
+    /// joined from a resume snapshot, whose start this client never saw.
+    private var turnStartedAt: Date?
     private var segments: [String] = []
     private var interimBoundary = 0
     /// The latest `redirect`: its user line and the live bubble it sealed (reopened by `retract`).
@@ -125,7 +135,7 @@ public struct ChatTranscript: Sendable, Equatable {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !busy, !text.isEmpty else { return nil }
         busy = true
-        turnSerial += 1; turnIsLocal = true
+        turnSerial += 1; turnIsLocal = true; turnStartedAt = Date()
         liveIndex = nil; liveSeeded = false; segments = []; interimBoundary = 0
         let line = ChatLine(role: .user, text: text)
         unsentUserId = line.id
@@ -200,18 +210,22 @@ public struct ChatTranscript: Sendable, Equatable {
         guard !busy else { return false }
         liveIndex = nil; liveSeeded = false; segments = []; interimBoundary = 0; draftingTool = nil; thoughtIndex = nil
         lines = history.flatMap { m -> [ChatLine] in
+            let at = m.timestamp
             switch m.role {
-            case .user: return [ChatLine(role: .user, text: m.text)]
+            // The @mention note the composer appended for the model (B1) is not the user's own words.
+            case .user: return [ChatLine(role: .user, text: BotMentions.stripNote(m.text), at: at)]
             case .assistant:
                 // A step's reasoning comes before its text, as Desktop rebuilds it (`hydration.ts:478-513`).
-                let thought = m.reasoning.map { ChatLine(role: .thought, text: $0) }
-                let text = m.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : ChatLine(role: .bot, text: m.text)
+                let thought = m.reasoning.map { ChatLine(role: .thought, text: $0, at: at) }
+                let text = m.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil : ChatLine(role: .bot, text: m.text, at: at)
                 return [thought, text].compactMap { $0 }
-            case .system: return [ChatLine(role: .system, text: m.text)]
+            case .system: return [ChatLine(role: .system, text: m.text, at: at)]
             case .tool:
                 let name = m.toolName ?? "tool"
                 return [ChatLine(role: .tool, text: m.toolContext ?? "",
-                                 tool: ToolLine(toolId: "", name: name, state: .done, label: m.toolLabel, args: m.toolArgs))]
+                                 tool: ToolLine(toolId: "", name: name, state: .done, label: m.toolLabel, args: m.toolArgs),
+                                 at: at)]
             }
         }
         turnStart = lines.count
@@ -223,9 +237,9 @@ public struct ChatTranscript: Sendable, Equatable {
     /// ends with it, and what streamed so far becomes the live bubble the next deltas grow.
     public mutating func resumeRunningTurn(_ t: InflightTurn) {
         busy = true
-        turnSerial += 1; turnIsLocal = false
+        turnSerial += 1; turnIsLocal = false; turnStartedAt = nil
         segments = []; interimBoundary = 0; draftingTool = nil; thoughtIndex = nil
-        let user = t.user.trimmingCharacters(in: .whitespacesAndNewlines)
+        let user = BotMentions.stripNote(t.user).trimmingCharacters(in: .whitespacesAndNewlines)
         if !user.isEmpty, lines.last.map({ $0.role == .user && $0.text == user }) != true {
             lines.append(ChatLine(role: .user, text: user))
         }
@@ -427,10 +441,23 @@ public struct ChatTranscript: Sendable, Equatable {
             lines.append(ChatLine(role: .bot, text: shown))
         }
         settleTools(c.status == nil || c.status == "complete" ? .done : .failed)
+        stampReply()
         if let status = c.status, status != "complete" {
             lines.append(ChatLine(role: .error, text: "turn \(status)" + (c.error.map { ": \($0)" } ?? "")))
         }
         busy = false
+    }
+
+    /// B5: the turn's last reply text (after its last user line) lands now, and carries the turn's duration
+    /// when this client saw the turn start.
+    private mutating func stampReply() {
+        let now = Date()
+        let started = turnStartedAt
+        turnStartedAt = nil
+        guard let i = lines.lastIndex(where: { $0.role == .bot }),
+              !lines[i...].contains(where: { $0.role == .user }) else { return }
+        lines[i].at = now
+        if let started { lines[i].turnDuration = max(1, now.timeIntervalSince(started).rounded()) }
     }
 
     /// The bot text of the latest turn's last bubble (evidence logging).
@@ -444,7 +471,7 @@ public struct ChatTranscript: Sendable, Equatable {
     private mutating func beginRemoteTurnIfIdle() {
         guard !busy, liveIndex == nil else { return }
         busy = true
-        turnSerial += 1; turnIsLocal = false
+        turnSerial += 1; turnIsLocal = false; turnStartedAt = Date()
         segments = []; interimBoundary = 0
         thoughtIndex = nil; turnStart = lines.count
     }

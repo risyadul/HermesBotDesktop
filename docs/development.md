@@ -58,6 +58,9 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                               parsed from `launchctl print`: running / loaded-not-running / not loaded)
   BotProfileAPI.swift         profiles.describe/configure/set_asset/get_asset/create + model.options, typed
   SoulProtocol.swift          Desktop's "Messaging other agents" SOUL section (soul.ts), verbatim
+  BotMentions.swift           B1 Bot Chat @mentions (Desktop data.ts / mention middleware): handle, tag, name
+                              forms, roster resolution (self excluded, code ignored, shared forms resolve to
+                              neither), the identification note appended for the model, stripNote (history)
   ProfileAvatar.swift         avatar upload: ≤15 MB, PNG/JPEG by magic bytes, 256 px centred square PNG
   ProfileCLI.swift            `hermes profile delete <name> --yes` (never default) and `config unset model`
                               (Inherit), trusted hermes, no shell, clean env
@@ -86,7 +89,17 @@ Sources/HermesBotApp/       SwiftUI app:
   ChatComposer.swift          composer: paperclip, drop/paste, slash menu, Send/Steer/Queue/Save, Stop, status row
   ChatComposerControls.swift  model menu, reasoning menu, context gauge + breakdown popover
   ChatQueuePanel.swift        queued messages above the composer (Edit, Send now, Delete, Resume)
-  MessageCopy.swift           B2: Copy message / Copy full response (hover + context menu)
+  MessageCopy.swift           B2: Copy message / Copy full response (hover + context menu), B5 hover time
+  ChatModel+Composer.swift    B12 PromptHistory (ring from the chat's user lines, caret rule, stash) and
+                              ChatDraftStore (UserDefaults hba.botChatDrafts, 20,000-char / 64-bot caps, off
+                              under XCTest); B1 roster candidates, mention handles, modelText (note on submit,
+                              steer and queued sends), BotMentionCompletion; BotMentionSuggestions.swift: popover
+  TranscriptFollow.swift      B6 TranscriptFollow (stop following only on a user scroll-up), UnreadCounter,
+                              ScrollToBottomButton; B5 MessageTime texts, TurnDurationLabel
+  ChatFind.swift              B13 ChatFind (matches, current, wrap, refresh), find bar, findQuery environment,
+                              TextStyling.highlightFind, FindCurrentRing
+  ChatExport.swift            B15 Markdown export (messages, tool summary lines, Redaction.scrub; no args,
+                              results or Thought rows) and the save panel
   SlashCommandMenu.swift      slash menu keyboard model
   AttachmentChips.swift       staged attachment chips, pasteboard file import
   ToolActivityRow.swift       compact tool-call row
@@ -191,7 +204,8 @@ Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, Group
                             ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand, ChatControls
                             (ParityTestSupport: fakes); BotRosterActivity (A4-A6/A17 parsing, attention
                             classes, section ui_meta merge, read-only transcript route)
-Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls), BotChatUIModel, MediaViews, RoomModel Group Chat
+Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls, ChatComposerFeatures: B1/B12),
+                            BotChatTranscriptFeatures (B5/B6/B13/B15), BotChatUIModel, MediaViews, RoomModel Group Chat
                             actions + RoomDigestHub + Change Members (RoomMemberChangeTests; with FakeRoomActions,
                             no real room is created, sent to, renamed or disbanded), RoomOrder (C1.4),
                             RoomPicture + availability (C1.8), RoomAttachmentViews (C2.1); BotRoster (order, unread, attention,
@@ -287,6 +301,9 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
   (`KanbanAIActionsTests`, `KanbanBoardManagementTests`, `KanbanIntegrationTests`) and the in-process stub server
   (`KanbanManagementAPITests`); export/import paths are placeholders the fakes only record. Watched cards in
   tests live in memory or a throwaway UserDefaults suite.
+- Bot Chat @mentions (B1) are tested with `FakeChatLink` and an injected roster: tests check the note on the
+  submitted text and that nothing else is sent; no prompt reaches a real bot. Drafts (B12) are tested in a
+  throwaway UserDefaults suite; `ChatDraftStore.app` is nil under XCTest.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend

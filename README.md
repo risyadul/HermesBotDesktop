@@ -135,6 +135,24 @@ have **not been tested** with this app yet.
   only when you click it, after a safety check that refuses credentials and system locations.
 - **Copy:** hover a message for Copy, or right-click it. A reply that came in several parts (text around tool
   calls) also offers Copy Full Response, which copies all of that reply's text.
+- **Times:** hovering a message also shows when it was sent ("3:27 PM", "Yesterday, 3:27 PM"; the full date
+  in its tooltip). A reply you watched from its start shows how long the turn took under it ("12s").
+- **@mention other bots:** type `@` for your other bots (never the one you are talking to); click one or press
+  Tab for the first. When your message tags a bot, the app adds a short note for the model saying who that is,
+  the same note Hermes Desktop adds, and the bot contacts it with its own `message_agent` tool. The app itself
+  never sends your text to the other bot. Bots without that tool will say they cannot message other bots.
+- **Scrolled up?** New output no longer pulls you down while you read older messages. A button above the
+  composer counts the messages that arrived below ("3 new messages"); click it to jump back to the end.
+- **Message history and drafts:** ↑ with the caret at the start of the composer brings back your earlier
+  messages to this bot, newest first (like a shell); ↓ at the end goes forward again and finally back to what
+  you were typing. An unsent draft is kept per bot, also across launches (stored in the app's preferences; a
+  draft over 20,000 characters is not kept).
+- **Find in chat (⌘F):** a find bar above the chat counts and highlights matches in the messages (not in
+  Thought or tool rows) and rings the current one. Return or ⌘G goes to the next match, ⇧Return or ⇧⌘G to the
+  previous one, Esc closes.
+- **Export (⇧⌘E):** **Export Conversation** in the toolbar saves the chat as Markdown: the messages, a
+  one-line summary of each tool call, times and turn durations. Tool arguments and results and the bot's
+  reasoning are left out, and session tokens and auth headers are masked.
 - **While the bot is replying:** Return *steers* the running reply: your message is added below what it has
   written so far and the bot continues from it. ⌘Return *queues* the message instead; queued messages wait
   in a panel above the composer and are sent one at a time when the reply finishes. Each can be edited, sent

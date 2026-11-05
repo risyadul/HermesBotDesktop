@@ -18,6 +18,8 @@ colors:
   attention: "#955A00"
   attention-soft: "#FDF3E1"
   status-ok: "#1C7A82"
+  find-match: "#FFE58A"
+  find-current: "#C99700"
   primary-dark: "#F2F2F4"
   on-primary-dark: "#1D1D1F"
   primary-soft-dark: "#34343A"
@@ -32,6 +34,8 @@ colors:
   danger-soft-dark: "#3B2422"
   attention-dark: "#F0BE5E"
   attention-soft-dark: "#3A2F1A"
+  find-match-dark: "#5C4A00"
+  find-current-dark: "#E0B000"
   bot-rose: "#B0436A"
   bot-red: "#B3362F"
   bot-teal: "#1C7A82"
@@ -429,6 +433,10 @@ role becomes a light coral so it still reads on charcoal.
 - **Danger (`#B3261E`, dark `#F2B8B5`):** failed turns, failed actions, the Deny button, destructive
   menu items. Never used for "working".
 - **Status ok (`#1C7A82`):** the 7 px connection dot in the sidebar footer only.
+- **Find match (`#FFE58A`, dark `#5C4A00`) / find current (`#C99700`, dark `#E0B000`):** Find in chat only.
+  Every match's text sits on the match fill (ink on it 14:1 light, 7.8:1 dark; link blue 4.6:1 light); the
+  message holding the current match gets a 1.5 pt ring in find current. Highlighter yellow, so it is never
+  read as the attention role.
 
 ### Bot identity colours
 
@@ -707,7 +715,8 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `composer`: surface box with focus ring in graphite; Send is `button-primary`; a hint row below shows
   the Return shortcut and, in Group Chat, the sync footer ("Synced 10:42:07 · every 5s · seq 12"). Typing
   `@` opens member suggestions above the box (click, or Tab for the first match); they only edit the
-  draft. In Bot Chat the button says what Return does: Send, Steer (a reply runs; ⌘Return queues), Queue
+  draft (in Bot Chat, the other bots: `mention-suggestions`). In Bot Chat ↑ at the start of the text and ↓ at
+  its end walk the user's earlier messages. In Bot Chat the button says what Return does: Send, Steer (a reply runs; ⌘Return queues), Queue
   (a reply runs that this chat cannot steer, or files are attached) or Save (a queued message is being
   edited). The row below leads with the chat's controls in `caption`, muted, hover tint: the model
   (name truncates in the middle, 150 pt cap), the reasoning effort (brain symbol + level, symbol only on a
@@ -717,9 +726,21 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `queue-panel` (Bot Chat): above the composer, `surface` fill, card radius: a caption header ("2 queued",
   "· paused" after Stop, with Resume), then one row per message (two lines, `meta`) with Edit, Send now and
   Delete as 22 pt icon buttons; the row being edited has the `selected` fill and the graphite ring.
-- `message-actions` (Bot Chat): hovering a message shows Copy (and Copy full response for a reply in
-  several parts) at its top trailing corner on a `window` plate with a hairline; the same actions are in its
-  context menu.
+- `message-actions` (Bot Chat): hovering a message shows when it was sent (caption, muted: "3:27 PM",
+  "Yesterday, 3:27 PM", "Sep 28, 3:27 PM"; the full date is the tooltip) and Copy (and Copy full response for a
+  reply in several parts) at its top trailing corner on a `window` plate with a hairline; the same actions are
+  in its context menu. A reply is timed from its completion.
+- `turn-duration` (Bot Chat): under the last reply text of a turn watched from its start, a `timer` symbol and
+  the duration ("12s", "2:05") in caption, muted. Not shown for history or a turn joined mid-way.
+- `mention-suggestions` (Bot Chat): typing `@` lists the other bots (avatar 22, title, the `@tag` that will be
+  inserted in meta muted, at most 8) in the Group Chat suggestion popover; click or Tab inserts. Tagged bots in
+  the user's own messages are `link` at 600, as in Group Chat.
+- `scroll-to-bottom` (Bot Chat): while the user is scrolled up, a capsule centred above the composer
+  (`window` fill, hairline, popover shadow, caption): down arrow and "3 new messages", or "Scroll to bottom".
+  Scales in from 0.96 with `ease`; muted label, ink on hover.
+- `find-bar` (Bot Chat, ⌘F): a `surface` strip above the transcript with a hairline below: magnifier, the query
+  field, "3 of 12" / "No results" (caption, muted, tabular), previous and next icon buttons and Done
+  (`button-secondary`). Slides down from the top with `ease`.
 - `empty-state`: SF Symbol (28 pt, muted), `title-state`, one sentence, optional primary action.
   Variants: connecting (with step list), connection failed (Try again), nothing selected, empty room,
   new 1:1 chat. The new 1:1 chat puts the bot's own face (96 pt) where the symbol goes, its name as the title,

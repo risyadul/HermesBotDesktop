@@ -22,7 +22,16 @@ final class ChatModel: ObservableObject, Identifiable {
     @Published private(set) var phase: Phase = .idle
     @Published var transcript = ChatTranscript()
     /// The composer text. Owned here so it survives switching bots, and so `/undo`-style prefill can set it.
-    @Published var draft = ""
+    /// Kept across launches per bot (B12, `drafts`), except while it holds a queued message being edited.
+    @Published var draft = "" {
+        didSet { if draft != oldValue, editingQueueId == nil { drafts?.save(draft, for: bot.name) } }
+    }
+    /// B12: where drafts persist (UserDefaults in the app; nil in tests unless one injects a suite).
+    let drafts: ChatDraftStore?
+    /// B12: ↑/↓ prompt history browsing state (ChatModel+Composer.swift).
+    var history = PromptHistory()
+    /// B1: the roster @mentions resolve against (the app's bots; set by AppModel, empty by default).
+    var roster: @MainActor () -> [Bot] = { [] }
     /// Files picked, dropped or pasted, staged on the session until the next send.
     @Published var pending: [PendingAttachment] = []
     /// Server→client requests waiting on the user (cards above the composer), in arrival order.
@@ -100,9 +109,11 @@ final class ChatModel: ObservableObject, Identifiable {
     var streamingText: String { transcript.lastBotText }
     var isReady: Bool { phase == .ready }
 
-    init(bot: Bot, opener: @escaping ChatOpener) {
+    init(bot: Bot, opener: @escaping ChatOpener, drafts: ChatDraftStore? = nil) {
         self.bot = bot
         self.opener = opener
+        self.drafts = drafts
+        draft = drafts?.draft(for: bot.name) ?? ""
     }
 
     // MARK: - open / close
@@ -215,11 +226,13 @@ final class ChatModel: ObservableObject, Identifiable {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard transcript.beginTurn(Self.displayText(text, names: chips.map(\.name))) != nil else { return false }
         let typed = draft
+        let prompt = modelText(text)
         draft = ""
+        history.reset()
         setChips(chips.map(\.id)) { _ in .sending }
         Task {
             do {
-                let r = try await s.submit(text, files: files)
+                let r = try await s.submit(prompt, files: files)
                 self.sent(chips, status: r["status"]?.string)
             } catch {
                 self.sendFailed(error, chips: chips, draft: typed)
