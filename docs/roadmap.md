@@ -86,16 +86,16 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 ## P3: everything else
 
 ### Bots
-- [ ] **A16** Bot Chat empty state with the bot's large avatar (S)
-- [ ] **A4** Sort rows by last activity; last-message preview, age and unread dot (M)
-- [ ] **A5** Sections (folders) for bots, with drag and drop (M)
-- [ ] **A6** "Needs attention" badge: re-sign-in, quota, provider not configured (M)
+- [x] **A16** Bot Chat empty state with the bot's large avatar (S)
+- [x] **A4** Sort rows by last activity; last-message preview, age and unread dot (M)
+- [x] **A5** Sections (folders) for bots, with drag and drop (M)
+- [x] **A6** "Needs attention" badge: re-sign-in, quota, provider not configured (M)
 - [ ] **A7** Create a bot: name, title, description, avatar, clone from, share keys, skip bundled skills, model;
       readiness check (`profiles.create`, `setup.runtime_check`) (L)
 - [ ] **A10** Avatar picker: shapes and faces, upload, generate (`image.generate`), pet gallery (L)
 - [ ] **A13** Skills: search and install (`skills.manage`) (M)
 - [ ] **A14** MCP servers: add, API key, test, OAuth sign-in (`mcp.servers.*`) (L)
-- [ ] **A17** Open a bot's recent session (routine runs, side threads) (M)
+- [x] **A17** Open a bot's recent session (routine runs, side threads) (M)
 
 ### Bot Chat
 - [ ] **B5** Timestamps on hover, turn duration (S)

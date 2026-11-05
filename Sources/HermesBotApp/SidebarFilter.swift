@@ -35,10 +35,15 @@ enum SidebarFilter {
     }
 }
 
-/// The Bots section's rows (A2), derived like Desktop's roster (`roster-pane-derivation.ts`): pinned bots
-/// first, otherwise server order; hidden bots go to a collapsible "Hidden (n)" section at the bottom. While
-/// a filter is active the hidden rows that match are shown without expanding, and the section only appears
-/// when some hidden bot matches.
+/// The Bots section's rows (A2, A4, A5), derived like Desktop's roster (`roster-pane-derivation.ts`,
+/// `sortRosterBots`): pinned bots first, then the most recent activity first (the newest of the bot's
+/// creation and its last message; server order breaks ties and stands in before activity is known); hidden
+/// bots go to a collapsible "Hidden (n)" section at the bottom. While a filter is active the hidden rows that
+/// match are shown without expanding, and the section only appears when some hidden bot matches.
+///
+/// With user sections (A5) the visible bots are drawn in section blocks, Unassigned last; with none the list
+/// is flat as before. A collapsed block shows its header only; a filter shows every matching row and leaves
+/// out blocks with no match.
 struct BotRoster: Equatable {
     let visible: [Bot]
     /// Every hidden bot that matches the filter (all of them without a filter).
@@ -47,36 +52,80 @@ struct BotRoster: Equatable {
     let hiddenTotal: Int
     let showHiddenSection: Bool
     let showHiddenRows: Bool
+    /// The section blocks to draw (empty when there are no user sections: a flat list).
+    let blocks: [BotSectionBlock]
+    let filtering: Bool
+    private let collapsed: Set<String>
 
-    init(bots: [Bot], meta: [String: BotUIMeta], query: String, hiddenExpanded: Bool) {
+    init(bots: [Bot], meta: [String: BotUIMeta], query: String, hiddenExpanded: Bool,
+         lastActive: [String: Double] = [:], sections: [BotSection] = [], collapsed: Set<String> = []) {
         let filtering = SidebarFilter.isActive(query)
         let isHidden = { (b: Bot) in meta[b.name]?.hidden ?? false }
-        let isPinned = { (b: Bot) in meta[b.name]?.pinned ?? false }
-        let shown = bots.filter { !isHidden($0) }
-        let pinnedFirst = shown.filter(isPinned) + shown.filter { !isPinned($0) }
-        let hiddenAll = bots.filter(isHidden)
-        visible = pinnedFirst.filter { SidebarFilter.matches($0, query: query) }
+        let sorted = Self.sorted(bots, meta: meta, lastActive: lastActive)
+        let hiddenAll = sorted.filter(isHidden)
+        visible = sorted.filter { !isHidden($0) && SidebarFilter.matches($0, query: query) }
         hidden = hiddenAll.filter { SidebarFilter.matches($0, query: query) }
         hiddenTotal = hiddenAll.count
         showHiddenSection = !hiddenAll.isEmpty && (!filtering || !hidden.isEmpty)
         showHiddenRows = showHiddenSection && (hiddenExpanded || filtering)
+        self.filtering = filtering
+        self.collapsed = collapsed
+        blocks = sections.isEmpty ? [] : BotSectionBlock.blocks(visible, sections: sections, meta: meta).filter { block in
+            // An empty Unassigned is not worth a heading; an empty named section shows its drop slot,
+            // except while filtering.
+            block.bots.isEmpty ? (block.section != nil && !filtering) : true
+        }
+    }
+
+    /// Pinned first, then newest activity first; server order breaks ties.
+    static func sorted(_ bots: [Bot], meta: [String: BotUIMeta], lastActive: [String: Double]) -> [Bot] {
+        let keyed = bots.enumerated().map { i, b in
+            (bot: b, index: i, pinned: meta[b.name]?.pinned ?? false,
+             key: BotRosterActivity.sortKey(lastActive: lastActive[b.name] ?? 0, created: meta[b.name]?.created))
+        }
+        return keyed.sorted { a, b in
+            if a.pinned != b.pinned { return a.pinned }
+            if a.key != b.key { return a.key > b.key }
+            return a.index < b.index
+        }.map(\.bot)
+    }
+
+    /// Whether a block's rows are drawn (collapsed blocks show their header only, unless filtering).
+    func showsRows(_ block: BotSectionBlock) -> Bool { filtering || !collapsed.contains(block.key) }
+
+    /// Visible bot rows in drawing order.
+    var drawnVisible: [Bot] {
+        blocks.isEmpty ? visible : blocks.flatMap { showsRows($0) ? $0.bots : [] }
     }
 
     /// Bot rows in the order the sidebar draws them (what the arrow keys walk).
-    var rows: [Bot] { visible + (showHiddenRows ? hidden : []) }
+    var rows: [Bot] { drawnVisible + (showHiddenRows ? hidden : []) }
 }
 
-/// What a bot row's context menu offers (A1). Edit, Duplicate, Delete and Manage groups appear once they
-/// are implemented (A8, A11, A12, A5).
+/// What a bot row's context menu offers (A1): Open Bot Chat, Open Recent Session (A17), Pin / Hide, Move to
+/// Section (A5), Copy @handle, then Edit, Duplicate and Delete (A8, A11, A12).
 enum BotRowMenu {
     enum Item: Equatable {
-        case open, pin, unpin, hide, unhide, copyHandle
+        case open, openRecent, pin, unpin, hide, unhide, moveToSection, copyHandle
         /// A8/A9, A11, A12.
         case edit, duplicate, delete
     }
 
     static func items(_ meta: BotUIMeta) -> [Item] {
-        [.open, meta.pinned ? .unpin : .pin, meta.hidden ? .unhide : .hide, .copyHandle]
+        [.open, .openRecent, meta.pinned ? .unpin : .pin, meta.hidden ? .unhide : .hide, .moveToSection, .copyHandle]
+    }
+
+    /// Move to Section's entries: every section (the current one disabled), then Unassigned when the bot is
+    /// filed somewhere, then New Section….
+    enum SectionChoice: Hashable {
+        case section(BotSection, current: Bool)
+        case unassigned
+        case newSection
+    }
+
+    static func sectionChoices(_ meta: BotUIMeta, sections: [BotSection]) -> [SectionChoice] {
+        let known = sections.contains { $0.id == meta.sectionId }
+        return sections.map { .section($0, current: $0.id == meta.sectionId) } + (known ? [.unassigned] : []) + [.newSection]
     }
 
     /// Edit…, Duplicate and Delete… (never for the default profile).
@@ -87,6 +136,8 @@ enum BotRowMenu {
     static func title(_ item: Item) -> String {
         switch item {
         case .open: return "Open Bot Chat"
+        case .openRecent: return "Open Recent Session"
+        case .moveToSection: return "Move to Section"
         case .pin: return "Pin to Top"
         case .unpin: return "Unpin"
         case .hide: return "Hide Bot"

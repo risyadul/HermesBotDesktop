@@ -41,6 +41,20 @@ All notable changes to this project are documented here. The format follows
 - Kanban integrations: **Create Task from Message…** in Group Chat and Bot Chat message menus (prefilled New
   Task sheet with a board picker), **Open Bot Chat with @…** for a card's assignee, and notifications when a
   card you created in the app, or marked **Notify When Done or Blocked**, finishes or gets blocked.
+- Bot rows like Hermes Desktop's roster: newest activity first (pinned bots on top), the last message and its
+  age, and a dot for activity you have not opened (routine runs, replies elsewhere, messages from other Hermes
+  apps). Opening the Bot Chat clears it; what you have seen is remembered across launches. Read from one
+  `profiles.list` every 10 seconds, never by opening chats.
+- Sections (folders) for bots: create, rename, reorder, collapse and delete (with Undo) sections; file a bot
+  with Move to Section or by dragging its row onto a section. Membership is saved in each bot's profile with
+  Hermes Desktop's keys (`sectionId` / `sectionName`), so both apps show the same folders, and sections made in
+  Hermes Desktop appear here.
+- "Needs attention" badge on a bot whose last Bot Chat or Group Chat turn failed with something you must fix
+  (sign in again, quota or balance, provider not configured, blocked), with the reason as its tooltip. Same
+  rules as Hermes Desktop; temporary failures never show it and the next good reply clears it.
+- Open Recent Session (right-click a bot): the bot's newest conversation other than its Bot Chat, such as a
+  routine run or a side thread, read-only in a sheet. Nothing is resumed or written.
+- An empty Bot Chat shows the bot's face large, its name and "Say something to get started."
 - Manage bots without the CLI (right-click a bot, or the ••• menu in Bot details):
   - **Edit…** a bot's title, description and avatar (PNG/JPEG up to 15 MB, saved as a 256 px square), and under
     Advanced its model and provider (Hermes' model list, typed in, or Inherit), skills, toolsets, MCP servers
@@ -157,6 +171,8 @@ All notable changes to this project are documented here. The format follows
   out.
 - Group Chat notifications and the sidebar rows share one background check of the rooms (5–15 s) instead of two;
   notifications behave as before.
+- Hidden bots in "Hidden (n)" follow the same order as the rest of the list (pinned, then newest activity)
+  instead of server order.
 - Settings → Keep Hermes running in the background asks before turning on and names the `hermes` it will run
   (with a warning when `HERMES_BOT_APP_HERMES_BIN` chose it). While the app runs its own backend it offers
   **Switch Now** (stop it, start the background Hermes, reconnect) or **At Next Launch** (install only; the next

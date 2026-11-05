@@ -67,13 +67,14 @@ final class SidebarFilterTests: XCTestCase {
                                          "d": .init(pinned: true, hidden: true)]
         let r = BotRoster(bots: bots, meta: meta, query: "", hiddenExpanded: false)
         XCTAssertEqual(r.visible.map(\.name), ["c", "e", "a"])
-        XCTAssertEqual(r.hidden.map(\.name), ["b", "d"])
+        // Hidden rows keep the roster order too (Desktop sorts before it splits): the pinned hidden bot first.
+        XCTAssertEqual(r.hidden.map(\.name), ["d", "b"])
         XCTAssertEqual(r.hiddenTotal, 2)
         XCTAssertTrue(r.showHiddenSection)
         XCTAssertFalse(r.showHiddenRows)
         XCTAssertEqual(r.rows.map(\.name), ["c", "e", "a"], "collapsed hidden rows are not walked by the arrow keys")
         let open = BotRoster(bots: bots, meta: meta, query: "", hiddenExpanded: true)
-        XCTAssertEqual(open.rows.map(\.name), ["c", "e", "a", "b", "d"])
+        XCTAssertEqual(open.rows.map(\.name), ["c", "e", "a", "d", "b"])
     }
 
     func testNoHiddenSectionWithoutHiddenBots() {
@@ -98,8 +99,9 @@ final class SidebarFilterTests: XCTestCase {
     // MARK: A1 menu
 
     func testMenuItemsFollowState() {
-        XCTAssertEqual(BotRowMenu.items(BotUIMeta()), [.open, .pin, .hide, .copyHandle])
-        XCTAssertEqual(BotRowMenu.items(BotUIMeta(pinned: true, hidden: true)), [.open, .unpin, .unhide, .copyHandle])
+        XCTAssertEqual(BotRowMenu.items(BotUIMeta()), [.open, .openRecent, .pin, .hide, .moveToSection, .copyHandle])
+        XCTAssertEqual(BotRowMenu.items(BotUIMeta(pinned: true, hidden: true)),
+                       [.open, .openRecent, .unpin, .unhide, .moveToSection, .copyHandle])
         XCTAssertEqual(BotRowMenu.handle(bot("research-buddy", title: "Research")), "@research-buddy")
         XCTAssertEqual(BotRowMenu.title(.pin), "Pin to Top")
         XCTAssertEqual(BotRowMenu.title(.unhide), "Unhide Bot")

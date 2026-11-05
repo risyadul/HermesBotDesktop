@@ -201,6 +201,9 @@ components:
   avatar-inspector:
     rounded: "{rounded.avatar}"
     size: 36px
+  avatar-chat-empty:
+    rounded: "{rounded.avatar}"
+    size: 96px
   avatar-chip:
     rounded: "{rounded.avatar-small}"
     size: 20px
@@ -474,7 +477,9 @@ toolbar. Minimum window 820 × 520.
   avatar (or the room's two-avatar stack, or a board tile), title, one muted subtitle line. A board row
   carries a breathing dot + count for running cards and an attention count for blocked ones; when the
   kanban plugin is off the section is one muted line, "Kanban is off in Hermes". A breathing dot marks a room whose round is
-  running. Footer: connection dot plus the backend in two or three words ("Hermes Desktop", "hermes
+  running. Bots are ordered pinned first, then newest activity (Desktop's roster order); the Bots header
+  carries a `folder.badge.plus` icon button for New Section, and user sections draw as `bot-section` blocks
+  above an "Unassigned" block (no sections: the flat list). Footer: connection dot plus the backend in two or three words ("Hermes Desktop", "hermes
   serve", "Private hermes serve") so it never truncates at the 220 pt minimum; the full mode is the
   tooltip.
   Group Chats are ordered pinned first, then the user's order (Move Up / Move Down in the row menu, or drag a
@@ -597,7 +602,8 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   bottom), so the fallback still has depth and the lightest pixel behind the white letters is the base
   colour itself: white on every tile stays at 5:1 or better over the whole glyph area, which a gradient
   lifted toward white did not (3.9-4.8:1 behind the letters, measured on rendered tiles). Sizes: 18 pass line,
-  20 chip, 22 suggestion, 28 row and toolbar hero, 32 message, 36 inspector, 44 new-chat empty state.
+  20 chip, 22 suggestion, 28 row and toolbar hero, 32 message, 36 inspector, 44 edit-sheet preview, 96 empty
+  Bot Chat.
 - `room-avatar-stack`: the first two members as 18 pt tiles in the 28 pt slot, the second offset 10 pt
   down-right. The back tile is cut out 1.5 pt around the front one (a real transparent gap, not a
   stroke in a guessed background colour), so it reads over the sidebar material and the toolbar and
@@ -609,6 +615,25 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   after its title and the last message ("Alpha: …", "You: …") as its subtitle, falling back to the members
   before any message. Its trailing slot holds the `needs-you` badge, else the breathing round dot; a pinned
   room (or bot) shows a muted `pin.fill` before it.
+- `bot-row` (sidebar): avatar 28, title (`bodyMedium`; `bodyStrong` while unread) and the age of the bot's last
+  activity (caption, muted, the room row's `5m` / `3h` / `2d` / `Nov 3`), then the last message (meta, muted; ink
+  while unread; italic with "@sender: " when another bot sent it), falling back to the model or description.
+  Trailing, in this order: the pin, the `needs-attention` badge, then the Bot Chat state (waiting count, the
+  breathing reply dot) or the `unread-dot`.
+- `unread-dot`: a static 7 pt graphite dot ("New activity"); the breathing dot stays "a reply runs". Never on
+  the bot on screen.
+- `needs-attention` badge: `exclamationmark.triangle.fill` in `attention` at icon-small size, tooltip with the
+  fix ("Sign in again for this profile", "Quota or balance exhausted", "Provider not configured — run hermes
+  model", "Bot is blocked — see its last message").
+- `bot-section`: a 24 pt header (chevron, `folder` symbol, name in `captionStrong`, member count in caption,
+  muted) that collapses the block on click and holds Rename Section…, Move Up, Move Down and Delete Section in
+  its context menu (Unassigned has none). The block takes a dragged bot row (the drag preview is the bot's
+  title); while one is over it the header, or an empty section's slot, fills `selected`. An empty section shows
+  a dashed hairline slot, "Drag bots here" (meta, muted). After a delete, a meta line under the Bots header
+  says what moved ("Deleted “Clients”: 2 bots moved to Unassigned") with an ink **Undo**; it goes after 8 s.
+- `recent-session` sheet (560 × 440): header (avatar 28, the session's title in `title-pane`, "<bot> ·
+  read-only · 3h ago" in meta muted), the transcript in the Bot Chat's message grammar (no composer), and a
+  footer with "Read-only. Continue this conversation in Hermes Desktop or the CLI." and Close (primary).
 - `needs-you` badge: a small `attention` capsule (soft fill, hairline ring) with an SF Symbol: `at` when a bot
   wrote `@user` that the user has neither answered nor seen, `hand.raised.fill` when a bot waits on an
   approval. Never on the room that is on screen.
@@ -697,7 +722,9 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   context menu.
 - `empty-state`: SF Symbol (28 pt, muted), `title-state`, one sentence, optional primary action.
   Variants: connecting (with step list), connection failed (Try again), nothing selected, empty room,
-  new 1:1 chat.
+  new 1:1 chat. The new 1:1 chat puts the bot's own face (96 pt) where the symbol goes, its name as the title,
+  "Say something to get started." in body muted, and the shared-chat note in meta muted (Hermes Desktop's
+  `chat-empty`).
 
 ### Motion
 

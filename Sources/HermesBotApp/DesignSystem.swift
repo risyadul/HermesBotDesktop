@@ -131,6 +131,8 @@ enum DS {
         static let avatarMessage: CGFloat = 32
         static let avatarInspector: CGFloat = 36
         static let avatarEmpty: CGFloat = 44
+        /// Bot Chat before its first message: the bot's large face over its name (Desktop `chat-empty.tsx`).
+        static let avatarChatEmpty: CGFloat = 96
         /// Room stack: two 18 pt tiles, the second offset by 10 pt, inside the 28 pt row slot.
         static let stackTile: CGFloat = 18
         static let stackOffset: CGFloat = 10
@@ -152,6 +154,8 @@ enum DS {
         static let inspectorMax: CGFloat = 260
         static let popoverWidth: CGFloat = 280
         static let sheetWidth: CGFloat = 460
+        /// Open Recent Session: a read-only transcript sheet, inside the 820 × 520 window minimum.
+        static let recentSessionSheet = CGSize(width: 560, height: 440)
         static let settingsWidth: CGFloat = 420
         /// Reading measure for empty-state sentences.
         static let proseNarrow: CGFloat = 380

@@ -172,29 +172,33 @@ struct BotChatView: View {
         }
     }
 
-    /// `empty-state` (new Bot Chat variant): centred in the pane, the bot's own avatar instead of a symbol.
-    /// No `.fixedSize(vertical:)` on these texts (unlike text inside a ScrollView): the split view measures
-    /// the pane at a near-zero width, where a fixed-height text wraps one glyph per line and becomes the
-    /// whole window's minimum height, pushing the sidebar, the inspector and the composer off screen
+    /// `empty-state` (new Bot Chat variant, A16): centred in the pane, the bot's own face large (96 pt, as in
+    /// Hermes Desktop's `chat-empty.tsx`) over its name and a short hint, so an empty conversation still says
+    /// whose it is. No `.fixedSize(vertical:)` on these texts (unlike text inside a ScrollView): the split view
+    /// measures the pane at a near-zero width, where a fixed-height text wraps one glyph per line and becomes
+    /// the whole window's minimum height, pushing the sidebar, the inspector and the composer off screen
     /// (BotChatLayoutTests).
     private var emptyChat: some View {
         VStack(spacing: DS.Space.s3) {
-            AvatarView(identity: identity, size: DS.Size.avatarEmpty)
+            AvatarView(identity: identity, size: DS.Size.avatarChatEmpty)
                 .padding(.bottom, DS.Space.s1)
-            Text("Chat with \(chat.bot.title)").font(DS.Typeface.titleState).foregroundStyle(DS.Palette.ink)
-            if let d = chat.bot.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
-                Text(d).font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: DS.Size.proseNarrow)
-            }
+                .accessibilityHidden(true)
+            Text(chat.bot.title).font(DS.Typeface.titleState).foregroundStyle(DS.Palette.ink)
+                .lineLimit(1).truncationMode(.tail)
+                .accessibilityAddTraits(.isHeader)
+            Text(Self.emptyHint).font(DS.Typeface.body).foregroundStyle(DS.Palette.muted)
+                .multilineTextAlignment(.center)
             Text(Self.sharedChatNote)
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: DS.Size.proseNarrow)
         }
-        .padding(DS.Space.s6)
+        .padding(DS.Space.s5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    /// The empty Bot Chat's hint (Desktop `chatEmpty`).
+    nonisolated static let emptyHint = "Say something to get started."
 
     /// The Bot Chat is the bot's one continuous chat, kept by Hermes (never deleted on quit).
     nonisolated static let sharedChatNote = "This is the bot's one ongoing chat, shared with Hermes Desktop and kept when the app quits. Group chats are separate."

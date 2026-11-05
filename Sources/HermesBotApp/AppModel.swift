@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import HermesGatewayKit
 import SwiftUI
 
@@ -9,7 +10,9 @@ final class AppModel: ObservableObject {
     @Published var phase: Phase = .connecting
     @Published var modeText = ""
     @Published var bots: [Bot] = []
-    @Published var selection: SidebarItem?
+    @Published var selection: SidebarItem? {
+        didSet { if case .bot(let name)? = selection { botActivity.markRead(name) } }  // A4: opening clears unread
+    }
     @Published var chats: [String: ChatModel] = [:]
     @Published var rooms: [RoomSummary] = []
     @Published var roomModels: [String: RoomModel] = [:]
@@ -38,6 +41,11 @@ final class AppModel: ObservableObject {
     let kanban = KanbanHub(watches: KanbanWatchList(defaults: .standard))
     /// Pin / Hide per bot, saved to the profile's `ui_meta` (A2, BotMetaModel.swift).
     let botMeta = BotMetaModel()
+    /// Bot rows' activity, preview, unread dot and needs-attention badge (A4, A6: BotActivityHub.swift).
+    let botActivity = BotActivityHub()
+    /// User sections (folders) of the Bots list (A5: BotSections.swift).
+    let botSections = BotSectionsModel()
+    private var metaWatch: AnyCancellable?
     /// Native notifications and the Dock badge (D1, D2: Notifications/).
     let notifications: NotificationCoordinator
     var selectedBot: String? { if case .bot(let n)? = selection { return n }; return nil }
@@ -67,6 +75,12 @@ final class AppModel: ObservableObject {
         kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
         // K9: a watched card finished or is blocked (AppModel+Kanban.swift).
         kanban.onCardEvent = { [weak self] event in self?.kanbanCardChanged(event) }
+        botActivity.onScreen = { [weak self] in self?.selectedBot }
+        botSections.filer = { [weak self] bot, id, name in self?.botMeta.setSection(bot, id: id, sectionName: name) }
+        // Sections other apps made (or renamed) follow the bots' `ui_meta` (A5).
+        metaWatch = botMeta.$meta.sink { [weak self] meta in
+            Task { @MainActor in self?.botSections.sync(meta: meta) }
+        }
     }
 
     func boardsListed(_ listed: Set<String>) {
@@ -107,6 +121,7 @@ final class AppModel: ObservableObject {
             self?.turnEvent(type, chat)
 #endif
             self?.notifications.turnEvent(type, chat)
+            self?.botActivity.turnEvent(type, bot: chat.bot.name, lines: chat.lines)  // A6
         }
         notifications.track(c)
         chats[bot.name] = c
@@ -221,6 +236,7 @@ final class AppModel: ObservableObject {
             phase = .connected
             setupCheck = Task { await self.checkSetup() }
             kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) })
+            botActivity.start(fetch: BotActivityHub.fetch(b.client))
 #if DEBUG
             autochat()
             autoroom()
@@ -257,6 +273,7 @@ final class AppModel: ObservableObject {
         kanban.disconnect()
         notifications.reset()
         botMeta.reset()
+        botActivity.stop()
         rooms = []
         bots = []
         modeText = ""
@@ -307,6 +324,7 @@ final class AppModel: ObservableObject {
             self?.roomSynced(model, new)
 #endif
             self?.notifications.rooms.ingest(room: model.room, events: new, driver: model.driver, latestSeq: model.timeline.cursor)
+            self?.botActivity.ingest(room: model.room, events: new)  // A6: member turn failures
         }
         m.onDisbanded = { [weak self] model in self?.roomDisbanded(model.id) }
         m.onApplied = { [weak self] model in self?.roomDigests.absorb(model) }
@@ -369,6 +387,7 @@ final class AppModel: ObservableObject {
         roomDigests.stop()
         kanban.disconnect()
         notifications.reset()
+        botActivity.stop()
 #if DEBUG
         await disbandCreatedRooms()
 #endif

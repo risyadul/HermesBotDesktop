@@ -14,10 +14,23 @@ struct SidebarView: View {
     @State private var query = ""
     /// "Hidden (n)" expanded; session-only, like Desktop's reveal toggle.
     @State private var hiddenExpanded = false
+    @ObservedObject private var activity: BotActivityHub
+    @ObservedObject private var sections: BotSectionsModel
+    /// New Section… / Rename Section… (A5). The request outlives the sheet's dismissal so it does not empty
+    /// while it slides away.
+    @State private var sectionRequest: SectionNameRequest = .create(filing: nil)
+    @State private var showSectionSheet = false
+    /// Open Recent Session (A17), kept for the same reason.
+    @State private var recent: RecentSessionModel?
+    @State private var showRecent = false
+    /// The section block a dragged bot row is over.
+    @State private var dropTarget: String?
 
     init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)
         _botMeta = ObservedObject(wrappedValue: model.botMeta)
+        _activity = ObservedObject(wrappedValue: model.botActivity)
+        _sections = ObservedObject(wrappedValue: model.botSections)
     }
 
     /// C1.4: pinned rooms first, then the user's order (local, `RoomOrderStore`).
@@ -25,7 +38,9 @@ struct SidebarView: View {
 
     private var shownRooms: [RoomSummary] { roomOrder.sorted(model.rooms).filter { SidebarFilter.matches($0, query: query) } }
     private var roster: BotRoster {
-        BotRoster(bots: model.bots, meta: botMeta.meta, query: query, hiddenExpanded: hiddenExpanded)
+        BotRoster(bots: model.bots, meta: botMeta.meta, query: query, hiddenExpanded: hiddenExpanded,
+                  lastActive: activity.activity.mapValues(\.lastActive), sections: sections.sections,
+                  collapsed: sections.collapsed)
     }
     private var shownBoards: [KanbanSidebarRow] { model.kanban.rows.filter { SidebarFilter.matches($0, query: query) } }
 
@@ -63,7 +78,10 @@ struct SidebarView: View {
                         row(.room(room.roomId)) { roomRow(room) }
                             .roomOrdering(room, rooms: model.rooms, store: roomOrder) { select(.room(room.roomId)) }
                     }
-                    sectionHeader("Bots") { EmptyView() }
+                    sectionHeader("Bots") {
+                        IconButton(symbol: "folder.badge.plus", label: "New section") { askSectionName(.create(filing: nil)) }
+                            .disabled(model.backend == nil || model.bots.isEmpty)
+                    }
                     if model.bots.isEmpty {
                         Text(model.phase.isConnected ? "No profiles found" : "Not loaded yet")
                             .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
@@ -75,8 +93,16 @@ struct SidebarView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
                     }
+                    if let deletion = sections.lastDelete {
+                        SectionUndoLine(deletion: deletion, onUndo: { sections.undoDelete(meta: botMeta.meta) },
+                                        onDismiss: { sections.dismissDelete() })
+                    }
                     let roster = roster
-                    ForEach(roster.visible) { bot in botRowButton(bot) }
+                    if roster.blocks.isEmpty {
+                        ForEach(roster.visible) { bot in botRowButton(bot) }
+                    } else {
+                        ForEach(roster.blocks) { block in sectionBlock(block, roster) }
+                    }
                     if roster.showHiddenSection {
                         hiddenHeader(roster)
                         if roster.showHiddenRows {
@@ -102,6 +128,80 @@ struct SidebarView: View {
             Hairline()
             footer
         }
+        .motionSheet(isPresented: $showSectionSheet, motion: motion) {
+            SectionNameView(request: sectionRequest, onSave: saveSectionName, onClose: { showSectionSheet = false })
+                .id(sectionRequest.id)
+        }
+        .motionSheet(isPresented: $showRecent, motion: motion) {
+            if let recent { RecentSessionView(model: recent, onClose: { showRecent = false }).id(recent.id) }
+        }
+    }
+
+    // MARK: sections (A5)
+
+    /// One section block: its header (collapse, menu), then its rows or an empty drop slot. The whole block
+    /// takes a dropped bot row.
+    private func sectionBlock(_ block: BotSectionBlock, _ roster: BotRoster) -> some View {
+        let shows = roster.showsRows(block)
+        let targeted = dropTarget == block.key
+        return VStack(alignment: .leading, spacing: DS.Space.s0) {
+            BotSectionHeader(title: block.section?.name ?? "Unassigned", count: block.bots.count, collapsed: !shows,
+                             isSection: block.section != nil,
+                             dropTargeted: targeted && !(shows && block.bots.isEmpty)) {
+                sections.toggleCollapsed(block.key)
+            } menu: {
+                if let section = block.section { sectionMenu(section) }
+            }
+            .padding(.top, DS.Space.s1)
+            if shows {
+                if block.bots.isEmpty && block.section != nil {
+                    BotSectionEmptySlot(dropTargeted: targeted)
+                } else {
+                    ForEach(block.bots) { bot in botRowButton(bot) }
+                }
+            }
+        }
+        .dropDestination(for: String.self) { items, _ in
+            drop(items, into: block.section)
+        } isTargeted: { over in
+            if over { dropTarget = block.key } else if dropTarget == block.key { dropTarget = nil }
+        }
+    }
+
+    @ViewBuilder private func sectionMenu(_ section: BotSection) -> some View {
+        let index = sections.sections.firstIndex(of: section) ?? 0
+        Button("Rename Section…") { askSectionName(.rename(section)) }
+        Button("Move Up") { sections.move(section.id, by: -1) }.disabled(index == 0)
+        Button("Move Down") { sections.move(section.id, by: 1) }.disabled(index >= sections.sections.count - 1)
+        Divider()
+        Button("Delete Section", role: .destructive) { sections.delete(section.id, meta: botMeta.meta) }
+    }
+
+    /// A bot row dropped on a block: files it there (Unassigned for the Unassigned block).
+    private func drop(_ items: [String], into section: BotSection?) -> Bool {
+        dropTarget = nil
+        let bots = items.compactMap { BotDrag.bot(from: $0, roster: model.bots) }
+        guard !bots.isEmpty, model.backend != nil else { return false }
+        sections.file(bots.map(\.name), into: section?.id, meta: botMeta.meta)
+        return true
+    }
+
+    private func askSectionName(_ request: SectionNameRequest) {
+        sectionRequest = request
+        showSectionSheet = true
+    }
+
+    private func saveSectionName(_ name: String) {
+        switch sectionRequest {
+        case .create(let bot): sections.create(name, filing: bot.map { [$0] } ?? [], meta: botMeta.meta)
+        case .rename(let section): sections.rename(section.id, to: name, meta: botMeta.meta)
+        }
+    }
+
+    /// A17: the bot's newest session other than its Bot Chat, read-only in a sheet.
+    private func openRecent(_ bot: Bot, _ session: BotSessionSummary) {
+        recent = RecentSessionModel(bot: bot, session: session, reader: RecentSessionModel.reader(model.backend?.sessionREST))
+        showRecent = true
     }
 
     /// A3: the standard filter field (a rounded text field, as on the Kanban board); never bound to ⌘F, which
@@ -148,12 +248,18 @@ struct SidebarView: View {
         .accessibilityValue(roster.showHiddenRows ? "expanded" : "collapsed")
     }
 
+    /// A bot row: click opens its Bot Chat, right-click its menu, drag files it into a section (A5).
     private func botRowButton(_ bot: Bot) -> some View {
         row(.bot(bot.name)) { botRow(bot) }
             .contextMenu { botMenu(bot) }
+            .draggable(BotDrag.payload(bot)) {
+                Text(bot.title).font(DS.Typeface.bodyMedium).foregroundStyle(DS.Palette.ink)
+                    .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
+            }
     }
 
-    /// A1: Open, Pin/Unpin, Hide/Unhide, Copy @handle; A8/A11/A12: Edit…, Duplicate, Delete… (`BotRowMenu`).
+    /// A1: Open, Pin/Unpin, Hide/Unhide, Copy @handle; A17: Open Recent Session; A5: Move to Section;
+    /// A8/A11/A12: Edit…, Duplicate, Delete… (`BotRowMenu`).
     @ViewBuilder private func botMenu(_ bot: Bot) -> some View {
         let meta = botMeta[bot.name]
         let saving = botMeta.isSaving(bot.name)
@@ -161,11 +267,30 @@ struct SidebarView: View {
             switch item {
             case .open:
                 Button(BotRowMenu.title(item)) { select(.bot(bot.name)) }
+            case .openRecent:
+                let session = activity.activity[bot.name]?.recentSession
+                Button(BotRowMenu.title(item)) { if let session { openRecent(bot, session) } }
+                    .disabled(session == nil || model.backend == nil)
                 Divider()
             case .pin, .unpin:
                 Button(BotRowMenu.title(item)) { botMeta.setPinned(bot.name, item == .pin) }.disabled(saving)
             case .hide, .unhide:
                 Button(BotRowMenu.title(item)) { botMeta.setHidden(bot.name, item == .hide) }.disabled(saving)
+            case .moveToSection:
+                Menu(BotRowMenu.title(item)) {
+                    ForEach(BotRowMenu.sectionChoices(meta, sections: sections.sections), id: \.self) { choice in
+                        switch choice {
+                        case .section(let s, let current):
+                            Button(s.name) { sections.file([bot.name], into: s.id, meta: botMeta.meta) }.disabled(current)
+                        case .unassigned:
+                            Button("Unassigned") { sections.file([bot.name], into: nil, meta: botMeta.meta) }
+                        case .newSection:
+                            Divider()
+                            Button("New Section…") { askSectionName(.create(filing: bot.name)) }
+                        }
+                    }
+                }
+                .disabled(saving || model.backend == nil)
                 Divider()
             case .copyHandle:
                 Button(BotRowMenu.title(item)) {
@@ -218,26 +343,46 @@ struct SidebarView: View {
                        onScreen: model.selection == .room(room.roomId), pinned: roomOrder.isPinned(room.roomId))
     }
 
+    /// A4: title and the age of the last activity, then the last message (else the model or description);
+    /// trailing: pin, the needs-attention badge (A6), then the Bot Chat state or the unread dot.
     private func botRow(_ bot: Bot) -> some View {
-        HStack(spacing: DS.Space.gutter) {
+        let a = activity.activity[bot.name]
+        let unread = activity.isUnread(bot.name, onScreen: model.selection == .bot(bot.name))
+        return HStack(spacing: DS.Space.gutter) {
             AvatarView(identity: avatars.identity(profile: bot.name, title: bot.title))
             VStack(alignment: .leading, spacing: DS.Space.s0 / 2) {
-                HStack(spacing: DS.Space.s2) {
-                    Text(bot.title).font(DS.Typeface.bodyMedium).foregroundStyle(DS.Palette.ink).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.s2) {
+                    Text(bot.title).font(unread ? DS.Typeface.bodyStrong : DS.Typeface.bodyMedium)
+                        .foregroundStyle(DS.Palette.ink).lineLimit(1)
                     if bot.isDefault && bot.title.lowercased() != "default" { DefaultTag() }
+                    Spacer(minLength: 0)
+                    if let stamp = a?.ageStamp, stamp > 0 {
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            Text(RoomDigest.age(of: stamp, now: context.date))
+                                .font(DS.Typeface.caption.monospacedDigit()).foregroundStyle(DS.Palette.muted)
+                        }
+                    }
                 }
-                if let sub = bot.model ?? bot.description {
+                if let preview = a?.preview {
+                    Text(BotRowText.preview(preview))
+                        .font(DS.Typeface.meta).italic(preview.fromBot != nil)
+                        .foregroundStyle(unread ? DS.Palette.ink : DS.Palette.muted).lineLimit(1)
+                } else if let sub = bot.model ?? bot.description {
                     Text(sub).font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).lineLimit(1)
                 }
             }
-            Spacer(minLength: 0)
             if botMeta[bot.name].pinned {
                 Image(systemName: "pin.fill")
                     .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                     .help("Pinned to the top")
                     .accessibilityLabel("Pinned")
             }
-            if let chat = model.chats[bot.name] { BotChatBadge(chat: chat) }
+            if let attention = activity.attention[bot.name] { BotAttentionBadge(attention: attention) }
+            if let chat = model.chats[bot.name] {
+                BotChatBadge(chat: chat, unread: unread)
+            } else if unread {
+                UnreadDot()
+            }
         }
     }
 
@@ -343,34 +488,40 @@ struct RoomLiveDot: View {
 }
 
 /// A bot's Bot Chat state in its sidebar row, for every bot with an open chat (the on-screen one too): a
-/// count of the request cards waiting on an answer (attention role), else a breathing dot while a reply runs.
+/// count of the request cards waiting on an answer (attention role), else a breathing dot while a reply runs,
+/// else the unread dot (A4).
 struct BotChatBadge: View {
     @ObservedObject var chat: ChatModel
+    var unread = false
 
     enum Kind: Equatable {
-        case none, replying
+        case none, replying, unread
         case waiting(Int)
     }
 
-    static func kind(requests: Int, busy: Bool) -> Kind {
+    static func kind(requests: Int, busy: Bool, unread: Bool = false) -> Kind {
         if requests > 0 { return .waiting(requests) }
-        return busy ? .replying : .none
+        if busy { return .replying }
+        return unread ? .unread : .none
     }
 
     static func accessibilityLabel(_ kind: Kind, bot: String) -> String? {
         switch kind {
         case .none: return nil
         case .replying: return "\(bot) is replying"
+        case .unread: return "\(bot) has new activity"
         case .waiting(let n): return n == 1 ? "\(bot) needs your answer" : "\(bot) needs your answer (\(n) requests)"
         }
     }
 
     var body: some View {
-        let kind = Self.kind(requests: chat.requests.count, busy: chat.busy)
+        let kind = Self.kind(requests: chat.requests.count, busy: chat.busy, unread: unread)
         let label = Self.accessibilityLabel(kind, bot: chat.bot.title) ?? ""
         switch kind {
         case .none:
             EmptyView()
+        case .unread:
+            UnreadDot()
         case .replying:
             StatusDot(color: DS.Palette.primary, live: true).help(label).accessibilityLabel(label)
         case .waiting(let n):

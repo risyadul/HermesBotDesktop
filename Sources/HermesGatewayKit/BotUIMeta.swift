@@ -1,22 +1,41 @@
 import Foundation
 
-/// A bot's roster presentation state that the app reads and writes: Pin to top and Hide, stored in the
-/// profile's `ui_meta["hermes-bots"]` exactly as Hermes Desktop stores them (`types.ts` `BotMeta.pinned` /
-/// `.hidden`), so both apps show the same roster. Hiding is display-only: a hidden bot keeps working,
-/// stays mentionable and keeps its chats.
+/// A bot's roster presentation state that the app reads and writes: Pin to top, Hide and the user section
+/// (folder) it is filed in, stored in the profile's `ui_meta["hermes-bots"]` exactly as Hermes Desktop stores
+/// them (`types.ts` `BotMeta.pinned` / `.hidden` / `.sectionId` / `.sectionName`), so both apps show the same
+/// roster. Hiding is display-only: a hidden bot keeps working, stays mentionable and keeps its chats.
 public struct BotUIMeta: Sendable, Hashable {
     public var pinned: Bool
     public var hidden: Bool
+    /// The user section the bot is filed in (Desktop `user-sections.ts`: membership lives on the bot), nil
+    /// when unassigned.
+    public var sectionId: String?
+    /// The section's name, written beside `sectionId` on every filing so another app can rebuild a section
+    /// it never created.
+    public var sectionName: String?
+    /// When the bot was created, in milliseconds (Desktop stamps it): a new bot sorts by it until it talks.
+    public var created: Double?
 
-    public init(pinned: Bool = false, hidden: Bool = false) {
+    public init(pinned: Bool = false, hidden: Bool = false, sectionId: String? = nil, sectionName: String? = nil,
+                created: Double? = nil) {
         self.pinned = pinned; self.hidden = hidden
+        self.sectionId = sectionId; self.sectionName = sectionName; self.created = created
     }
 
-    /// From one `profiles.list` row (`ui_meta["hermes-bots"]`); anything else is "not pinned, not hidden".
+    /// From one `profiles.list` row (`ui_meta["hermes-bots"]`); anything else is "not pinned, not hidden,
+    /// unassigned". Blank section ids and names count as absent, like Desktop's `botSectionId`.
     public init(row: JSONValue) {
         let ns = row["ui_meta"]?[BotMetaSync.namespace]
         pinned = ns?["pinned"]?.bool ?? false
         hidden = ns?["hidden"]?.bool ?? false
+        sectionId = Self.nonBlank(ns?["sectionId"]?.string)
+        sectionName = Self.nonBlank(ns?["sectionName"]?.string)
+        created = ns?["created"]?.double.flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    private static func nonBlank(_ s: String?) -> String? {
+        let t = s?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return t.isEmpty ? nil : t
     }
 }
 
