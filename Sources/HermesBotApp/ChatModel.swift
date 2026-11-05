@@ -66,6 +66,8 @@ final class ChatModel: ObservableObject, Identifiable {
     @Published var breakdownLoading = false
     /// Hermes is compacting the conversation (`status.update compacting|compressing` until it resumes or ends).
     @Published var compacting = false
+    /// The Routines sheet (A15) is open. The toolbar button sets it; `BotChatView` presents the sheet.
+    @Published var routinesShown = false
 
     private(set) var session: (any ChatSessionLink)?
     private let opener: ChatOpener
@@ -143,6 +145,9 @@ final class ChatModel: ObservableObject, Identifiable {
         if contextUsage == nil { refreshUsage() }
         drainQueue()
     }
+
+    /// The Routines toolbar button: opens the sheet (pressing it while open leaves it open).
+    func showRoutines() { routinesShown = true }
 
     /// Detach only: the canonical chat stays in Hermes for Hermes Desktop and the next launch.
     func close() {

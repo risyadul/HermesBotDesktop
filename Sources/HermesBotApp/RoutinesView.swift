@@ -15,18 +15,16 @@ extension DS {
     }
 }
 
-/// The Bot Chat toolbar entry point. It builds the sheet's model from the current connection when opened.
+/// The Bot Chat toolbar entry point. It only flips `ChatModel.routinesShown`: the sheet is presented by
+/// `BotChatView` from the pane itself. A `motionSheet` anchored inside ToolbarItem content never opened
+/// (the anchor is not in the window's view hierarchy; live UI test 2026-11-06, round 2).
 struct RoutinesToolbarButton: View {
     let bot: Bot
-    @State private var shown = false
-    @Environment(\.motionEnabled) private var motion
+    let action: () -> Void
 
     var body: some View {
-        Button { shown = true } label: { Label("Routines", systemImage: "clock.arrow.circlepath") }
+        Button(action: action) { Label("Routines", systemImage: "clock.arrow.circlepath") }
             .help("Routines: scheduled tasks for @\(bot.name)")
-            .motionSheet(isPresented: $shown, motion: motion) {
-                RoutinesSheet(bot: bot, context: .current(), onClose: { shown = false })
-            }
     }
 }
 

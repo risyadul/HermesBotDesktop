@@ -45,7 +45,9 @@ struct BotChatView: View {
         .navigationSubtitle("@\(chat.bot.name)" + (chat.bot.model.map { " · \($0)" } ?? ""))
         .toolbar {
             ToolbarItem(placement: .navigation) { AvatarView(identity: identity, size: DS.Size.avatarHero) }
-            ToolbarItem(placement: .primaryAction) { RoutinesToolbarButton(bot: chat.bot) }  // A15, RoutinesView.swift
+            ToolbarItem(placement: .primaryAction) {  // A15, RoutinesView.swift
+                RoutinesToolbarButton(bot: chat.bot) { chat.showRoutines() }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     // System inspector animation with motion on; a no-animation transaction with it off.
@@ -60,6 +62,10 @@ struct BotChatView: View {
                 .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showInspector) { _, shown in storedInspector = shown }
+        // Presented from the pane (in the window's view hierarchy), not from the toolbar item that opens it.
+        .motionSheet(isPresented: $chat.routinesShown, motion: motion) {
+            RoutinesSheet(bot: chat.bot, context: .current(), onClose: { chat.routinesShown = false })
+        }
     }
 
     private var transcript: some View {
