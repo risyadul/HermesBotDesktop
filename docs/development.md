@@ -426,7 +426,10 @@ a release build ignores them. `LOCK_DIR` and `FORCE_SPAWN` work in every build.
 - A spawned backend (`hermes serve --host 127.0.0.1 --port 0 --isolated` on `~/.hermes`, log at
   `~/Library/Logs/HermesBotApp/serve.log`) gets `HERMES_PARENT_PID`. It is stopped with SIGTERM on quit. If
   the app crashes, the backend exits through its parent-death watchdog.
-- Quit (⌘Q, last window closed), SIGTERM and SIGINT (Ctrl+C in the launching terminal) all run the same
+- Closing the last window quits only while the menu bar extra is off; with it shown (the default) the app
+  keeps running (status item, notifications, Quick Ask) and the Dock icon or "Open Hermes Bot" reopens the
+  main window (`WindowLifecyclePolicy`, AppDelegate.swift).
+- Quit (⌘Q, or the last window closed with the menu bar extra off), SIGTERM and SIGINT (Ctrl+C in the launching terminal) all run the same
   graceful cleanup, once; a repeated signal during cleanup is ignored. The spawned backend runs in its own
   process group (Foundation `Process`), so the terminal's Ctrl+C reaches only the app, which then uses the
   backend for cleanup and stops it with SIGTERM. SIGKILL skips cleanup.

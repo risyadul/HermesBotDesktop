@@ -114,10 +114,11 @@ struct MenuBarScene: Scene {
         // Not `$shown`: AppKit writes `isInserted` back on every menu bar update, and each write to the
         // @AppStorage key re-evaluates the App body, which updates the menu bar extras again: a main-thread
         // loop at 100% CPU that kept the app from ever connecting. Only a real change is stored.
-        MenuBarExtra(isInserted: Self.insertion(get: { shown }, set: { shown = $0 })) {
+        MenuBarExtra(isInserted: Self.insertion(get: { shown }, set: { shown = $0; MenuBarBadge.shared.setShown($0) })) {
             MenuBarContent(app: AppModel.shared)
         } label: {
-            MenuBarLabel(badge: MenuBarBadge.shared)
+            // Lives as long as the status item: the app can reopen its main window after the last one closed.
+            MenuBarLabel(badge: MenuBarBadge.shared).capturesMainWindowOpener()
         }
         .menuBarExtraStyle(.window)
     }
@@ -130,15 +131,48 @@ struct MenuBarScene: Scene {
 }
 
 /// The status item's count, refreshed every 2 s from the live models (chat and room states live in several
-/// models, none of which the status item could observe on its own). Started by `MacIntegration.install`.
+/// models, none of which the status item could observe on its own). Started by `MacIntegration.install`; the
+/// refresh runs only while the menu bar extra is shown (`setShown`, from the setting and the status item).
 @MainActor
 final class MenuBarBadge: ObservableObject {
-    static let shared = MenuBarBadge()
+    static let shared = MenuBarBadge(shown: WindowLifecyclePolicy.menuBarExtraShown(.standard))
     @Published private(set) var badge: String?
     private var loop: Task<Void, Never>?
+    private var status: (@MainActor () -> MenuBarStatus)?
+    private var interval: Double = 2
+    private(set) var shown: Bool
+
+    init(shown: Bool = true) { self.shown = shown }
+
+    var isRunning: Bool { loop != nil }
 
     func start(every seconds: Double = 2, _ status: @escaping @MainActor () -> MenuBarStatus) {
+        self.status = status
+        interval = seconds
+        if shown { run() }
+    }
+
+    /// The menu bar extra was inserted or removed: hidden, nothing reads the models for a count no one sees.
+    func setShown(_ on: Bool) {
+        guard on != shown else { return }
+        shown = on
+        if on {
+            if status != nil { run() }
+        } else {
+            endLoop()
+            update(nil)
+        }
+    }
+
+    func stop() {
+        status = nil
+        endLoop()
+    }
+
+    private func run() {
+        guard let status else { return }
         loop?.cancel()
+        let seconds = interval
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 self?.update(status().badge)
@@ -147,7 +181,7 @@ final class MenuBarBadge: ObservableObject {
         }
     }
 
-    func stop() {
+    private func endLoop() {
         loop?.cancel()
         loop = nil
     }
@@ -264,10 +298,7 @@ struct MenuBarContent: View {
 
     private var footer: some View {
         HStack {
-            Button("Open Hermes Bot") {
-                NSApp.activate(ignoringOtherApps: true)
-                AppModel.mainWindowsFront()
-            }
+            Button("Open Hermes Bot") { MainWindowOpener.show() }
             Spacer()
             Button("Quick Ask") { QuickAskPanelController.shared.show() }
                 .help("Ask a bot from anywhere (\(MacIntegration.shared.hotKey.shortcut.display))")

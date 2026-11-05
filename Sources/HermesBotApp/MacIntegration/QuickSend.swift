@@ -228,8 +228,7 @@ extension AppModel {
         case .room(let id) where !rooms.contains(where: { $0.roomId == id }): return
         default: break
         }
-        NSApp?.activate(ignoringOtherApps: true)
-        Self.mainWindowsFront()
+        MainWindowOpener.show()  // opens a new main window when the last one was closed (menu bar extra on)
         withTransaction(SidebarView.selectionTransaction) { selection = item }
     }
 

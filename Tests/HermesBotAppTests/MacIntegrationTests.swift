@@ -77,6 +77,26 @@ final class MacIntegrationTests: XCTestCase {
         await eventually { badge.badge == "2" }
     }
 
+    func testMenuBarBadgeRefreshesOnlyWhileTheExtraShows() async {
+        let status: @MainActor () -> MenuBarStatus = { MenuBarStatus.make(bots: [], hidden: [], chats: ["a": .init(waiting: 1, busy: false)], rooms: [], roomFacts: [:]) }
+        let badge = MenuBarBadge()
+        badge.start(every: 3600, status)
+        defer { badge.stop() }
+        XCTAssertTrue(badge.isRunning)
+        await eventually { badge.badge == "1" }
+        badge.setShown(false)
+        XCTAssertFalse(badge.isRunning, "hidden in Settings: the 2 s refresh stops")
+        XCTAssertNil(badge.badge)
+        badge.setShown(true)
+        XCTAssertTrue(badge.isRunning, "shown again: it resumes")
+        await eventually { badge.badge == "1" }
+
+        let hidden = MenuBarBadge(shown: false)
+        hidden.start(every: 3600, status)
+        defer { hidden.stop() }
+        XCTAssertFalse(hidden.isRunning, "launched with the extra off: never starts")
+    }
+
     func testMenuBarQuickSendSendsToTheBotChatAndReportsRefusals() async throws {
         let f = QuickSendFixture()
         let quick = MenuBarQuickSend()
@@ -97,7 +117,8 @@ final class MacIntegrationTests: XCTestCase {
     // MARK: D4 shortcut
 
     func testShortcutDisplayAndRecording() {
-        XCTAssertEqual(HotKeyShortcut.default.display, "⌃⌥Space")
+        XCTAssertEqual(HotKeyShortcut.default.display, "⌃⌥⌘Space", "not ⌃⌥Space: that is macOS's input-source switch")
+        XCTAssertEqual(HotKeyShortcut.legacyDefault.display, "⌃⌥Space")
         let k = HotKeyShortcut.recorded(keyCode: UInt16(kVK_ANSI_K), flags: [.command, .shift], characters: "k")
         XCTAssertEqual(k?.display, "⇧⌘K")
         XCTAssertEqual(k?.modifiers, UInt32(cmdKey | shiftKey))
@@ -134,13 +155,31 @@ final class MacIntegrationTests: XCTestCase {
         XCTAssertEqual(registrar.current, .default)
     }
 
+    func testTheOldDefaultMovesToTheNewOneOnce() throws {
+        defaults.set(try JSONEncoder().encode(HotKeyShortcut.legacyDefault), forKey: QuickAskHotKey.shortcutKey)
+        let registrar = RecordingHotKeys()
+        let hotKey = QuickAskHotKey(registrar: registrar, defaults: defaults, action: {})
+        XCTAssertEqual(hotKey.shortcut, .default, "a setting still on ⌃⌥Space follows the new default")
+        hotKey.apply()
+        XCTAssertEqual(registrar.current, .default)
+        hotKey.setShortcut(.legacyDefault)  // picked again on purpose afterwards: kept
+        XCTAssertEqual(QuickAskHotKey(registrar: RecordingHotKeys(), defaults: defaults, action: {}).shortcut, .legacyDefault)
+    }
+
+    func testACustomShortcutIsNotMigrated() throws {
+        let k = HotKeyShortcut(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | optionKey), key: "K")
+        defaults.set(try JSONEncoder().encode(k), forKey: QuickAskHotKey.shortcutKey)
+        XCTAssertEqual(QuickAskHotKey(registrar: RecordingHotKeys(), defaults: defaults, action: {}).shortcut, k)
+        XCTAssertTrue(defaults.bool(forKey: QuickAskHotKey.migratedKey))
+    }
+
     func testHotKeyTakenByAnotherAppIsReported() {
         let registrar = RecordingHotKeys()
         registrar.refuse = true
         let hotKey = QuickAskHotKey(registrar: registrar, defaults: defaults, action: {})
         hotKey.apply()
         XCTAssertFalse(hotKey.registered)
-        XCTAssertEqual(hotKey.problem, "⌃⌥Space is in use by another app. Pick another shortcut.")
+        XCTAssertEqual(hotKey.problem, "⌃⌥⌘Space is in use by another app. Pick another shortcut.")
         hotKey.setEnabled(false)
         XCTAssertNil(hotKey.problem)
     }

@@ -56,7 +56,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Where the menu bar extra setting is read (tests pass a suite).
+    var defaults: UserDefaults = .standard
+
+    /// While the menu bar extra shows, closing the last window keeps the app (status item, notifications,
+    /// Quick Ask) running; without it, the app quits as before.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        WindowLifecyclePolicy.terminatesAfterLastWindowClosed(menuBarExtraShown: WindowLifecyclePolicy.menuBarExtraShown(defaults))
+    }
+
+    /// The Dock icon (or Finder) reopened the app: bring a main window back, opening a new one when the last
+    /// was closed (the menu bar extra kept the app running).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            switch WindowLifecyclePolicy.reopen(hasVisibleWindows: flag, hasMainWindow: MainWindowOpener.hasMainWindow,
+                                                canOpenNew: MainWindowOpener.openNew != nil) {
+            case .systemDefault: return true
+            case .frontExisting: AppModel.mainWindowsFront(); return false
+            case .openNew: MainWindowOpener.openNew?(); return false
+            }
+        }
+    }
 
     // D8: the app delegate is the Quick Look panel's controller (QuickLook.swift).
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
@@ -107,4 +127,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PasteboardAttachments.purge()  // pasted images never outlive the app
         NSApp.terminate(nil)
     }
+}
+
+/// The window lifecycle decision (pure; WindowLifecycleTests): the app stays running after its last window
+/// closes while the menu bar extra is shown, and a reopen brings a main window back.
+enum WindowLifecyclePolicy {
+    static func menuBarExtraShown(_ defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: MenuBarScene.settingKey) as? Bool ?? true
+    }
+
+    static func terminatesAfterLastWindowClosed(menuBarExtraShown: Bool) -> Bool { !menuBarExtraShown }
+
+    enum Reopen: Equatable {
+        /// Windows are on screen: AppKit's own handling (bring them front).
+        case systemDefault
+        /// A main window exists but is minimised or hidden: restore it.
+        case frontExisting
+        /// No main window left: open a new one.
+        case openNew
+    }
+
+    static func reopen(hasVisibleWindows: Bool, hasMainWindow: Bool, canOpenNew: Bool) -> Reopen {
+        if hasVisibleWindows { return .systemDefault }
+        if hasMainWindow { return .frontExisting }
+        return canOpenNew ? .openNew : .systemDefault
+    }
+}
+
+/// Opens the main window from places outside it (the Dock reopen, the menu bar extra's Open Hermes Bot) when
+/// the last one was closed. SwiftUI's `openWindow` is only available in views: the menu bar label and the main
+/// window hand it over (`capturesMainWindowOpener`).
+@MainActor
+enum MainWindowOpener {
+    static var openNew: (() -> Void)?
+
+    /// A window that shows app content (not Settings, panels or the menu bar extra) exists, shown or not.
+    static var hasMainWindow: Bool {
+        NSApp?.windows.contains { w in
+            !(w is NSPanel) && w.canBecomeMain && !(w.identifier?.rawValue.localizedCaseInsensitiveContains("settings") ?? false)
+        } ?? false
+    }
+
+    /// Brings a main window forward, opening one when none is left.
+    static func show() {
+        NSApp?.activate(ignoringOtherApps: true)
+        if hasMainWindow { AppModel.mainWindowsFront() } else { openNew?() }
+    }
+}
+
+private struct MainWindowOpenerCapture: ViewModifier {
+    @Environment(\.openWindow) private var openWindow
+
+    func body(content: Content) -> some View {
+        content.onAppear {
+            let open = openWindow
+            MainWindowOpener.openNew = { open(id: HermesBotApp.mainSceneId) }
+        }
+    }
+}
+
+extension View {
+    /// Hands SwiftUI's `openWindow` to `MainWindowOpener`.
+    func capturesMainWindowOpener() -> some View { modifier(MainWindowOpenerCapture()) }
 }

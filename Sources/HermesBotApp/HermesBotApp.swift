@@ -20,11 +20,13 @@ import SwiftUI
 
 @main
 struct HermesBotApp: App {
+    /// The main window's scene (reopened by `MainWindowOpener` after the last window was closed).
+    static let mainSceneId = "main"
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage(DS.Motion.settingKey) private var motion = true
     var body: some Scene {
-        WindowGroup("Hermes Bot") {
-            RootView(model: AppModel.shared).modifier(MotionGate())
+        WindowGroup("Hermes Bot", id: Self.mainSceneId) {
+            RootView(model: AppModel.shared).modifier(MotionGate()).capturesMainWindowOpener()
                 // Every link surface in the window (not only message bodies) opens web pages only.
                 .environment(\.openURL, OpenURLAction { url in MessageBody.opensLink(url) ? .systemAction : .discarded })
         }

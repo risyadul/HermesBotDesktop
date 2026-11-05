@@ -4,7 +4,8 @@ import Combine
 import SwiftUI
 
 // D4: the global "Quick Ask" shortcut. Registered with Carbon's RegisterEventHotKey, which needs no
-// Accessibility permission (unlike a global NSEvent monitor). Default ⌃⌥Space (⌥Space alone is commonly
+// Accessibility permission (unlike a global NSEvent monitor). Default ⌃⌥⌘Space: ⌃⌥Space is macOS's "select
+// next input source" shortcut (and ⌥Space alone is commonly
 // taken). The registrar is injected: tests use a recorder and never register a real hot key.
 
 /// A key plus modifiers, stored as the Carbon virtual key code and Carbon modifier mask.
@@ -14,7 +15,10 @@ struct HotKeyShortcut: Codable, Equatable, Sendable {
     /// The key's label ("Space", "K").
     var key: String
 
-    static let `default` = HotKeyShortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey), key: "Space")
+    static let `default` = HotKeyShortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey | cmdKey), key: "Space")
+    /// The first default, ⌃⌥Space: it collides with the input-source switch, so a setting still on it moves
+    /// to the new default once (`QuickAskHotKey.migrateLegacyDefault`).
+    static let legacyDefault = HotKeyShortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey), key: "Space")
 
     /// "⌃⌥Space": modifiers in the system's order (⌃⌥⇧⌘), then the key.
     var display: String {
@@ -113,6 +117,8 @@ final class CarbonHotKeyRegistrar: HotKeyRegistering {
 final class QuickAskHotKey: ObservableObject {
     static let enabledKey = "hba.quickAsk.enabled"
     static let shortcutKey = "hba.quickAsk.shortcut"
+    /// Set once the legacy ⌃⌥Space default was migrated (or found not in use), so a user who picks it again keeps it.
+    static let migratedKey = "hba.quickAsk.defaultMigrated"
 
     @Published private(set) var enabled: Bool
     @Published private(set) var shortcut: HotKeyShortcut
@@ -129,8 +135,18 @@ final class QuickAskHotKey: ObservableObject {
         self.defaults = defaults
         self.action = action
         enabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
+        Self.migrateLegacyDefault(defaults)
         shortcut = defaults.data(forKey: Self.shortcutKey).flatMap { try? JSONDecoder().decode(HotKeyShortcut.self, from: $0) }
             ?? .default
+    }
+
+    /// Once: a stored ⌃⌥Space (the old default, kept by Reset or saved unchanged) is dropped, so the setting
+    /// follows the new default. Nothing stored already means the new default.
+    static func migrateLegacyDefault(_ defaults: UserDefaults) {
+        guard !defaults.bool(forKey: migratedKey) else { return }
+        defaults.set(true, forKey: migratedKey)
+        let stored = defaults.data(forKey: shortcutKey).flatMap { try? JSONDecoder().decode(HotKeyShortcut.self, from: $0) }
+        if stored == HotKeyShortcut.legacyDefault { defaults.removeObject(forKey: shortcutKey) }
     }
 
     func apply() {

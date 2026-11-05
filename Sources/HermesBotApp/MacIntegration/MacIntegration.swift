@@ -51,6 +51,7 @@ struct MacIntegrationSection: View {
     var body: some View {
         Section {
             Toggle("Show in menu bar", isOn: $menuBar)
+                .onChange(of: menuBar) { _, shown in MenuBarBadge.shared.setShown(shown) }
             Toggle("Quick Ask shortcut", isOn: Binding(get: { hotKey.enabled }, set: { hotKey.setEnabled($0) }))
             if hotKey.enabled {
                 LabeledContent("Shortcut") {

@@ -723,10 +723,12 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   Chat and Group Chat. Images show inline as a thumbnail (fits 320×240 pt, never upscaled, chip radius);
   other files show as a chip (kind symbol, file name, size; max width 320 pt). Nothing opens without a
   click, and every Open / Reveal re-checks the path (`MediaSafety`): a missing or refused file shows a
-  disabled chip with the reason. Context menu: Quick Look, Open, Reveal in Finder, Copy Path. A thumbnail click
+  disabled chip with the reason. Context menu (`MediaContextMenu`): Quick Look, Open, Reveal in Finder, Copy Path
+  (a reveal-only format has only Reveal in Finder and Copy Path). A thumbnail click
   previews in Quick Look (the system panel, out of process); Space over a tile previews it unless a text field
   has focus; a checked tile drags out as its file (D8). Reveal-only formats are never previewed.
-  Files the user sent in a room (the app's own copies) use the same tiles; a click opens Quick Look (formats
+  Files the user sent in a room (the app's own copies) use the same tiles, menu and Quick Look panel (hover +
+  Space too); a click opens Quick Look (formats
   that can run code are still only revealed); a deleted copy's chip reads "This copy was deleted, so the bots
   can no longer open it either."
 - `palette` (⌘K Go to / ⇧⌘F Messages, D5/D10): a sheet 560 pt wide (`paletteWidth`) in the window fill: a
