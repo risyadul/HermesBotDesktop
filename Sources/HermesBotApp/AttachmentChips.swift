@@ -19,9 +19,11 @@ struct PendingAttachment: Identifiable, Equatable {
     let url: URL
     /// Resolved path (duplicate check).
     let key: String
-    /// The client-side check result; nil when the check failed.
+    /// The client-side check result; nil when the check failed (and for a context ref).
     let checked: ChatAttachments.Checked?
     var state: State
+    /// B11: a web page or folder sent as an `@url:` / `@folder:` line in the prompt (nothing is uploaded).
+    var contextRef: ContextRef?
 
     init(url: URL, key: String? = nil, check: (URL) throws -> ChatAttachments.Checked) {
         self.url = url
@@ -35,7 +37,25 @@ struct PendingAttachment: Identifiable, Equatable {
         }
     }
 
-    var name: String { VisibleText.reveal(checked?.name ?? url.lastPathComponent) }
+    /// B11: a context ref chip (`@url:` / `@folder:`): always ready, never staged on the session.
+    init(ref: ContextRef) {
+        contextRef = ref
+        url = ref.kind == .folder ? URL(fileURLWithPath: ref.value, isDirectory: true) : (URL(string: ref.value) ?? URL(fileURLWithPath: "/"))
+        key = ref.refText
+        checked = nil
+        state = .ready
+    }
+
+    var name: String {
+        if let ref = contextRef {
+            return VisibleText.reveal(ref.kind == .url ? (url.host ?? ref.value) : url.lastPathComponent)
+        }
+        // B11: a long paste saved as a text file reads as "Pasted content", as in Desktop.
+        if LargePaste.isPastedContent(url.lastPathComponent) {
+            return "Pasted content" + (checked.map { " (\(LargePaste.byteLabel($0.bytes)))" } ?? "")
+        }
+        return VisibleText.reveal(checked?.name ?? url.lastPathComponent)
+    }
     var kind: ChatAttachments.Kind { checked?.kind ?? ChatAttachments.kind(of: url) }
     var isReady: Bool { state == .ready }
     var isSending: Bool { state == .sending }
@@ -45,6 +65,11 @@ struct PendingAttachment: Identifiable, Equatable {
     var isTemporary: Bool { PasteboardAttachments.isPasted(url) }
 
     var symbol: String {
+        switch contextRef?.kind {
+        case .url?: return "link"
+        case .folder?: return "folder"
+        case nil: break
+        }
         switch kind {
         case .image: return "photo"
         case .pdf: return "doc.richtext"
@@ -57,13 +82,14 @@ struct PendingAttachment: Identifiable, Equatable {
         case .sending: return "Sending…"
         case .failed(let e): return e
         case .ready:
+            if let ref = contextRef { return ref.kind == .url ? "Web page" : "Folder" }
             if let pages = checked?.pages { return pages == 1 ? "1 page" : "\(pages) pages" }
             return kind == .image ? "Image" : (kind == .pdf ? "PDF" : "File")
         }
     }
 
     var accessibilityLabel: String {
-        let what = kind == .image ? "Image" : "File"
+        let what = contextRef.map { $0.kind == .url ? "Web page" : "Folder" } ?? (kind == .image ? "Image" : "File")
         switch state {
         case .sending: return "\(what) \(name), sending"
         case .failed(let e): return "\(what) \(name) could not be attached: \(e)"
@@ -192,7 +218,10 @@ struct AttachmentChip: View {
     /// The composer's focus, readable from the AppKit monitor (which outlives one view value).
     var focused = false
 
-    func install(canAttach: @escaping @MainActor () -> Bool, attach: @escaping @MainActor ([URL]) -> Void) {
+    /// `pasteText` (Bot Chat, B11) sees a text-only paste first and returns true when it took it (a long
+    /// paste becomes an attachment); the field gets the paste otherwise.
+    func install(canAttach: @escaping @MainActor () -> Bool, attach: @escaping @MainActor ([URL]) -> Void,
+                 pasteText: (@MainActor (String) -> Bool)? = nil) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let isPaste = event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
@@ -201,6 +230,9 @@ struct AttachmentChip: View {
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard self?.focused == true, canAttach() else { return false }
                 let urls = PasteboardAttachments.urls(from: .general)
+                if urls.isEmpty, let pasteText, let text = NSPasteboard.general.string(forType: .string) {
+                    return pasteText(text)
+                }
                 guard !urls.isEmpty else { return false }
                 attach(urls)
                 return true
@@ -221,6 +253,21 @@ struct AttachmentChip: View {
     panel.allowsMultipleSelection = true
     panel.canChooseDirectories = false
     panel.canChooseFiles = true
+    panel.prompt = "Attach"
+    panel.message = message
+    panel.begin { response in
+        guard response == .OK else { return }
+        let urls = panel.urls
+        MainActor.assumeIsolated { attach(urls) }
+    }
+}
+
+/// B11: the folder picker behind "Attach Folder…" (folders go as `@folder:` context, nothing is uploaded).
+@MainActor func pickFolders(message: String, attach: @escaping @MainActor ([URL]) -> Void) {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = true
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
     panel.prompt = "Attach"
     panel.message = message
     panel.begin { response in

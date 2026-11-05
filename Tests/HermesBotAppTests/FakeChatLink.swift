@@ -71,7 +71,7 @@ final class FakeChatLink: ChatSessionLink, @unchecked Sendable {
         }
         record("send:\(userText)|\(files.map(\.name).joined(separator: ","))")
         if let sendError { throw sendError }
-        return ["status": .string(submitStatus)]
+        return .object(submitExtra.merging(["status": .string(submitStatus)]) { _, new in new })
     }
     func interrupt() async throws { record("interrupt") }
     func slashCatalog() async throws -> SlashCatalog { record("catalog"); return try catalogResult() }
@@ -117,4 +117,51 @@ final class FakeChatLink: ChatSessionLink, @unchecked Sendable {
     func setReasoning(_ effort: String) async throws -> String { record("reasoning:\(effort)"); return try reasoningResult(effort) }
     func usage() async throws -> ContextUsage? { read("usage"); return usageResult }
     func contextBreakdown() async throws -> ContextBreakdown { read("breakdown"); return breakdownResult }
+
+    // MARK: rewind, branch, approval mode (B3, B4, B14)
+
+    /// `session.history` rows (a read, kept out of `calls`).
+    var historyResult: [HistoryRow] = []
+    var historyError: Error?
+    /// Every rewind submit, with its exact arguments.
+    struct RewindCall: Equatable { let text: String; let rowId: Int?; let confirmDeep: Bool; let rebind: [Int] }
+    private var _rewinds: [RewindCall] = []
+    var rewinds: [RewindCall] { lock.withLock { _rewinds } }
+    var rewindResult: @Sendable (RewindCall) throws -> RewindReceipt = { c in RewindReceipt(status: "streaming", truncated: c.rowId != nil) }
+    /// What `branchSession` answers (nil: a fresh fake with the branch's history).
+    var branchResult: (@Sendable (Int, String) throws -> FakeChatLink)?
+    private var _branches: [(count: Int, key: String)] = []
+    var branches: [(count: Int, key: String)] { lock.withLock { _branches } }
+    var title: String?
+    var approval: ApprovalMode = .manual
+    var approvalSetError: Error?
+    /// `submit` reply extras (e.g. `user_row_id`).
+    var submitExtra: [String: JSONValue] = [:]
+
+    func historyRows() async throws -> [HistoryRow] {
+        read("history")
+        if let historyError { throw historyError }
+        return historyResult
+    }
+    func rewind(text: String, rowId: Int?, confirmDeep: Bool, rebind: [Int]) async throws -> RewindReceipt {
+        let c = RewindCall(text: text, rowId: rowId, confirmDeep: confirmDeep, rebind: rebind)
+        lock.withLock { _rewinds.append(c) }
+        record("rewind:\(text)")
+        return try rewindResult(c)
+    }
+    func branchSession(count: Int, idempotencyKey: String) async throws -> any ChatSessionLink {
+        lock.withLock { _branches.append((count, idempotencyKey)) }
+        record("branch:\(count)")
+        if let branchResult { return try branchResult(count, idempotencyKey) }
+        let b = FakeChatLink(history: Array(history.prefix(count)))
+        b.title = "Branch"
+        return b
+    }
+    func approvalMode() async throws -> ApprovalMode { read("approval"); return approval }
+    func setApprovalMode(_ mode: ApprovalMode) async throws -> ApprovalMode {
+        record("approval:\(mode.rawValue)")
+        if let approvalSetError { throw approvalSetError }
+        approval = mode
+        return mode
+    }
 }

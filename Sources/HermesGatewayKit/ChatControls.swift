@@ -71,11 +71,14 @@ public struct SessionInfoSnapshot: Sendable, Equatable {
     /// The level the route's clamp sends (`ultra` may send `max`); `""` when unknown or equal.
     public var reasoningEffortWire: String
     public var usage: ContextUsage?
+    /// B14: the profile's effective `approvals.mode` (`approval_mode`), re-sent on every `session.info` after a
+    /// change; nil when the payload has none.
+    public var approvalMode: ApprovalMode?
 
     public init(model: String, provider: String, reasoningEffort: String = "", reasoningEffortWire: String = "",
-                usage: ContextUsage? = nil) {
+                usage: ContextUsage? = nil, approvalMode: ApprovalMode? = nil) {
         self.model = model; self.provider = provider; self.reasoningEffort = reasoningEffort
-        self.reasoningEffortWire = reasoningEffortWire; self.usage = usage
+        self.reasoningEffortWire = reasoningEffortWire; self.usage = usage; self.approvalMode = approvalMode
     }
 
     /// nil for a payload with no model (an `info: {}` placeholder).
@@ -84,7 +87,8 @@ public struct SessionInfoSnapshot: Sendable, Equatable {
         self.init(model: model, provider: v["provider"]?.string ?? "",
                   reasoningEffort: v["reasoning_effort"]?.string ?? "",
                   reasoningEffortWire: v["reasoning_effort_wire"]?.string ?? "",
-                  usage: ContextUsage(v["usage"]))
+                  usage: ContextUsage(v["usage"]),
+                  approvalMode: v["approval_mode"]?.string.map { ApprovalMode(normalizing: $0) })
     }
 }
 

@@ -69,7 +69,12 @@ struct ChatComposer: View {
             if d == "/" && chat.catalog == nil { chat.loadCatalog() }
         }
         .onChange(of: focused) { _, f in paste.focused = f }
-        .onAppear { let chat = chat; paste.install(canAttach: { chat.isReady }, attach: { chat.addAttachments($0) }) }
+        .onAppear {
+            let chat = chat
+            // A branch sheet over this chat has its own composer: pastes go there, not here.
+            paste.install(canAttach: { chat.isReady && chat.branch == nil }, attach: { chat.addDropped($0) },
+                          pasteText: { chat.branch == nil && chat.attachLongPaste($0) })  // B11: a long paste becomes a text attachment
+        }
         .onDisappear { paste.remove() }
     }
 
@@ -79,8 +84,7 @@ struct ChatComposer: View {
                 AttachmentChips(items: chat.pending) { chat.removeAttachment($0) }
             }
             HStack(alignment: .bottom, spacing: DS.Space.s2) {
-                IconButton(symbol: "paperclip", label: "Attach files", action: pickFiles)
-                    .disabled(!chat.isReady)
+                attachMenu
                 TextField(placeholder, text: $chat.draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(DS.Typeface.body)
@@ -264,6 +268,30 @@ struct ChatComposer: View {
             return .ignored
         }
         return (up ? chat.recallOlder() : chat.recallNewer()) ? .handled : .ignored
+    }
+
+    /// B11: the paperclip offers files, a folder (`@folder:`) and a web page (`@url:`).
+    private var attachMenu: some View {
+        Menu {
+            Button("Attach Files…", action: pickFiles)
+            Button("Attach Folder…", action: pickFolder)
+            Button("Attach URL…") { chat.urlDialogShown = true }
+        } label: {
+            Image(systemName: "paperclip").font(DS.Typeface.icon)
+                .frame(width: DS.Size.controlHeight, height: DS.Size.controlHeight)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(IconButtonStyle())
+        .fixedSize()
+        .accessibilityLabel("Attach files")
+        .help("Attach files, a folder or a web page")
+        .disabled(!chat.isReady)
+    }
+
+    private func pickFolder() {
+        let chat = chat
+        pickFolders(message: "Attach folders as context for \(chat.bot.title)") { chat.addFolders($0) }
     }
 
     private func pickFiles() {

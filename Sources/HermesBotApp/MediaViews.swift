@@ -208,6 +208,7 @@ struct MediaAttachmentView: View {
     @State private var resolution: MediaResolution?
     @State private var thumbnail: MediaThumbnail?
     @Environment(\.motionEnabled) private var motion
+    @Environment(\.imageZoom) private var imageZoom
 
     init(ref: MediaRef, autoResolve: Bool = true) {
         self.ref = ref
@@ -241,13 +242,19 @@ struct MediaAttachmentView: View {
         .task(id: ref) { await load() }
     }
 
-    /// A deferred chip is only checked by its first click; afterwards a click opens (or reveals).
+    /// A deferred chip is only checked by its first click; afterwards a click opens (or reveals). In a chat
+    /// that offers zoom (B11, `imageZoom`), an image is re-checked and shown in the zoom sheet instead.
     private func click() {
         let deferred = resolution == .deferred
+        let zoom = ref.kind == .image ? imageZoom : nil
         Task {
             if deferred {
                 apply(await MediaActions.check(ref))
                 await loadThumbnail()
+            } else if let zoom {
+                let fresh = await MediaActions.check(ref)
+                apply(fresh)
+                if case .available(let url, _, _) = fresh { zoom.present(ref, url) }
             } else {
                 apply(await MediaActions.open(ref))
             }

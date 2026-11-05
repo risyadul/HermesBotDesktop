@@ -44,6 +44,17 @@ enum ChatCopy {
     }
 }
 
+/// B3/B4: a per-message action beside Copy (Regenerate, Edit, Restore from Here, Branch into New Chat).
+/// `hover` actions also get a button on the hover plate; all of them are in the context menu.
+struct MessageAction: Identifiable {
+    var id: String { title }
+    let title: String
+    let symbol: String
+    var hover = false
+    var enabled = true
+    let action: () -> Void
+}
+
 /// Hover buttons (top trailing) and a context menu with Copy and, for a reply in several parts, Copy Full
 /// Response. The buttons sit on a window-colour plate so they stay legible over text.
 struct MessageCopyActions: ViewModifier {
@@ -53,6 +64,8 @@ struct MessageCopyActions: ViewModifier {
     var onCreateTask: (() -> Void)?
     /// B5: when the message landed, shown on hover before the buttons (the full date is its tooltip).
     var time: Date?
+    /// B3/B4: Bot Chat message actions (empty elsewhere).
+    var actions: [MessageAction] = []
     @State private var hovering = false
 
     func body(content: Content) -> some View {
@@ -73,6 +86,9 @@ struct MessageCopyActions: ViewModifier {
                                 ChatCopy.copy(fullResponse)
                             }
                         }
+                        ForEach(actions.filter(\.hover)) { a in
+                            MessageActionButton(symbol: a.symbol, label: a.title, action: a.action).disabled(!a.enabled)
+                        }
                     }
                     .background(DS.Palette.window, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
@@ -83,13 +99,19 @@ struct MessageCopyActions: ViewModifier {
             .contextMenu {
                 Button("Copy Message") { ChatCopy.copy(text) }
                 if let fullResponse { Button("Copy Full Response") { ChatCopy.copy(fullResponse) } }
+                if !actions.isEmpty {
+                    Divider()
+                    ForEach(actions) { a in Button(a.title, action: a.action).disabled(!a.enabled) }
+                }
                 if let onCreateTask { Divider(); Button("Create Task from Message…", action: onCreateTask) }
             }
     }
 }
 
 extension View {
-    func messageCopyActions(_ line: ChatLine, fullResponse: String?, onCreateTask: (() -> Void)? = nil) -> some View {
-        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse, onCreateTask: onCreateTask, time: line.at))
+    func messageCopyActions(_ line: ChatLine, fullResponse: String?, onCreateTask: (() -> Void)? = nil,
+                            actions: [MessageAction] = []) -> some View {
+        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse, onCreateTask: onCreateTask, time: line.at,
+                                    actions: actions))
     }
 }

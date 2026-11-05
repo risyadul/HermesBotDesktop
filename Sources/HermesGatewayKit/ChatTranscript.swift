@@ -19,11 +19,19 @@ public struct ChatLine: Identifiable, Sendable, Equatable {
     /// Wall-clock seconds the turn ran, on the last reply text of a turn this client watched from its start
     /// (Desktop `durationS`: start → `message.complete`, at least 1 s). nil for history and joined turns.
     public var turnDuration: TimeInterval?
+    /// The durable row id of a persisted message (history `row_id`, or `prompt.submit`'s `user_row_id` for a
+    /// turn sent here): what a rewind addresses (B3). nil when unknown.
+    public var rowId: Int?
+    /// User lines: the model-facing text that was submitted (history text, or the prompt with its ref lines and
+    /// mention note); `text` is what the transcript shows. Regenerate and Restore resubmit this. nil = `text`.
+    public var prompt: String?
+    /// Error lines: what failed, for the error card's buttons and diagnostics (B10).
+    public var failure: TurnFailure?
 
     public init(role: Role, text: String, streaming: Bool = false, interim: Bool = false, tool: ToolLine? = nil,
-                at: Date? = Date()) {
+                at: Date? = Date(), rowId: Int? = nil, prompt: String? = nil, failure: TurnFailure? = nil) {
         id = UUID(); self.role = role; self.text = text; self.streaming = streaming; self.interim = interim
-        self.tool = tool; self.at = at
+        self.tool = tool; self.at = at; self.rowId = rowId; self.prompt = prompt; self.failure = failure
     }
 }
 
@@ -131,13 +139,13 @@ public struct ChatTranscript: Sendable, Equatable {
 
     /// Accepts a user message when idle: appends it, marks the turn busy and returns the trimmed
     /// text to send. Returns nil (nothing changes) when busy or blank.
-    public mutating func beginTurn(_ raw: String) -> String? {
+    public mutating func beginTurn(_ raw: String, prompt: String? = nil) -> String? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !busy, !text.isEmpty else { return nil }
         busy = true
         turnSerial += 1; turnIsLocal = true; turnStartedAt = Date()
         liveIndex = nil; liveSeeded = false; segments = []; interimBoundary = 0
-        let line = ChatLine(role: .user, text: text)
+        let line = ChatLine(role: .user, text: text, prompt: prompt)
         unsentUserId = line.id
         lines.append(line)
         thoughtIndex = nil; turnStart = lines.count
@@ -152,7 +160,7 @@ public struct ChatTranscript: Sendable, Equatable {
             if turnStart > i { turnStart -= 1 }
         }
         unsentUserId = nil
-        fail(message)
+        fail(message, source: .send)
     }
 
     /// A correction for the running turn (`session.redirect`), recorded before the RPC goes out because the
@@ -213,19 +221,19 @@ public struct ChatTranscript: Sendable, Equatable {
             let at = m.timestamp
             switch m.role {
             // The @mention note the composer appended for the model (B1) is not the user's own words.
-            case .user: return [ChatLine(role: .user, text: BotMentions.stripNote(m.text), at: at)]
+            case .user: return [ChatLine(role: .user, text: BotMentions.stripNote(m.text), at: at, rowId: m.rowId, prompt: m.text)]
             case .assistant:
                 // A step's reasoning comes before its text, as Desktop rebuilds it (`hydration.ts:478-513`).
                 let thought = m.reasoning.map { ChatLine(role: .thought, text: $0, at: at) }
                 let text = m.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? nil : ChatLine(role: .bot, text: m.text, at: at)
+                    ? nil : ChatLine(role: .bot, text: m.text, at: at, rowId: m.rowId)
                 return [thought, text].compactMap { $0 }
-            case .system: return [ChatLine(role: .system, text: m.text, at: at)]
+            case .system: return [ChatLine(role: .system, text: m.text, at: at, rowId: m.rowId)]
             case .tool:
                 let name = m.toolName ?? "tool"
                 return [ChatLine(role: .tool, text: m.toolContext ?? "",
                                  tool: ToolLine(toolId: "", name: name, state: .done, label: m.toolLabel, args: m.toolArgs),
-                                 at: at)]
+                                 at: at, rowId: m.rowId)]
             }
         }
         turnStart = lines.count
@@ -262,12 +270,14 @@ public struct ChatTranscript: Sendable, Equatable {
         }
     }
 
-    /// Ends the turn with an error (send failed, `error` event, socket gone).
-    public mutating func fail(_ message: String) {
+    /// Ends the turn with an error (send failed, `error` event, socket gone). The error line carries a
+    /// `TurnFailure` for its card (B10).
+    public mutating func fail(_ message: String, source: TurnFailure.Source = .event, surface: ErrorSurface? = nil) {
         sealLive()
         sealThought()
         settleTools(.failed)
-        lines.append(ChatLine(role: .error, text: message))
+        lines.append(ChatLine(role: .error, text: message,
+                              failure: TurnFailure(source: source, message: message, surface: surface)))
         busy = false
     }
 
@@ -305,7 +315,7 @@ public struct ChatTranscript: Sendable, Equatable {
             fail(m)
         case .disconnected(let reason):
             // Only a running turn is affected; an idle chat just cannot send any more.
-            if busy || liveIndex != nil { fail("disconnected: \(reason)") }
+            if busy || liveIndex != nil { fail("disconnected: \(reason)", source: .disconnected) }
         case .toolGenerating(let name):
             draftingTool = name.isEmpty ? nil : name
         case .toolStarted(let t):
@@ -443,7 +453,9 @@ public struct ChatTranscript: Sendable, Equatable {
         settleTools(c.status == nil || c.status == "complete" ? .done : .failed)
         stampReply()
         if let status = c.status, status != "complete" {
-            lines.append(ChatLine(role: .error, text: "turn \(status)" + (c.error.map { ": \($0)" } ?? "")))
+            let text = "turn \(status)" + (c.error.map { ": \($0)" } ?? "")
+            lines.append(ChatLine(role: .error, text: text,
+                                  failure: TurnFailure(source: .turn, message: c.error ?? text, surface: c.errorSurface)))
         }
         busy = false
     }
@@ -458,6 +470,72 @@ public struct ChatTranscript: Sendable, Equatable {
               !lines[i...].contains(where: { $0.role == .user }) else { return }
         lines[i].at = now
         if let started { lines[i].turnDuration = max(1, now.timeIntervalSince(started).rounded()) }
+    }
+
+    // MARK: - rewind and row ids (B3, B10)
+
+    /// The durable row id `prompt.submit` reported for the user turn this client just sent (`user_row_id`).
+    public mutating func bindSentUser(rowId: Int) {
+        guard let id = unsentUserId, let i = lines.firstIndex(where: { $0.id == id }) else { return }
+        lines[i].rowId = rowId
+    }
+
+    /// Every durable row id the transcript holds (Desktop `durableRowIdsForRebind`), in order, unique.
+    public var durableRowIds: [Int] {
+        var seen = Set<Int>()
+        return lines.compactMap(\.rowId).filter { seen.insert($0).inserted }
+    }
+
+    /// A truncating submit re-inserted the kept prefix as new rows (`survivor_row_id_map {old: new|null}`):
+    /// surviving lines take their new id; a `null` (or a row the map names without a new id) loses its id.
+    /// Rows the map does not name keep theirs (Desktop `rebindSurvivorRowIds`).
+    public mutating func rebindRowIds(_ map: [Int: Int?]) {
+        for i in lines.indices {
+            guard let old = lines[i].rowId, let entry = map[old] else { continue }
+            lines[i].rowId = entry
+        }
+    }
+
+    /// Older gateways report only the surviving user rows' ids in order (`survivor_user_row_ids`): positional
+    /// over the user lines; lines past the end (the resubmitted turn) lose their cached id.
+    public mutating func rebindUserRowIds(_ ids: [Int?]) {
+        var ordinal = 0
+        for i in lines.indices where lines[i].role == .user {
+            lines[i].rowId = ordinal < ids.count ? ids[ordinal] : nil
+            ordinal += 1
+        }
+    }
+
+    /// Starts a rewind turn (regenerate, edit, restore) at the user line `id`: everything after it goes, the
+    /// line takes `editedText` / `prompt` when editing, and the turn runs as a local one whose user line is
+    /// that line (its durable id is gone: the cut re-inserts it as a new row, bound from the submit reply).
+    /// Idle only; false (nothing changes) while a turn runs or for a line that is not a user line.
+    @discardableResult
+    public mutating func beginRewind(at id: UUID, editedText: String? = nil, prompt: String? = nil) -> Bool {
+        guard !busy, let i = lines.firstIndex(where: { $0.id == id }), lines[i].role == .user else { return false }
+        lines.removeSubrange((i + 1)...)
+        if let editedText {
+            let t = editedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return false }
+            lines[i].text = t
+            lines[i].prompt = prompt
+        }
+        lines[i].rowId = nil
+        lines[i].at = Date()
+        busy = true
+        turnSerial += 1; turnIsLocal = true; turnStartedAt = Date()
+        liveIndex = nil; liveSeeded = false; segments = []; interimBoundary = 0; draftingTool = nil; thoughtIndex = nil
+        redirectUser = nil; redirectSealed = nil
+        unsentUserId = lines[i].id
+        turnStart = lines.count
+        return true
+    }
+
+    /// Dismiss on an error card: the error line goes (other lines are never removed this way).
+    public mutating func dismissError(_ id: UUID) {
+        guard let i = lines.firstIndex(where: { $0.id == id }), lines[i].role == .error else { return }
+        removeLine(at: i)
+        if turnStart > i { turnStart -= 1 }
     }
 
     /// The bot text of the latest turn's last bubble (evidence logging).

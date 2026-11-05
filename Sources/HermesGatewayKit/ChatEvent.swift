@@ -52,14 +52,17 @@ public struct ChatCompletion: Sendable, Equatable {
     public var responseTransformed: Bool
     /// The turn's final context usage (`usage`), when the payload carries context figures.
     public var usage: ContextUsage?
+    /// B10: `error_surface {layer, code, retryable, provider?, model?}` of a failed turn (`status: "error"`).
+    public var errorSurface: ErrorSurface?
 
     public init(text: String?, status: String? = "complete", error: String? = nil,
                 responsePreviewed: Bool = false, responseReused: Bool = false, responseTransformed: Bool = false,
-                usage: ContextUsage? = nil) {
+                usage: ContextUsage? = nil, errorSurface: ErrorSurface? = nil) {
         self.text = text; self.status = status; self.error = error
         self.responsePreviewed = responsePreviewed; self.responseReused = responseReused
         self.responseTransformed = responseTransformed
         self.usage = usage
+        self.errorSurface = errorSurface
     }
 
     init(payload p: JSONValue?) {
@@ -68,6 +71,6 @@ public struct ChatCompletion: Sendable, Equatable {
                   responsePreviewed: p?["response_previewed"]?.bool ?? false,
                   responseReused: p?["response_reused"]?.bool ?? false,
                   responseTransformed: p?["response_transformed"]?.bool ?? false,
-                  usage: ContextUsage(p?["usage"]))
+                  usage: ContextUsage(p?["usage"]), errorSurface: ErrorSurface(p?["error_surface"]))
     }
 }

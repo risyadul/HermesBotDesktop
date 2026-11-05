@@ -50,7 +50,7 @@ struct BotChatView: View {
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
             guard chat.isReady, !files.isEmpty else { return false }
-            chat.addAttachments(files)
+            chat.addDropped(files)  // B11: folders attach as @folder: context
             return true
         } isTargeted: { dropTargeted = $0 && chat.isReady }
         .task { chat.open() }
@@ -87,6 +87,12 @@ struct BotChatView: View {
                 .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showInspector) { _, shown in storedInspector = shown }
+        // B3 confirm + edit, B11 URL dialog + image zoom.
+        .chatSheets(chat, motion: motion)
+        // B4: a branch opens beside the chat, read-write.
+        .motionSheet(isPresented: Binding(get: { chat.branch != nil }, set: { if !$0 { chat.closeBranch() } }), motion: motion) {
+            if let branch = chat.branch { BranchChatSheet(chat: branch, onClose: { chat.closeBranch() }) }
+        }
         // Presented from the pane (in the window's view hierarchy), not from the toolbar item that opens it.
         .motionSheet(isPresented: $chat.routinesShown, motion: motion) {
             RoutinesSheet(bot: chat.bot, context: .current(), onClose: { chat.routinesShown = false })
@@ -107,11 +113,16 @@ struct BotChatView: View {
                 let tail = EagerTail.start(of: items) { $0.approximateLines }
                 let gaps = TranscriptItem.gaps(items)
                 let full = ChatCopy.fullResponses(chat.lines)
+                let changed = ChangedFiles.cards(chat.lines, busy: chat.busy)  // B16
                 VStack(alignment: .leading, spacing: 0) {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(items[..<tail]) { item in transcriptRow(item, full: full).padding(.top, gaps[item.id] ?? 0) }
+                        ForEach(items[..<tail]) { item in
+                            transcriptRow(item, full: full, changed: changed).padding(.top, gaps[item.id] ?? 0)
+                        }
                     }
-                    ForEach(items[tail...]) { item in transcriptRow(item, full: full).padding(.top, gaps[item.id] ?? 0) }
+                    ForEach(items[tail...]) { item in
+                        transcriptRow(item, full: full, changed: changed).padding(.top, gaps[item.id] ?? 0)
+                    }
                     ServerRequestCards(chat: chat, identity: identity)
                         .padding(.top, chat.requests.isEmpty ? 0 : DS.Space.timeline)
                 }
@@ -193,10 +204,20 @@ struct BotChatView: View {
         }
     }
 
-    private func transcriptRow(_ item: TranscriptItem, full: [UUID: String]) -> some View {
+    private func transcriptRow(_ item: TranscriptItem, full: [UUID: String], changed: [UUID: [ChangedFile]]) -> some View {
         let fromUser: Bool
-        if case .line(let l, _) = item { fromUser = l.role == .user } else { fromUser = false }
-        return copyable(row(item), item, full: full)
+        let lastId: UUID
+        switch item {
+        case .line(let l, _): fromUser = l.role == .user; lastId = l.id
+        case .tools(let ls, _): fromUser = false; lastId = ls[ls.count - 1].id
+        }
+        return VStack(alignment: .leading, spacing: DS.Space.s2) {
+            copyable(row(item), item, full: full)
+            // B16: the files a finished turn edited, under its last line.
+            if let files = changed[lastId] {
+                ChangedFilesCard(files: files).padding(.leading, DS.Size.contentInset)
+            }
+        }
             .overlay { if find?.currentMatch?.lineId == item.id { FindCurrentRing() } }
             .id(item.id)
             .transition(motion ? .arrive(from: fromUser ? .bottomTrailing : .bottomLeading) : .identity)
@@ -206,9 +227,11 @@ struct BotChatView: View {
     @ViewBuilder private func copyable<V: View>(_ view: V, _ item: TranscriptItem, full: [UUID: String]) -> some View {
         if case .line(let line, _) = item, ChatCopy.copyable(line) {
             let bot = chat.bot
+            // B3/B4: Edit / Restore / Branch on sent messages, Regenerate / Branch on replies.
+            let actions = line.role == .user ? BotChatActions.user(line, chat: chat) : BotChatActions.reply(line, chat: chat)
             view.messageCopyActions(line, fullResponse: full[line.id], onCreateTask: {
                 AppModel.shared.composeTask(from: .botChat(text: line.text, fromUser: line.role == .user, bot: bot.name, botTitle: bot.title))
-            })
+            }, actions: actions)
         } else {
             view
         }
@@ -319,12 +342,7 @@ struct BotChatView: View {
         case .bot, .thought, .tool:
             botContent(line)
         case .error:
-            HStack(alignment: .top, spacing: DS.Space.s2) {
-                Image(systemName: "exclamationmark.triangle.fill").font(DS.Typeface.iconSmall)
-                Text(line.text).textSelection(.enabled)
-            }
-            .font(DS.Typeface.meta).foregroundStyle(DS.Palette.danger)
-            .padding(.leading, DS.Size.contentInset)
+            BotChatActions.errorCard(line, chat: chat)  // B10
         case .system:
             SystemNoteRow(text: line.text)
         }
