@@ -92,7 +92,9 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [x] **A6** "Needs attention" badge: re-sign-in, quota, provider not configured (M)
 - [x] **A7** Create a bot: name, title, description, avatar, clone from, share keys, skip bundled skills, model;
       readiness check (`profiles.create`, `setup.runtime_check`) (L)
-- [x] **A10** Avatar picker: shapes and faces, upload, generate (`image.generate`), pet gallery (L). Desktop's
+- [x] **A10** Avatar picker: shapes and faces, upload, generate (`image.generate`), pet gallery (L). Uses
+      Desktop's `ui_meta` keys (`shape`, `color`, `imageKind`, `custom`) and its 160 px face picture, so both apps
+      show the same face
 - [x] **A13** Skills: search and install (`skills.manage`) (M)
 - [x] **A14** MCP servers: add, API key, test, OAuth sign-in (`mcp.servers.*`) (L)
 - [x] **A17** Open a bot's recent session (routine runs, side threads) (M)
@@ -108,8 +110,9 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [x] **B13** Find in chat (⌘F) (M)
 - [x] **B14** Approval mode menu (S–M). Per bot profile (`approvals.mode`), as Hermes Desktop's menu
 - [x] **B3** Regenerate, edit a sent message, restore from a message: `prompt.submit` with
-      `truncate_before_row_id` + `confirm_truncate`, as Hermes Desktop ([gateway-contract.md §16.1](gateway-contract.md)) (M–L)
-- [x] **B4** Branch into a new chat (`session.branch`) (M)
+      `truncate_before_row_id` + `confirm_truncate`, as Hermes Desktop
+      ([gateway-contract.md §16.1](gateway-contract.md)) (M–L) (not yet verified against a live backend)
+- [x] **B4** Branch into a new chat (`session.branch`) (M) (not yet verified against a live backend)
 - [x] **B16** Changed-files card (M)
 - [x] **B17** Voice: dictation and read aloud (L)
 
@@ -177,6 +180,8 @@ Kept for reference; not planned.
 - **D16** Undo send in rooms (S)
 - **C2.4** Answer room members' clarifying questions in the room (needs a backend pending action and answer
   method, see C2.3) (M)
+- **Split AppModel** (presentation state → `AppPresentation`, connection → `ConnectionController`) to cut
+  re-renders (M)
 - **Group Chat features hosted rooms do not support:** holding/pausing individual bots (`@all stop` / resume),
   "this session" / "always" approvals, compressing a member's history. These would need either backend support or a
   second, client-orchestrated room mode (XL).
@@ -194,7 +199,6 @@ Kept for reference; not planned.
   that ran before the chat was opened here.
 - **K0 / C1.10**: whether plugin APIs (`/api/plugins/kanban/*`, `/api/plugins/bot-activity/*`) accept the session
   token the app already holds.
-- **C1.10**: bots created after the plugin is enabled need it too (hook into A7, or re-run `/setup`).
 - **C1.10**: whether the `plugin.bot-activity.changed` event reaches the app's gateway WebSocket, or polling with
   `since` is needed.
 - **K8 / E1**: whether `hermes serve` also runs the kanban dispatcher, or only `hermes gateway` does, and whether

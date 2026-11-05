@@ -29,51 +29,78 @@ notarized) until the maintainer's Developer ID is set up. See [Download / packag
 
 ## Before you start: what this app does to your Hermes data
 
-- **It uses your real Hermes install (`~/.hermes`).** If a Hermes backend is already running (for example the
-  Hermes desktop app), this app attaches to it. Otherwise it starts its own `hermes serve` on `~/.hermes` and
-  stops it when you quit. A backend it attached to is never stopped. To keep rooms and routines running after
-  you quit, turn on **Keep Hermes running in the background** in Settings (see
-  [Keeping Hermes running](#keeping-hermes-running)).
-- **Bot Chat is the same chat Hermes Desktop uses for that bot.** Opening a bot continues its existing
-  history; the app never deletes it. Quitting only disconnects. If the app cannot confirm whether the chat
-  exists, it does not start a new one. If the chat is running in another Hermes app (error 4090), the app
-  says so; open it in that app. **Regenerate**, **Edit Message** and **Restore from Here** cut that shared
-  chat back to the chosen message, exactly as Hermes Desktop does: Hermes archives the later messages and they
-  disappear from both apps (you are asked first whenever later messages would go). **Branch into New Chat**
-  creates a new, separate session of the bot instead and leaves the Bot Chat alone.
-- **The approval mode menu changes the bot's profile.** It writes `approvals.mode` (Manual, Smart, Off) in
-  that bot's Hermes config, as Hermes Desktop's menu does, so it applies to every chat of that bot.
-- **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
-  hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa. You can
-  copy them into this app as a **read-only archive** with **File → Import from Hermes Desktop…** (see
-  [Importing Hermes Desktop group chats](#importing-hermes-desktop-group-chats)); that only reads, and the copy
-  is kept by this app alone.
-- **It changes your profiles and bot config only when you ask it to.** Bots are your existing Hermes
-  profiles. **Pin to Top**, **Hide Bot** and a bot's **title** are saved in that profile's `profile.yaml` under
-  `ui_meta` → `hermes-bots` (`pinned`, `hidden`, `title`), the same place and keys Hermes Desktop uses, so both
-  apps show the same roster; every other `ui_meta` entry is left alone. **Edit…** writes only the fields you
-  changed (description, avatar, model, skills, toolsets, MCP servers, SOUL) into that profile.
-  **Duplicate** creates a new profile cloned from the bot, and **Delete…** permanently removes a bot's whole
-  profile folder after you confirm (never `default`); see [Managing bots](#managing-bots). And if you turn on
-  activity tracking in a Group Chat, the app installs the open-source
-  [Bot Activity](https://github.com/risyadul/hermes-bot-activity) plugin (a pinned commit) into Hermes and
-  enables it for every bot. Turning it off from the same panel disables it in every bot profile and removes it
-  from Hermes; the bots' copies stay on disk, inactive.
-- **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
-  Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use. **Terminate Run** and **Reclaim
-  Task** (Workers) stop a running worker process. **Decompose** and **Specify** create or rewrite cards with
-  Hermes' auxiliary model, **Estimate** makes a model call, and board actions (create, rename, delete,
-  import) and **Orchestration Settings** change Hermes' boards and config for every client.
-- **Routines are real.** Routines you create, pause, resume or delete change that bot's Hermes cron jobs, the
-  same ones Hermes Desktop's Routines and `hermes cron` show. When it lists a bot's routines, the app pauses
-  any old-style delegated routine Hermes Desktop marks unsafe, as Hermes Desktop does.
-- **Quick sends are real messages.** The menu bar's quick send, Quick Ask, the **Send to Hermes Bot** service,
-  the Shortcuts actions and **Summarize** send a prompt to a bot's Bot Chat (or, for the service and **Send to
-  Group Chat**, a message to a room) only when you press Send or run the shortcut. Nothing is sent on its own,
-  and Summarize never posts into the room. See [Mac integration](#mac-integration).
-- **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
-  elsewhere is rejected.
-- Setting `HERMES_HOME` does **not** isolate the app today; it always uses `~/.hermes`.
+The app works on your real Hermes install. Below is everything it can change or start. Unless a bullet says
+otherwise, it happens only when you act.
+
+**Backend and network**
+
+- **Uses `~/.hermes`.** It attaches to a running Hermes backend (for example Hermes Desktop's), or starts its own
+  `hermes serve` and stops it when you quit. A backend it attached to is never stopped. `HERMES_HOME` does
+  **not** isolate the app today.
+- **Loopback only:** it connects only to backends on `127.0.0.1`, `::1` or `localhost`; anything else is refused.
+- **Background Hermes (opt-in):** **Keep Hermes running in the background** installs a per-user LaunchAgent that
+  runs `hermes serve` at login ([Keeping Hermes running](#keeping-hermes-running)). Off by default.
+- **Daily update check (on by default):** one unauthenticated request to the GitHub API
+  (`api.github.com`). Turn it off in **Settings → Updates** ([Updates](#updates)).
+
+**Bots (your Hermes profiles)**
+
+- **Bot look and roster, in `profile.yaml` → `ui_meta` → `hermes-bots`:** `pinned`, `hidden`, `title`,
+  `sectionId`, `sectionName`, `shape`, `color`, `imageKind`, `custom`, `created`. These are Hermes Desktop's
+  keys, so both apps show the same roster. Each write also drops a stale `chat` key there, as Desktop does.
+  Other `ui_meta` namespaces are never touched.
+- **New Bot…** creates a profile (`profiles.create`), then saves its look and uploads its avatar.
+- **Edit…** writes only the fields you changed (`profiles.configure`, the avatar with `profiles.set_asset`);
+  **Inherit** model runs `hermes --profile <name> config unset model`.
+- **Applied at once, without Save** (in Edit → Advanced): installing a skill from the skills hub; **Add
+  Server…**, **API Key…** (written to the bot's `.env` and config) and **Sign In** (OAuth) for MCP servers.
+- **Duplicate** creates a new profile cloned from the bot (`<name>-2`) and copies its look.
+- **Delete…** runs `hermes profile delete <name> --yes`: the whole profile folder, permanently, after you
+  confirm. `default` cannot be deleted. See [Managing bots](#managing-bots).
+- **Approval mode** (⚡ menu in Bot Chat) writes `approvals.mode` in the bot's profile config, so it applies to
+  every chat of that bot.
+
+**Bot Chat**
+
+- **It is the bot's shared chat with Hermes Desktop** (the session titled "Bot Chat"). Opening a bot continues
+  it, or creates it if the bot has none yet. The app never deletes it; quitting only disconnects. If the app
+  cannot confirm whether the chat exists, it does not create one. A chat running in another Hermes app
+  (error 4090) is left to that app.
+- **Model and reasoning effort picks are for this chat's session only;** the profile is not changed.
+- **Regenerate, Edit Message and Restore from Here rewind the shared chat:** Hermes archives the later messages
+  and they disappear in Hermes Desktop too. You are asked first whenever later messages would go.
+- **Branch into New Chat** creates a new session of the bot and leaves the Bot Chat alone.
+
+**Group Chat**
+
+- **Rooms are the backend's hosted rooms (`groups.*`),** separate from Hermes Desktop's group chats. Creating,
+  renaming and disbanding rooms, and **Change Members…** (which creates a new room), change those rooms.
+- **Import from Hermes Desktop…** only reads; the archive is kept by this app alone
+  ([Importing](#importing-hermes-desktop-group-chats)).
+- **Summarize** sends a prompt quoting the room's new messages into the chosen bot's Bot Chat (a room member by
+  default). It shows up there in Hermes Desktop too. Nothing is posted into the room.
+- **Activity tracking:** **Enable Tracking…** installs the open-source
+  [Bot Activity](https://github.com/risyadul/hermes-bot-activity) plugin (a pinned commit) and enables it in
+  every bot profile; **Enable for N More Bots** does the same for bots added later. **Turn Off Activity
+  Tracking…** disables it in every profile and removes it from Hermes (the bots' copies stay on disk, inactive).
+
+**Routines and Kanban**
+
+- **Routines** you create, pause, resume or delete are that bot's Hermes cron jobs. Routines that deliver to
+  Bot Chat post each run's result into the bot's shared Bot Chat, and the bot answers it. When it lists a
+  bot's routines, the app pauses any old-style delegated routine that Hermes Desktop marks unsafe.
+- **Kanban edits are real:** cards (create, move, assign, comment, attach, archive), **Decompose** and
+  **Specify** (rewrite cards with Hermes' auxiliary model; **Estimate** makes a model call), boards (create,
+  rename, delete, import, export) and **Orchestration Settings** (Hermes config, every board). **Terminate Run**
+  and **Reclaim Task** stop a worker process.
+- **Start** (Kanban dispatcher) runs `hermes gateway start`. That brings up Hermes' whole messaging gateway,
+  not only the dispatcher: chat platforms you configured in Hermes go live.
+
+**Messages sent for you**
+
+- The menu bar's quick send, **Quick Ask**, the **Send to Hermes Bot** service and the **Shortcuts** actions
+  send real messages to a bot's Bot Chat (or, for the service and **Send to Group Chat**, to a room). They send
+  only when you press Send or run the shortcut ([Mac integration](#mac-integration)).
 
 ## Requirements
 
@@ -126,8 +153,10 @@ have **not been tested** with this app yet.
    **no model configured** (`hermes setup` or `hermes model`, then Check Again; detected with the read-only
    `setup.runtime_check`), or **only one bot** (Bot Chat works; the commands to add a second bot, with Copy
    buttons). The app never runs those commands for you.
-6. **Quit** with ⌘Q, by closing the window, or with Ctrl+C in the terminal you launched it from. All three
-   run the same cleanup (see the data section above). Force-killing the app (`kill -9`) skips it.
+6. **Quit** with ⌘Q or with Ctrl+C in the terminal you launched it from. Both run the same cleanup (see the
+   data section above). Closing the last window quits too, but only while the menu bar icon is off; with it on,
+   the app keeps running ([Mac integration](#mac-integration)). Force-killing the app (`kill -9`) skips the
+   cleanup.
 
 ## Using Bot Chat
 
@@ -276,15 +305,17 @@ have **not been tested** with this app yet.
   already holds: the Bot Chats you opened since launch and, for every group chat, its loaded log or the latest
   200 events the sidebar's background check fetched. Results show the chat, the author and the text around the
   match; Return opens the chat and scrolls to the message. Older messages that are not loaded are not searched.
-- **Own window:** right-click a bot or group chat → **Open in New Window**, ⌘-double-click it, or Go → Open in New
-  Window for the one on screen. The window shows the same chat as the main window (same connection, same
-  polling, same drafts) and reopens at the next launch.
-- **Mute:** right-click a bot or group chat → **Mute Notifications** ([Notifications](#notifications-and-the-dock-badge)).
+- **Own window:** right-click a bot or group chat → **Open in New Window** (also in the pane's toolbar menu),
+  ⌘-double-click it, or Go → Open in New Window for the one on screen. The window shows the same chat as the
+  main window (same connection, same polling, same drafts) and reopens at the next launch.
+- **Mute:** right-click a bot or group chat → **Mute Notifications**, or use the pane's toolbar menu
+  ([Notifications](#notifications-and-the-dock-badge)).
 
 ## Managing bots
 
 **New Bot…** (the **+** beside the Bots heading, or **File → New Bot…**) creates a bot. Right-click a bot in the
-sidebar, or use the ••• menu in the Bot details panel (⌥⌘I), for **Edit…**, **Duplicate** and **Delete…**. These
+sidebar, or use the Bot Chat's toolbar menu or the ••• menu in the Bot details panel (⌥⌘I), for **Edit…**,
+**Duplicate** and **Delete…**. These
 change the bot's Hermes profile exactly as Hermes Desktop's New Bot, Edit Profile, Duplicate and Delete do, so
 both apps stay in step.
 
@@ -338,7 +369,8 @@ through the running Hermes backend.
 - Bot Chat notifications cover the bots you opened since launch (the app follows a bot's chat once you open
   it). Group Chats are checked in the background every 5 to 15 seconds even when they are not open (the same
   check that keeps their sidebar rows current).
-- **Mute one bot or group chat:** right-click it in the sidebar → **Mute Notifications** (Unmute to undo). A muted
+- **Mute one bot or group chat:** right-click it in the sidebar → **Mute Notifications**, or use the pane's
+  toolbar menu (Unmute to undo). A muted
   bot or room posts no notifications at all, approvals included, but its requests still count in the Dock badge
   and still show in the sidebar, because they still wait on you. Mutes are kept on this Mac.
 - Turn notifications off in **Settings → Notifications → Show notifications** (on by default; it is the
@@ -356,6 +388,7 @@ through the running Hermes backend.
 - The check is one unauthenticated request to `api.github.com` (no account, no token; the only thing sent besides
   the request itself is the app version in the User-Agent). A copy built with `swift build` has no version and
   never checks by itself.
+
 ## Mac integration
 
 - **Menu bar:** the speech-bubble icon in the menu bar shows how many approvals and questions wait on you. Click
@@ -363,11 +396,15 @@ through the running Hermes backend.
   **Quick send** field: pick a bot, type, Return. The message goes to that bot's Bot Chat (refused while it is
   still replying) and the reply lands there. Click a row to open it in the main window. Turn the icon off in
   **Settings → Mac Integration → Show in menu bar** (on by default).
-- **Quick Ask (⌃⌥Space):** from any app, the shortcut opens a floating panel: pick a bot, type, Return. The reply
+- **Closing the last window:** while the menu bar icon is on, the app keeps running (Quick Ask, notifications
+  and a backend it started keep working). Reopen a window from the Dock or the menu bar; quit with ⌘Q. With the
+  icon off, closing the last window quits the app.
+- **Quick Ask (⌃⌥⌘Space):** from any app, the shortcut opens a floating panel: pick a bot, type, Return. The reply
   streams in below and stays in the bot's Bot Chat (**Open in Bot Chat**). Esc or the shortcut again hides it.
-  Change or turn off the shortcut in **Settings → Mac Integration** (click the shortcut, then press the new keys;
-  it needs ⌘, ⌃ or ⌥). It uses the system hot key API, so no Accessibility permission is asked for; if another
-  app already holds the keys, Settings says so.
+  The default avoids ⌃⌥Space, which macOS uses to switch input sources. Change or turn off the shortcut in
+  **Settings → Mac Integration** (click the shortcut, then press the new keys; it needs ⌘, ⌃ or ⌥). It uses the
+  system hot key API, so no Accessibility permission is asked for; if another app already holds the keys,
+  Settings says so.
 - **Services → Send to Hermes Bot:** select text in any app (or files in Finder), then the app menu → Services →
   **Send to Hermes Bot**. A small window opens with the text: pick a bot or a group chat, edit, then **Send**, or
   **Open in Composer** to put the text (and the files, as attachments) into that chat's composer and send from
@@ -380,7 +417,8 @@ through the running Hermes backend.
 - **Summarize since I left:** in a group chat, the **Summarize** toolbar button collects the messages that came
   in since you last had the room open (up to the newest 80) and asks a bot of your choice (a room member by
   default) for a short summary, in that bot's Bot Chat. The summary streams into the sheet; **Open Bot Chat**
-  shows it there. Nothing is posted into the room.
+  shows it there. The prompt and summary stay in that Bot Chat (Hermes Desktop shows them too). Nothing is
+  posted into the room.
 
 ## Using Group Chat
 
@@ -416,6 +454,8 @@ through the running Hermes backend.
 - **Clarifying questions** from bots in a room cannot be answered here: Hermes does not pass them on to room
   clients (only approvals). A bot that needs you should write `@user`, which shows the **@** badge; answer it in
   the room.
+- **Room actions in the toolbar:** the room menu (⋯) also has **Open in New Window**, **Save as Template…** and
+  **Mute Notifications**, the same as the sidebar's right-click menu.
 - **Templates:** right-click a group chat → **Save as Template…** (or File → Save Group Chat as Template…) keeps
   its bots and an opening prompt under a name. **File → New Group Chat from Template** opens New Group Chat with
   that name and those bots ticked (bots that no longer exist are left out); after you create it, the prompt is in
@@ -454,7 +494,8 @@ out, failed, needs approval; newest first), and an **Enable Tracking…** button
 of the plugin, turns it back on in any bot profile where it is disabled, and enables it for every bot. A copy
 that is already installed but disabled is turned on only if Hermes's install record pins it to that same
 commit; otherwise the panel says the installed copy isn't the reviewed version and offers **Reinstall Pinned
-Version…**, which replaces it with the pinned commit. Enabling and turning off run once for the whole app: a
+Version…**, which replaces it with the pinned commit. Bots added after tracking was enabled are listed with an
+**Enable for N More Bots** button. Enabling and turning off run once for the whole app: a
 second Group Chat that asks for the same thing while it runs waits for it and shows the same progress; a
 different action is refused until the running one finishes (its buttons are disabled meanwhile).
 
@@ -514,7 +555,8 @@ worker log, and create, move, assign, prioritize, comment on and archive cards.
 
 Cards are worked on by the Kanban dispatcher, which runs inside `hermes gateway`, not inside this app. The
 board header and **Settings → Kanban dispatcher** show the same status. If it is installed but stopped,
-**Start** runs `hermes gateway start`; if it is not installed, run `hermes gateway install` once.
+**Start** runs `hermes gateway start`; if it is not installed, run `hermes gateway install` once. That starts
+Hermes' whole messaging gateway, so any chat platforms you configured in Hermes come online as well.
 
 ## Keeping Hermes running
 

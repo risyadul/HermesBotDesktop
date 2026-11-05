@@ -5,360 +5,237 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Highlights
+- **Bot Chat is shared with Hermes Desktop:** the same chat, history kept, never deleted on quit.
+- **Manage bots without the CLI:** New Bot, Edit (avatar, model, skills, MCP servers, SOUL), Duplicate, Delete.
+- **Bot Chat tools:** steer or queue while a bot replies, regenerate/edit/restore, branch, find, export, voice.
+- **Group Chat:** threads, rename, change members, attachments, templates and a live per-bot Activity panel.
+- **Kanban:** boards, cards, workers, AI actions and board management from the sidebar.
+- **Routines:** each bot's scheduled tasks, with Hermes Desktop's schedule picker.
+- **Mac integration:** menu bar extra, Quick Ask (⌃⌥⌘Space), Services, Shortcuts, notifications, Dock badge.
+- **Keep Hermes running in the background** after you quit (opt-in LaunchAgent).
+- **Universal (Apple silicon + Intel) releases** and an update check.
+
 ### Added
-- Voice (B17), with the macOS engines (not Hermes's TTS/STT backends):
-  - **Dictation:** a mic button in the Bot Chat and Group Chat composers streams speech into the message at the
-    caret (Speech framework, on this Mac when the language supports it). Stops after about 2 s of silence, on a
-    second click or on Send. Microphone and speech recognition access are asked on first use; a refusal, an
-    unsupported language or a `swift run` build is explained in the composer, with a System Settings link where
-    one helps. `HermesBot.app` now declares `NSMicrophoneUsageDescription` and
-    `NSSpeechRecognitionUsageDescription`.
-  - **Read Aloud** on finished Bot Chat replies (hover button and context menu; Shift-click reads the whole
-    turn), in the system voice. Code blocks, attachments, tool and Thought rows are skipped; Esc, sending a
-    message or starting dictation stops it. **Settings → Voice → Read replies aloud automatically** (off by
-    default) speaks new replies when they finish.
-- Distribution (E3):
-  - **Check for Updates…** in the app menu and a daily check (**Settings → Updates**, on by default): asks
-    GitHub's Releases API for the latest release (unauthenticated, no token), compares it with the app's version
-    and shows the release notes with **Download**, which opens the release page in the browser. Nothing is
-    downloaded or installed by the app. A release is shown once by the daily check; its failures stay quiet.
-  - Releases are **universal** (Apple silicon + Intel): `scripts/package-app.sh <version> --universal` builds both
-    architectures and joins them with `lipo`; the release asset is now `HermesBot-<version>-macos-universal.zip`
-    (was `-macos-arm64.zip`). The script also has `--dry-run` and `--help`.
-  - Developer ID signing (hardened runtime, `scripts/HermesBot.entitlements`) and notarization (`notarytool`,
-    stapled) when `DEVELOPER_ID_APPLICATION` / `NOTARY_PROFILE` are set; the release workflow uses them when the
-    repository secrets exist (docs/development.md, "Release process") and stays ad-hoc signed otherwise. Not yet
-    run for real: it needs the maintainer's Developer ID.
-  - CI runs the build and the tests on an Intel runner (`macos-15-intel`) as well.
-- macOS integration (D3, D4, D6, D7, D12):
-  - **Menu bar extra:** every bot and group chat with its state (needs you / working / idle), the number of
-    approvals and questions waiting, and a quick-send field into a bot's Bot Chat; rows open in the main window.
-    Settings → Mac Integration → Show in menu bar (on by default).
-  - **Quick Ask (⌃⌥Space):** a floating panel from any app: pick a bot, type, the reply streams in. The shortcut
-    is configurable (Carbon hot key, no Accessibility permission).
-  - **Services → Send to Hermes Bot** for selected text and Finder files: a chooser (bot or group chat),
-    prefilled; it sends only on Send, or puts text and files into the chat's composer.
-  - **Shortcuts actions** "Ask Bot" (returns the reply, with a timeout) and "Send to Group Chat". They run in the
-    app, which must be running and connected. `scripts/package-app.sh` now generates the App Intents metadata
-    (`Metadata.appintents`) and declares the service (`NSServices`) in `Info.plist`.
-  - **Summarize since I left** in group chats: asks a chosen bot, in its Bot Chat, to summarize the messages
-    since you last had the room open; the summary shows in a sheet. Never posts into the room.
-- **New Bot…** (A7): the **+** beside the Bots heading and **File → New Bot…** create a bot the way Hermes Desktop
-  does: name (Desktop's profile-name rules, taken names refused), title, description, avatar, and under Advanced
-  clone from (a profile or fresh), model and provider, SOUL, share keys and skip bundled skills. `profiles.create`
-  gets Desktop's exact payload; then the title and look, the avatar, and `setup.runtime_check` for the new
-  profile. Its Bot Chat opens and, unless turned off, it is asked "Hey, tell me about yourself!" (not when no
-  model is ready: Set Up Model… instead). Every step reports its own failure; a profile that exists after an
-  error is always reported.
-- Avatar picker (A10) in New Bot and Edit: Shape (Desktop's shapes with a face, its twelve colours or the name's
-  colour, Randomize, Monogram), Upload, Generate (`image.generate`, offered once Hermes says an image generator
-  is set up) and Pet (the searchable petdex gallery, thumbnails from `pet.thumb`). Shape faces are stored in
-  `ui_meta["hermes-bots"]` exactly like Desktop's (`shape`, `color`, `imageKind`, `custom`) with Desktop's 160 px
-  face picture, so both apps show the same face; picture changes also record `imageKind` as Desktop does.
-- **Find Skills…** (A13) in Edit → Advanced → Skills: search the skills hub (`skills.manage search`) and install a
-  skill into the bot after confirming; the skills list refreshes.
-- MCP server setup (A14) in Edit → Advanced → MCP servers: the bot's servers from `mcp.servers.list` with their
-  on/off switches, plus **Add Server…** (a command with arguments and environment, or a URL), **API Key…** (a
-  secure field; stored in the bot's `.env`, never logged: the wire tap omits these params), **Test** and **Sign
-  In** (OAuth: the sign-in page opens in the browser and the app waits for Hermes to report it approved; closing
-  the sheet cancels it).
-- Bot Chat (B3, B4, B10, B11, B14, B16):
-  - **Regenerate**, **Edit Message** and **Restore from Here** on messages. Like Hermes Desktop, each is one
-    `prompt.submit` that cuts the chat back to that message (`truncate_before_row_id`, `confirm_truncate`);
-    Hermes archives what comes after, in this app and in Hermes Desktop. Restore always asks, Regenerate and
-    Edit ask when later messages would go. Idle chats only. A message Hermes cannot find is sent again as a new
-    message and nothing is removed.
-  - **Branch into New Chat** from a message (`session.branch`): a new session of the bot with the conversation up
-    to there, opened read-write in a sheet over the Bot Chat (which is not changed); it stays in Hermes as the
-    bot's **Open Recent Session**.
-  - **Error cards** for failed replies: Retry, Switch Provider (provider, key and billing failures; opens the
-    chat's model list), Copy Diagnostics (keys and tokens removed) and Dismiss.
-  - **Attach Folder…** and **Attach URL…** (sent as `@folder:` / `@url:` references, nothing uploaded; dropped
-    folders too), a paste over 3,000 characters becomes a text attachment, and images in replies open in a
-    **zoom and pan** window.
-  - **Approval mode** menu under the composer (Manual, Smart, Off): the bot profile's `approvals.mode`, as in
-    Hermes Desktop.
-  - **Changed files** card under a reply that edited files: +/− counts per file, the diffs, Reveal in Finder
-    (after the usual safety check).
-- Group Chat rooms can be pinned and reordered in the sidebar (C1.4): right-click a room for **Pin to Top** /
-  **Unpin**, **Move Up** and **Move Down**, or drag it onto another room. Pinned rooms come first. Kept on this
-  Mac only (UserDefaults), never sent to Hermes.
-- Room availability and picture (C1.8): the room header reads "N of M available" (members whose bot still exists
-  and whose last turn did not fail or wait on a retry; hover for who is out). Room menu → **Choose Picture…** /
-  **Remove Picture** sets a local picture (256 px PNG in Application Support) shown instead of the members'
-  avatars in the toolbar and sidebar; it is deleted when the room is disbanded.
-- Group Chat attachments (C2.1): click a file or image for Quick Look; right-click for Quick Look, Open, Reveal in
-  Finder and Copy Path. Chips show kind and size, and a copy that was deleted says the bots can no longer open
-  it. Files that can run code are still only revealed in Finder, and only the app's own copies are checked
-  before a click.
-- C2.3 spike, documented in [docs/groups-contract.md §8](docs/groups-contract.md): room members' clarifying
-  questions cannot be answered from the app. `groups.state` reports only approvals and retries, and no
-  `groups.*` method answers a clarify; a member that needs the user should write `@user` (the "Needs you"
-  badge). Answering them is in the backlog (C2.4, needs a backend change).
-- Bot Chat (B1, B5, B6, B12, B13, B15):
-  - **@mention other bots** with autocomplete (the roster, never the bot itself). A prompt that tags bots gets
-    Hermes Desktop's identification note for the model, which contacts them with its `message_agent` tool; the
-    app never forwards the text itself. The note is hidden again when the history loads.
-  - **Times on hover** next to Copy, and the **turn duration** under a reply watched from its start.
-  - **Scroll-to-bottom button** with a count of new messages while scrolled up; new output no longer pulls the
-    view down while you read.
-  - **Prompt history** with ↑/↓ at the start/end of the composer (per bot, from the chat's own messages) and
-    **per-bot drafts** kept across launches (size-capped).
-  - **Find in chat (⌘F)**: match count, previous/next (⇧⌘G/⌘G), highlights, Esc closes.
-  - **Export Conversation (⇧⌘E)** to Markdown, with tool summaries; tool arguments, results and reasoning
-    left out, tokens masked.
-- macOS integration (D5, D8, D9, D10, D13, D15):
-  - **⌘1…⌘9** select the first nine group chats and bots the sidebar shows (listed in a new **Go** menu), and
-    **⌘K** opens a quick switcher with fuzzy search over group chats, bots and boards.
-  - **Search Messages (⇧⌘F)**, also Tab in the switcher: searches the Bot Chats opened since launch and every
-    group chat's loaded log or recent events, shows each hit with its context, and opens the chat scrolled to
-    the message. Nothing extra is fetched for a search.
-  - **Quick Look** for files bots send and Group Chat attachments (click an image, Space over a tile, or the
-    context menu), and **drag them out** to Finder. Both re-run the file safety check first; reveal-only formats
-    are not previewed.
-  - **Open in New Window** for a Bot Chat or group chat (row menu, ⌘-double-click, or the Go menu). The window
-    uses the same chat and room models as the main window, so there is no second connection or poller; a room
-    shown in two windows keeps polling until both have closed it. These windows reopen at the next launch.
-  - **Room templates:** Save as Template… on a group chat keeps its bots and an opening prompt; File → New Group
-    Chat from Template prefills New Group Chat and puts the prompt in the new room's composer (not sent).
-  - **Mute Notifications** per bot or group chat (row menu). Muted items post no notifications, approvals
-    included, but still count in the Dock badge.
-- First-run setup screens (E2) instead of a bare error: **Install Hermes Agent** when no `hermes` is found
-  (docs link, the `HERMES_BOT_APP_HERMES_BIN` override with a Copy button, the places checked, Try Again);
-  **Choose a model for Hermes** when the backend answers but `setup.runtime_check` (read-only) says no model can
-  be served (`hermes setup` / `hermes model`, Check Again); and, with a single bot, Open Bot Chat plus the
-  `hermes profile create <name>` / `hermes -p <name> setup` commands for a second bot, with Copy buttons. The app
-  never runs them. Other connection failures keep the "Can't reach Hermes" screen.
-- **File → Import from Hermes Desktop…** (E4 / D17): lists the group chats Hermes Desktop saved to the default
-  profile (`ui_meta` → `hermes-bots-groups`, read with `profiles.list`; never written) and copies the chosen
-  ones into a read-only **Desktop archive** sidebar section (collapsible, hidden when empty) kept by this app.
-  An archived room shows its members and saved messages; **Continue in a New Room…** opens New Group Chat
-  prefilled with its name and members and puts a quoted carry-over into the new room's composer (not sent).
-- Kanban AI actions on a card: **Estimate** (rough tokens and size), and on Triage cards **Decompose…** (lists
-  the subtasks it created) and **Specify…** (rewrites the card and moves it to Todo), both confirmed first.
-  A **Model** field pins a card's model and reasoning effort (Profile default otherwise).
-- Kanban board management from the board's ••• menu: New, Rename, Delete (archives; never `default`, a warning
-  for Hermes' current board), Export to a `.tar.gz` and Import as a new board, and **Orchestration
-  Settings…** (orchestrator profile, default assignee, auto-decompose, queue subtasks right away).
-- Kanban integrations: **Create Task from Message…** in Group Chat and Bot Chat message menus (prefilled New
-  Task sheet with a board picker), **Open Bot Chat with @…** for a card's assignee, and notifications when a
-  card you created in the app, or marked **Notify When Done or Blocked**, finishes or gets blocked.
-- Bot rows like Hermes Desktop's roster: newest activity first (pinned bots on top), the last message and its
-  age, and a dot for activity you have not opened (routine runs, replies elsewhere, messages from other Hermes
-  apps). Opening the Bot Chat clears it; what you have seen is remembered across launches. Read from one
-  `profiles.list` every 10 seconds, never by opening chats.
-- Sections (folders) for bots: create, rename, reorder, collapse and delete (with Undo) sections; file a bot
-  with Move to Section or by dragging its row onto a section. Membership is saved in each bot's profile with
-  Hermes Desktop's keys (`sectionId` / `sectionName`), so both apps show the same folders, and sections made in
-  Hermes Desktop appear here.
-- "Needs attention" badge on a bot whose last Bot Chat or Group Chat turn failed with something you must fix
-  (sign in again, quota or balance, provider not configured, blocked), with the reason as its tooltip. Same
-  rules as Hermes Desktop; temporary failures never show it and the next good reply clears it.
-- Open Recent Session (right-click a bot): the bot's newest conversation other than its Bot Chat, such as a
-  routine run or a side thread, read-only in a sheet. Nothing is resumed or written.
+
+#### Bot Chat
+- **Shared chat:** Bot Chat is the chat Hermes Desktop uses for the bot; opening it continues the history. If the
+  app can't confirm the chat exists it starts none; a chat running in another Hermes app is reported.
+- **Markdown** in Bot Chat and Group Chat (headings, tables, lists, quotes, code blocks with Copy); http(s) links
+  are clickable, also in your own messages.
+- **Tool activity** reads like Hermes Desktop ("Ran git status", count, duration) and expands to command,
+  arguments, diff and output; calls in a row fold into one line.
+- **Reasoning** shows as "Thinking" while it streams and as a collapsed "Thought" afterwards, also for history.
+- **Requests from bots** as cards: approvals (once, session, always, deny), clarifying questions and secret
+  prompts. Requests the app can't show are left for other Hermes apps.
+- **Slash commands** (`/`, including skills). `/new`, `/reset` and `/clear` compact instead of resetting;
+  `/compress` and `/stop` work; Desktop- or terminal-only commands are not offered.
+- **Attachments:** images (25 MB), PDFs (50 MB, 25 pages) and other files; **Attach Folder…** / **Attach URL…**
+  send references; a paste over 3,000 characters becomes a file.
+- **Files from bots** show inline or as chips and open only on click, after a safety check. Images in replies
+  open in a zoom-and-pan window.
+- **While the bot replies:** Return steers the reply, ⌘Return queues. The queue panel edits, sends now or deletes;
+  Stop pauses it until Resume. A correction the bot refuses is queued, not lost.
+- **Model and reasoning effort per chat** (this chat's session only), a **context gauge** with a breakdown, and a
+  "Compacting the conversation…" status.
+- **Approval mode** menu (Manual, Smart, Off): the bot profile's setting, as in Hermes Desktop.
+- **Regenerate, Edit Message, Restore from Here** rewind the chat as Hermes Desktop does (later messages are
+  archived in both apps; asks first). **Branch into New Chat** opens a new session in a sheet.
+- **Error cards** (Retry, Switch Provider, Copy Diagnostics, Dismiss) and a **Changed files** card with per-file
+  diffs and Reveal in Finder.
+- **@mention other bots** with autocomplete; the bot reaches them with its own `message_agent` tool. The app never
+  forwards your text.
+- **Copy** and **Copy Full Response**, **times on hover**, **turn duration**, and a **scroll-to-bottom** button with
+  a new-message count; new output no longer pulls you down while you read.
+- **Prompt history** (↑/↓), **per-bot drafts** kept across launches, **Find in chat** (⌘F) and **Export
+  Conversation** (⇧⌘E) to Markdown (no tool arguments, results or reasoning; tokens masked).
+- **Voice:** dictation (mic button, also in Group Chat) and **Read Aloud**, optionally automatic, with the macOS
+  engines. See [Using Bot Chat](README.md#using-bot-chat).
 - An empty Bot Chat shows the bot's face large, its name and "Say something to get started."
-- Manage bots without the CLI (right-click a bot, or the ••• menu in Bot details):
-  - **Edit…** a bot's title, description and avatar (PNG/JPEG up to 15 MB, saved as a 256 px square), and under
-    Advanced its model and provider (Hermes' model list, typed in, or Inherit), skills, toolsets, MCP servers
-    and SOUL. Only changed fields are saved; a field that fails says why and the others are kept. Expensive
-    models ask before switching. A saved SOUL keeps the bots' "Messaging other agents" section like Hermes
-    Desktop. The title is the one Hermes Desktop shows (`ui_meta` → `hermes-bots` → `title`), and bot rows now
-    show it.
-  - **Duplicate** a bot as `<name>-2` (clone of its profile, plus its title "(copy)" and avatar), with progress
-    and an Open button.
-  - **Delete…** a bot after a confirmation that names its profile folder (`hermes profile delete --yes`); the
-    default profile cannot be deleted.
-- Routines per bot: **Routines** in a Bot Chat's toolbar lists the bot's scheduled tasks (Hermes cron jobs) with
-  pause/resume, delete (asks first) and details (schedule, next and last run, last result, delivery, errors).
-  New Routine has Hermes Desktop's schedule picker (once in N, hourly, daily, weekdays, weekly, monthly,
-  interval, raw schedule), Stop after N runs, results to the run history or the bot's Bot Chat, and
-  continuity; routines are stored exactly as Hermes Desktop stores them. A note says when routines stop with
-  the app because it started Hermes.
-- Kanban filters: one profile at a time, Show archived, and Group Running by profile.
-- Kanban workers: the board's **Workers** list shows which bot runs which card, for how long and its last
-  heartbeat; inspect a run (run record, worker process, log), terminate it or reclaim the task (both ask first).
-- Sidebar filter: a field at the top of the sidebar narrows group chats, bots and boards by name, @handle,
-  member, description or model. Return or ↓ jumps to the first match; Esc clears it. ⌘F stays free.
-- Right-click a bot for Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot and Copy @handle. Pinned
-  bots stay at the top; hidden bots move to a collapsible "Hidden (n)" section. Both are saved in the bot's
-  profile (`ui_meta` → `hermes-bots`, with Hermes Desktop's keys and revision check), so Hermes Desktop shows
-  the same pins and hidden bots; no other profile setting is touched.
-- Notifications while the app is in the background: a finished Bot Chat reply, a bot asking for approval or
-  an answer (Bot Chat and Group Chat), and a Group Chat round that ended with `@user`. Approvals can be
-  answered from the notification (Approve Once, Deny). Permission is asked the first time. Turn them off in
-  Settings → Notifications → Show notifications (the `notificationsEnabled` default).
-- Dock badge with the number of approvals and questions waiting in Bot Chats and Group Chats.
-- Group Chat: rename a room from the room menu (Rename…). The new name shows at once and goes back if Hermes
-  refuses it, with the reason above the composer.
-- Group Chat: change members from the room menu (Change Members…). Hermes has no way to change a room's members,
-  so the app creates a new room with the chosen bots and the same name, posts a context note quoting the
-  previous room's last 12 messages (capped, one safe line each, file names only), then keeps the previous room
-  (optionally renamed "… (old)") or disbands it, and opens the new room.
-- Group Chat threads: Reply in thread opens the thread beside the room with its own composer; the room
-  composer keeps writing to the whole room. A thread started on a room message quotes it in its first reply,
-  since bots only see their own thread. Thread messages are labelled in the room timeline, and a message with a
-  thread shows its reply count.
-- Group Chat message actions on hover or right-click: Reply to @bot (puts the mention in the right composer)
-  and Copy.
-- Group Chat rows in the sidebar show the last message and its age, and an amber badge when a bot wrote
-  `@user` that you have not answered or seen, or waits on your approval. Composer drafts are kept per room
-  and per thread while the app runs.
-- Bot Chat: Copy message and Copy Full Response (hover or right-click a message).
-- Bot Chat while the bot is replying: Return steers the running reply (`session.redirect`), ⌘Return queues
-  the message. A queue panel above the composer lists waiting messages (Edit, Send now, Delete); they are
-  sent one at a time when the reply finishes, and Stop pauses them until Resume. A correction the bot
-  refuses is queued instead of lost.
-- Bot Chat model and reasoning effort per chat, under the composer, from the backend's model list. Changes
-  apply to that chat's session only (`--session`); no profile config is written.
-- Bot Chat context gauge (click for the breakdown by category) and a "Compacting the conversation…" status
-  while Hermes compacts it.
-- Group Chat Activity panel (⌥⌘I): what each bot in the room is doing right now, its recent tool calls with
-  arguments and results, its reasoning and errors, with its turn status kept beside the live status. The
-  detailed view uses the open-source Bot Activity Hermes plugin; without it the panel shows each bot's turn
-  status and a "This round" list from the room log, and offers to install the plugin (pinned commit, enabled for
-  every bot, including bots where it was disabled). An installed copy that isn't pinned to the reviewed commit
-  is never switched on; the panel offers to reinstall the pinned version instead. Turning it off disables it in
-  every bot profile and removes it from Hermes (the bots' copies stay on disk, inactive, until Enable turns them
-  back on). Enable and Turn Off run once for the whole app, and polling pauses while the window is covered or
-  the app is hidden.
-- Kanban boards in the sidebar (Boards section, with running and blocked counts). A board shows its lanes and
-  cards, refreshes every few seconds while open, and switches between boards. Cards open into a details
-  panel (description, latest summary, dependencies, attachments, comments, runs, worker log); drag a card to
-  another lane, or use its menu to assign it, set its priority, archive it, or copy its id. Attach files with
-  the paperclip or by dropping them (up to 25 MB), open or delete them; scripts and apps are only shown in
-  Finder. On a running card the comment box messages the worker, and Requeue with note restarts the task
-  with your note. New Task creates a card. The
-  board header says whether the kanban dispatcher (`hermes gateway`) is running, starts it when it is
-  installed, and shows the install command when it is not.
-- Settings → Keep Hermes running in the background: an opt-in LaunchAgent keeps `hermes serve` running after you
-  quit, so Group Chat rounds and routines continue; the app attaches to it on launch.
-- Bot Chat is now the same chat Hermes Desktop uses for that bot: opening it continues the existing history
-  instead of starting a new conversation, and bots can message other bots from it. If the app cannot confirm
-  whether the chat exists, it does not start a new one. If the chat is running in another Hermes app, the app
-  says so.
-- Slash commands in Bot Chat: type `/` to see the commands your bot offers, including skills. `/new`, `/reset`
-  and `/clear` compact the conversation instead of resetting it; `/compress` and `/stop` work; commands that
-  only make sense in Hermes Desktop or the terminal are not offered.
-- Tool activity in Bot Chat, as in Hermes Desktop: each call reads as what it did ("Ran git status",
-  "Atlassian · getjiraissue") with a count and duration, and expands to its command, arguments, diff and
-  output. Two or more calls in a row fold into one collapsible line such as "Ran 2 commands, used 1 tool".
-- The bot's reasoning shows as "Thinking" while it streams and as a collapsed "Thought" afterwards,
-  including for past messages.
-- Messages render as markdown in Bot Chat and Group Chat: headings, tables, numbered and nested lists,
-  quotes, rules, and code blocks with a Copy button.
-- Bots can ask you questions in Bot Chat: approval requests (once, for the session, always, or deny),
-  clarifying questions, and password or secret prompts. Requests the app cannot show are left for other
-  Hermes apps to answer.
-- Attachments in Bot Chat: images, PDFs (up to 25 pages) and other files. Images and PDFs larger than the
-  limits (25 MB and 50 MB) are refused with a message.
-- Files that bots send (`MEDIA:` references) show in Bot Chat and Group Chat: images inline, other files as
-  chips. A file opens only when you click it, after a safety check that refuses credentials and system
-  locations.
-- The app finds `hermes` automatically: `~/.local/bin`, every directory on the `$PATH` of the process that
-  launched the app, then Homebrew locations (`/opt/homebrew/bin`, `/usr/local/bin`). An app opened from
-  Finder gets launchd's minimal `$PATH`, so the fixed locations are what find it there.
-  `HERMES_BOT_APP_HERMES_BIN` (an absolute path) replaces the search instead of being its first step. The
-  error shown when it is missing names the override variable; a relative override or a directory gets its
-  own clear error. A binary in a group/world-writable directory without the sticky bit is refused.
-- Group Chat availability check: when the backend lacks `groups.*`, "+" is disabled and the app shows
-  "Group Chat needs Hermes Agent v2026.9.14 or later".
-- Clickable links in messages (http and https only), blue and underlined, also in your own messages. In Group
-  Chat, @mentions of the room's bots are blue.
-- `scripts/package-app.sh` builds an ad-hoc signed `HermesBot.app` and zip; a release workflow attaches it to
-  GitHub Releases for `v*` tags.
-- GitHub Actions CI (build and test on macOS), pull request template, Code of Conduct and this changelog.
+
+#### Group Chat
+- **Threads:** Reply in thread opens the thread beside the room with its own composer; the first reply quotes the
+  message. Thread messages are labelled in the room, with reply counts.
+- **Rename…** and **Change Members…** (a new room with the chosen bots and a note quoting the last 12 messages;
+  the old one is kept, optionally renamed, or disbanded). See [Using Group Chat](README.md#using-group-chat).
+- **Message actions:** Reply to @bot and Copy. `@user` is amber, mentions of bots are blue.
+- **Sidebar rows** show the last message and its age, with an amber badge when a bot wrote `@user` or waits on
+  your approval. Drafts are kept per room and thread while the app runs.
+- **Pin and reorder rooms** (kept on this Mac), **"N of M available"** in the header, and a local **room picture**.
+- **Attachments** (up to 10 files of 50 MB): copied to Application Support and named in the message, since rooms
+  take text only. Quick Look, Open, Reveal in Finder, Copy Path; deleted with the room.
+- **Templates:** Save as Template… keeps the bots and an opening prompt; New Group Chat from Template prefills a
+  room and puts the prompt in the composer, unsent.
+- **File → Import from Hermes Desktop…** copies Desktop's saved group chats into a read-only **Desktop archive**;
+  **Continue in a New Room…** carries members and recent messages over.
+- Without Group Chat support in the backend, "+" is disabled and the app asks for Hermes Agent v2026.9.14 or later.
+- Clarifying questions from room members can't be answered in the app (Hermes doesn't pass them on); a bot that
+  needs you should write `@user`. Details: [groups contract §8](docs/groups-contract.md).
+
+#### Bots
+- **New Bot…** (+ or File menu): name, title, description, avatar; Advanced adds clone from, model, SOUL, shared
+  keys, skip bundled skills. Ends with a readiness check and "Say hello". See [Managing bots](README.md#managing-bots).
+- **Edit…** title, description and avatar; Advanced: model and provider (or Inherit), skills, toolsets, MCP servers,
+  SOUL. Only changed fields are saved; expensive models ask first.
+- **Avatar picker:** Shape faces (Hermes Desktop's shapes and twelve colours, Randomize, Monogram), Upload (PNG/JPEG
+  up to 15 MB), Generate (when an image generator is set up) and the Pet gallery. Faces match Desktop.
+- **Find Skills…** searches the skills hub and installs a skill after you confirm.
+- **MCP servers:** on/off, **Add Server…** (command or URL), **API Key…** (in the bot's `.env`, never logged),
+  **Test**, and **Sign In** for OAuth servers.
+- **Duplicate** (`<name>-2`, title "(copy)", same avatar) and **Delete…** (names the profile folder first; never
+  `default`).
+- **Roster like Hermes Desktop's:** newest activity first, last message and age, an unread dot remembered across
+  launches; a file in the preview shows its name.
+- **Bot menu:** Pin to Top, Hide Bot (a "Hidden (n)" section), Move to Section, Copy @handle. **Sections** support
+  drag and drop and Undo on delete. Pins, hides and sections are shared with Hermes Desktop.
+- **Needs attention** badge when a bot's last turn failed with something you must fix (sign-in, quota, provider,
+  blocked); temporary failures never show it.
+- **Open Recent Session:** the bot's newest conversation other than Bot Chat (a routine run, a side thread),
+  read-only.
+- **Routines:** list, pause, resume, delete and inspect a bot's scheduled tasks; New Routine with Hermes Desktop's
+  schedule picker, Stop after N runs, delivery to Bot Chat and continuity.
+
+#### Kanban
+- **Boards** in the sidebar with running and blocked counts. Card details: description, summary, dependencies,
+  attachments, comments, runs and worker log. See [Kanban](README.md#kanban).
+- **Card actions:** New Task, drag between lanes, assign, priority, archive, copy id, attachments (25 MB),
+  comments, messages to the running worker, Requeue with note.
+- **Filters** (one profile, Show archived, group Running by profile) and **Workers** (who runs which card,
+  heartbeats, Inspect Run, Terminate Run, Reclaim Task).
+- **AI actions:** Estimate, Decompose… and Specify… (both confirm first); a **Model** field pins a card's model and
+  effort.
+- **Board menu:** New, Rename, Delete (archives; never `default`), Export to `.tar.gz`, Import, and
+  **Orchestration Settings…**.
+- **From chats:** Create Task from Message… in Bot Chat and Group Chat, Open Bot Chat with @… for the assignee,
+  and notifications when your cards finish or get blocked.
+- **Dispatcher status** in the board header and Settings, with **Start** (`hermes gateway start`, which starts the
+  whole messaging gateway) or the install command.
+
+#### Mac integration
+- **Notifications** while the app is in the background (finished replies, approvals, questions, `@user` rounds),
+  with Approve Once / Deny; Settings switch. See [Notifications](README.md#notifications-and-the-dock-badge).
+- **Dock badge** counting the approvals and questions waiting; **Mute Notifications** per bot or group chat.
+- **Menu bar extra:** every bot and group chat with its state, the waiting count and a quick send. While it is on,
+  closing the last window keeps the app running. See [Mac integration](README.md#mac-integration).
+- **Quick Ask (⌃⌥⌘Space):** a floating panel from any app; configurable, no Accessibility permission needed.
+- **Services → Send to Hermes Bot** for selected text and Finder files: sends only on Send, or fills a composer.
+- **Shortcuts:** Ask Bot (returns the reply) and Send to Group Chat; the app must be running and connected.
+- **Summarize since I left** in group chats: a chosen bot summarizes what's new, in its Bot Chat. Nothing is
+  posted into the room.
+- **Navigation:** a sidebar filter, ⌘1…⌘9 and a Go menu, a ⌘K quick switcher, and **Search Messages** (⇧⌘F)
+  over the chats the app has loaded.
+- **Open in New Window** for a Bot Chat or group chat; windows reopen at the next launch. Room and bot actions
+  are also in the pane's toolbar menu.
+- **Quick Look** and **drag out** to Finder for bot files and room attachments, after the file safety check.
+
+#### Background & distribution
+- **Keep Hermes running in the background** (opt-in LaunchAgent): rounds and routines go on after you quit. See
+  [Keeping Hermes running](README.md#keeping-hermes-running).
+- **First-run screens** for Hermes not found, no model configured and only one bot, with commands to copy (the app
+  never runs them).
+- **Finds `hermes`** in `~/.local/bin`, the launching `$PATH`, then Homebrew; `HERMES_BOT_APP_HERMES_BIN` replaces
+  the search.
+- **Check for Updates…** and a daily check (on by default) against GitHub Releases. Download opens the release
+  page; nothing is installed. See [Updates](README.md#updates).
+- **Universal releases:** `HermesBot-<version>-macos-universal.zip` (was `-macos-arm64.zip`);
+  `scripts/package-app.sh` gains `--universal`, `--dry-run` and `--help`.
+- Developer ID signing and notarization when configured; ad-hoc signed otherwise (no Developer ID yet).
+- Release workflow for `v*` tags, CI on macOS (Apple silicon and Intel), PR template, Code of Conduct, this changelog.
+
+#### Activity
+- **Activity panel** (⌥⌘I) in Group Chat: what each bot is doing now, tool calls with arguments and results,
+  reasoning and errors, next to its turn status. See [Group Chat activity](README.md#group-chat-activity).
+- Without the Bot Activity plugin the panel shows each bot's turn status and a **This round** list from the room
+  log, with **Enable Tracking…**.
+- **Enable Tracking…** installs the plugin at a pinned commit for every bot; **Enable for N More Bots** covers bots
+  added later. A copy not at the reviewed commit stays off (**Reinstall Pinned Version…**).
+- **Turn Off Activity Tracking…** disables it in every profile and removes it from Hermes. Enable and Turn Off run
+  once for the whole app; polling pauses while the panel is hidden.
+
+### Changes to your Hermes data
+Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes-data).
+- Pins, hides, titles, sections and looks go into each profile's `ui_meta["hermes-bots"]` (Hermes Desktop's
+  keys); other `ui_meta` entries are untouched.
+- New Bot, Edit, Duplicate and Delete change profiles; Delete removes the profile folder.
+- Skill installs and MCP Add Server, API Key and Sign In apply at once, without Save.
+- Approval mode writes the profile's `approvals.mode`; model and effort picks stay in the chat's session.
+- Regenerate, Edit Message and Restore archive later messages of the shared Bot Chat; Branch creates a session.
+- Routines are the bot's cron jobs; Bot Chat delivery and Summarize post into a bot's shared Bot Chat.
+- Kanban edits change your boards and orchestration config; **Start** brings up the whole messaging gateway.
+- Activity tracking installs or disables a plugin in every profile; the background LaunchAgent is opt-in.
+- Quick sends (menu bar, Quick Ask, Services, Shortcuts) are real messages; the update check calls the GitHub API.
 
 ### Changed
-- Group Chat: `@user` in messages is amber and semibold (bot mentions stay blue), so a bot asking for you stands
-  out.
-- Group Chat notifications and the sidebar rows share one background check of the rooms (5–15 s) instead of two;
-  notifications behave as before.
-- Hidden bots in "Hidden (n)" follow the same order as the rest of the list (pinned, then newest activity)
-  instead of server order.
-- Settings → Keep Hermes running in the background asks before turning on and names the `hermes` it will run
-  (with a warning when `HERMES_BOT_APP_HERMES_BIN` chose it). While the app runs its own backend it offers
-  **Switch Now** (stop it, start the background Hermes, reconnect) or **At Next Launch** (install only; the next
-  launch starts it), so two backends never run at once. Turning it off while connected to it asks first and
-  reconnects afterwards. A job launchd has loaded but that is not running now shows **Loaded but not
-  running** with **Start**, instead of "Running".
-- The board header's dispatcher chip and Settings → Kanban dispatcher share one status, so they always agree.
-- Kanban refreshing (open board, board list, dispatcher status) pauses while no main app window is on screen
-  (the Settings window does not count) and resumes when one is.
-- A board deleted or archived while open says so, stops refreshing, refuses changes and offers **Go to Another
-  Board**; it leaves the sidebar (and the selection) at the next board list refresh.
-- The sidebar says **Boards unavailable on this connection** instead of "Not loaded yet" when the backend
-  gives no REST access.
-- When the backend connection drops, the app shows a failure with Try Again instead of staying in a dead
-  state; Try Again reconnects.
-- Quit cleanup finishes within about 5 seconds, then the app exits. Bot Chat sessions opened during quit are
-  no longer left behind.
-- Bot Chats are no longer deleted when you quit: the chat is the bot's one continuous conversation, and quitting
-  only disconnects. This replaces the earlier behavior of deleting 1:1 chats on quit.
-- Attachments in Group Chat: the backend's rooms take text only, so attached files (paperclip, ⌘V, drag and
-  drop; up to 10 files of 50 MB) are copied to the app's Application Support folder and the message names the
-  copies, which the room's bots open with their file tools. The app shows them as attachments; the copies are
-  deleted when the room is disbanded.
-- Bot monograms are unique among visible bots (for example "reviewer" and "researcher" no longer both show
-  "RE").
+- Bot Chats are no longer deleted when you quit; quitting only disconnects. Quit cleanup ends within about 5 s.
+- Background Hermes asks first, names the `hermes` it will run, and offers **Switch Now** or **At Next Launch**;
+  two backends never run at once. A stopped job shows **Loaded but not running** with Start.
+- Group Chat: `@user` is amber and semibold; bot mentions stay blue.
+- Group Chat notifications and sidebar rows share one background room check (5–15 s).
+- Hidden bots follow the list's order (pinned, then newest activity).
+- The dispatcher chip and Settings → Kanban dispatcher share one status.
+- Kanban refreshing pauses while no main window is on screen; the first board list still loads.
+- A board deleted or archived while open says so, stops refreshing and offers **Go to Another Board**.
+- The sidebar says **Boards unavailable on this connection** when the backend gives no REST access.
+- A dropped backend connection shows a failure screen with Try Again.
+- Bot monograms are unique among visible bots ("reviewer" and "researcher" no longer both show "RE").
 - Avatars that failed to load are retried after reconnecting.
-- A Group Chat room is disbanded after a sync failure only for the backend's explicit "room gone" error, not
-  for any message that happens to contain "not found".
-- Documentation no longer contains internal project-management references; examples use neutral profile
-  names.
+- A room is disbanded after a sync failure only for the backend's explicit "room gone" error.
+- Documentation drops internal project-management references and uses neutral example names.
 
 ### Security
-- Plugin REST answers (Kanban, Bot Activity) are read as a stream and refused once larger than 8 MB (downloads:
-  their own cap), so a misbehaving route cannot make the app buffer without bound. Card texts longer than
-  64,000 characters are truncated before markdown rendering.
-- `+` in plugin REST query values is sent as `%2B`, so the server does not read it as a space.
-- The background Hermes log folder is set to 0700 and its log file created 0600.
-- The background Hermes install refuses when the `hermes` found differs from the one you confirmed.
-- The app only connects to backends on loopback (127.0.0.0/8, ::1, localhost); other hosts are rejected.
-- Refuses a `hermes` binary that is group/world-writable or owned by someone other than you or root.
-- Rendezvous lock directory must not be group/world-writable and is read without following symlinks; the
-  identity probe refuses HTTP redirects.
-- `serve.log` is created with mode 0600 in a 0700 directory; start-up errors point to its path.
-- File references from bots are checked on a case- and width-folded path (so `/Volumeſ` or
-  `/System/Volumes/Data/…` spellings cannot dodge the checks), `/.nofollow`-style paths are refused, and
-  symlinks are followed one hop at a time with every target checked before it is touched.
-- Approval commands show more invisible characters by code point, stacked combining marks, long runs of
-  blank lines, are always laid out left to right, and are flagged when they contain non-ASCII characters.
-- Archives, OpenDocument and KML/KMZ files sent by bots are revealed in Finder instead of opened.
+- Only loopback backends (127.0.0.0/8, `::1`, `localhost`) are accepted.
+- A `hermes` binary is refused if it or its directory is group/world-writable (unless sticky), or it is owned by
+  someone other than you or root. Background install refuses a `hermes` other than the one you confirmed.
+- Plugin REST answers over 8 MB are refused (downloads have their own cap); card texts over 64,000 characters are
+  truncated before rendering. `+` in query values is sent as `%2B`.
+- `serve.log` and the background log are created 0600 in 0700 folders.
+- The rendezvous lock directory must not be group/world-writable and is read without following symlinks; the
+  identity probe refuses redirects.
+- Bot file paths are checked case- and width-folded, `/.nofollow` paths are refused, and symlinks are followed one
+  hop at a time.
+- Approval commands show invisible characters by code point, flag stacked marks, blank-line runs and non-ASCII
+  text, and always lay out left to right.
+- Archives, OpenDocument and KML/KMZ files from bots are revealed in Finder, not opened.
+- MCP API keys, avatar uploads and approval answers are left out of the app's logs.
+- Attached URLs and folders containing line breaks or control characters are refused, so they cannot add extra
+  references to a prompt.
+- Avatars and room pictures over 16,384 pixels on a side are refused before decoding; other images are decoded at
+  most 4,096 px.
+- MCP API keys cannot contain line breaks and their variable names must be identifiers; skill names allow at most
+  one `/` and no `..`; MCP sign-in needs an https authorization page (http only on this Mac).
+- Composer drafts that contain token-shaped text are not saved across launches.
 
 ### Fixed
-- Bot Chat: the Routines toolbar button opens its sheet again (it was presented from inside the toolbar item and
-  never appeared).
-- Edit bot sheet: with Advanced open the sheet uses the window's height (less 80 pt), its fields scroll and
-  Cancel / Save stay pinned at the bottom; skills, toolsets, MCP servers and SOUL were cut off before. The Title
-  field shows the bot's current name as its placeholder when no title is set.
-- Bot Chat context gauge shows as soon as the chat opens (Hermes' read-only context estimate, as Hermes Desktop
-  does) instead of after the first reply.
-- Group Chat Activity panel: a run of "Turn finished" separators with nothing between them reads as one
-  ("3 turns finished · 4.3–15s").
-- Running `launchctl` or `hermes gateway start` no longer hangs when a process they start keeps the output
-  pipe open, and stops the command when the caller gives up.
-- A card action no longer fetches the board again after the board view has closed.
-- A dispatcher Start or status check still in flight across a reconnect no longer overwrites the new state, and
-  Start stays disabled until that start has finished.
-- Turning off activity tracking from one Group Chat while another is enabling it is refused instead of silently
-  joining the enable.
-- A failing Bot Activity setup check is retried after a minute instead of on every poll; Try Again restarts
-  polling with the backoff reset.
+- The app no longer hangs on "Connecting" at 100% CPU when the menu bar icon is on.
+- The Boards list loads even when the app starts behind other windows.
+- A bot's last message in the sidebar shows a sent file's name, not its local path.
+- At the narrowest window with the inspector open the Bot Chat composer stays usable: the mic button (and Stop,
+  if needed) moves to the row below the field.
+- Settings scrolls when it is taller than the screen.
+- Seen marks and "needs you" are not cleared while the window is hidden, minimised or covered; room polling and the
+  Routines and Workers sheets pause meanwhile (notifications keep working).
+- Space previews room attachments in Quick Look too; "Reveal in Finder" no longer appears twice.
+- Bots created or deleted in Hermes Desktop or the CLI appear in or leave the sidebar within seconds.
+- A legacy routine whose pause keeps failing is retried with a backoff, not on every refresh.
+- The Routines toolbar button opens its sheet again.
+- Edit bot: with Advanced open the sheet fits the window, scrolls, and keeps Cancel / Save visible; an empty
+  Title shows the bot's name as placeholder.
+- The context gauge shows as soon as a Bot Chat opens.
+- Activity panel: consecutive "Turn finished" separators read as one ("3 turns finished · 4.3–15s").
+- `launchctl` and `hermes gateway start` no longer hang on a child that keeps the output open.
+- Kanban: no board refetch after the board closed; a comment draft stays with its card.
+- A dispatcher Start or status check across a reconnect no longer overwrites the new state.
+- Turning off activity tracking while another room enables it is refused instead of joining the enable; a failing
+  setup check is retried after a minute.
 - Toggling Background Hermes off twice quickly removes it once.
-- A Kanban comment draft stays with its card; a send finishing after switching cards no longer clears the
-  other card's draft.
-- Crash when stopping a backend the app started while it was still logging.
-- A malformed `session.create` response can no longer produce an empty session id.
-- A Bot Chat that fails while opening closes and deletes the half-created session.
-- Group room listing stops if the backend does not advance its paging offset.
-- Calls made after the connection closed fail cleanly; the WebSocket session is released on close.
-- Missing `profiles` / `rooms` keys in backend responses are logged as schema warnings.
-- Bot Chat no longer misses a reply, question or approval that arrives while the chat is still opening.
-- A reply that was already running when the Bot Chat opened can no longer show twice or keep the chat
-  blocked; Stop always unblocks it.
-- A message that failed to send is no longer shown twice when you send it again.
-- Hermes' "waiting for the provider" notices no longer show up as bot reasoning.
-- Opening a bot with a long Bot Chat history no longer drops the connection with "Message too long": the app
-  accepts backend messages up to 128 MB instead of 1 MB.
-- Opening a Group Chat with long messages no longer shows an empty timeline until you scroll, and opens
-  without a noticeable pause; Bot Chat transcripts use the same layout.
+- Crash when stopping the app's backend while it was still logging.
+- Bot Chat: no empty session id from a malformed reply; a chat that fails while opening is cleaned up.
+- Bot Chat no longer misses a reply, question or approval that arrives while it opens, nor shows a reply already
+  running twice; Stop always unblocks it.
+- A message that failed to send is no longer shown twice when sent again.
+- "Waiting for the provider" notices no longer show as bot reasoning.
+- Long Bot Chat histories no longer drop the connection ("Message too long"): backend messages up to 128 MB.
+- Group Chats with long messages open at once with their timeline (Bot Chat uses the same layout).
+- Room listing stops if the backend does not advance its paging offset.
+- Calls after the connection closed fail cleanly and release the WebSocket; missing `profiles` / `rooms` keys
+  are logged.
