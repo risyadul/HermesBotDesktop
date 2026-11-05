@@ -48,5 +48,5 @@ All notable changes to this project are documented here. The format follows
 - Group room listing stops if the backend does not advance its paging offset.
 - Calls made after the connection closed fail cleanly; the WebSocket session is released on close.
 - Missing `profiles` / `rooms` keys in backend responses are logged as schema warnings.
-- Opening a Group Chat with long messages no longer shows an empty timeline until you scroll; Bot Chat
-  transcripts use the same layout.
+- Opening a Group Chat with long messages no longer shows an empty timeline until you scroll, and opens
+  without a noticeable pause; Bot Chat transcripts use the same layout.

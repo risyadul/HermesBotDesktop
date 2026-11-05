@@ -53,13 +53,14 @@ struct BotChatView: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                // Not `LazyVStack`, for the same reason as the Group Chat timeline (RoomView): reopening a
-                // chat with long replies could land the bottom-anchored offset on unrealised rows (blank).
+                // Older bubbles lazy, the ones seen on open laid out eagerly (EagerTail).
+                let lines = chat.lines
+                let tail = EagerTail.start(of: lines) { EagerTail.lines($0.text) }
                 VStack(alignment: .leading, spacing: DS.Space.timeline) {
-                    ForEach(chat.lines) { line in
-                        bubble(line).id(line.id)
-                            .transition(motion ? .arrive(from: line.role == .user ? .bottomTrailing : .bottomLeading) : .identity)
+                    LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
+                        ForEach(lines[..<tail]) { line in transcriptRow(line) }
                     }
+                    ForEach(lines[tail...]) { line in transcriptRow(line) }
                 }
                 .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.s4).padding(.bottom, DS.Space.s3)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -70,6 +71,11 @@ struct BotChatView: View {
                 if let id = chat.lines.last?.id { proxy.scrollTo(id, anchor: .bottom) }
             }
         }
+    }
+
+    private func transcriptRow(_ line: ChatLine) -> some View {
+        bubble(line).id(line.id)
+            .transition(motion ? .arrive(from: line.role == .user ? .bottomTrailing : .bottomLeading) : .identity)
     }
 
     /// `empty-state` (new 1:1 chat variant): centred in the pane, the bot's own avatar instead of a symbol.

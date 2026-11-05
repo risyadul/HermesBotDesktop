@@ -82,16 +82,13 @@ struct RoomView: View {
     private func timeline(_ rows: [RoomRow], actions: [RoomPendingAction]) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                // Not `LazyVStack`: with `.defaultScrollAnchor(.bottom)` and tall, uneven member messages its
-                // estimated height parked the opening scroll offset where no row was realised, so a room
-                // with history opened blank until the user scrolled. Rooms are short (each discussion stops
-                // at its reply limit), so laying out every row stays cheap.
+                // Older rows lazy, the rows seen on open laid out eagerly (EagerTail: why not all of one kind).
+                let tail = EagerTail.start(of: rows) { $0.approximateLines }
                 VStack(alignment: .leading, spacing: DS.Space.timeline) {
-                    ForEach(rows) { row in
-                        rowView(row)
-                            .id(row.id)
-                            .transition(transition(for: row))
+                    LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
+                        ForEach(rows[..<tail]) { row in timelineRow(row) }
                     }
+                    ForEach(rows[tail...]) { row in timelineRow(row) }
                     ForEach(actions) { action in
                         ActionCard(model: model, action: action, memory: memory, identity: identity)
                             .id(action.id)
@@ -114,6 +111,12 @@ struct RoomView: View {
                 withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(id, anchor: .bottom) }
             }
         }
+    }
+
+    private func timelineRow(_ row: RoomRow) -> some View {
+        rowView(row)
+            .id(row.id)
+            .transition(transition(for: row))
     }
 
     private func passCount(_ row: RoomRow) -> Int {
