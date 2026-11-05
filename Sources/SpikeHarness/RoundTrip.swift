@@ -1,6 +1,7 @@
 import Foundation
+import HermesGatewayKit
 
-/// The M0 proof, shared by the SwiftUI shell and the CLI harness:
+/// The M0 proof, run by `spike-harness` (main.swift):
 /// own `hermes serve` → WS handshake → groups.capabilities → profiles.list → groups.create →
 /// groups.send → poll groups.log/groups.state until one bot turn has a `message.member` reply and
 /// a terminal `turn.*` event.
@@ -16,7 +17,7 @@ public final class RoundTrip: @unchecked Sendable {
         public init() {}
     }
 
-    public enum Failure: Error, CustomStringConvertible {
+    public enum Failure: RedactionSafeError {
         case step(String)
         public var description: String { if case .step(let s) = self { return s }; return "" }
     }

@@ -27,13 +27,25 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                             spawn-if-absent + event routing), BotChat (Bot, BotChatSession),
                             ChatTranscript (submit gate + turn settling), Redaction (token-safe errors),
                             ServeProcess (owned backend), GatewayClient (JSON-RPC/WS),
-                            GroupsAPI + RoundTrip (M0), GroupChat (typed groups.* views),
+                            GroupsAPI (raw groups.* calls), GroupChat (typed groups.* views + calls),
                             RoomTimeline (log reducer, phases, send gate, poll policy, RoomSync),
                             RoomPoller (one generation-guarded poll loop per room), JSONValue
 Sources/BotChatHarness/     CLI: attach/spawn → profiles.list → one streamed 1:1 turn → cleanup
-Sources/SpikeHarness/       CLI: the M0 groups.* round trip (isolated home)
+Sources/SpikeHarness/       CLI: the M0 groups.* round trip (isolated home): RoundTrip, GroupsAPI+Spike
+                            (M0-only raw calls: profiles, create, disband, Member)
 Sources/GroupChatHarness/   CLI: Group Chat scenarios (multi/stop/retry/approve/cleanup/audit)
-Sources/HermesBotApp/       SwiftUI app: Bots + Group Chats sidebar, Bot Chat, RoomView (GroupChatViews)
+Sources/HermesBotApp/       SwiftUI app:
+  HermesBotApp.swift          @main App, AppDelegate (signals, quit cleanup with deadline), RootView, Settings
+  AppModel.swift              connection (ConnectFlow), bots, rooms, backend loss, shutdown
+  ChatModel.swift             one Bot Chat 1:1 (wraps ChatTranscript)
+  SidebarView.swift           Group Chats + Bots sidebar, row style, connection footer
+  BotChatView.swift           Bot Chat pane (transcript, composer, streaming text)
+  BotInspector.swift          bot details inspector, DefaultTag
+  RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions)
+  RoomView.swift              Group Chat pane; RoomRows.swift (ribbon, timeline rows),
+                              RoomActionViews.swift (approval/retry cards, @mentions), CreateRoomView.swift
+  RoomPresentation, Identity, Components, DesignSystem, MotionSheet, ConnectFlow: shared view logic
+  EvidenceDriver.swift        scripted runs + window snapshots, #if DEBUG only (see below)
 Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, GroupChat logic + groups.* wire
                             shapes, RoomPoller lifecycle + room availability
 Tests/HermesBotAppTests/    app regressions: Try Again reconnects after a failed load (ConnectFlow + real
@@ -62,7 +74,10 @@ swift test                                                         # no live bac
 
 ## Test-only environment variables
 
-User-facing variables are in the README. These exist for scripted runs and tests:
+User-facing variables are in the README. These exist for scripted runs and tests. The scripted-run ones
+(`AUTOCHAT`, `EVIDENCE`, `AUTOQUIT`, Group Chat scripting, `ROOM_MANIFEST`) live in
+`EvidenceDriver.swift` and exist only in debug builds (`swift build`; the scripts use `.build/debug`);
+a release build ignores them. `LOCK_DIR` and `FORCE_SPAWN` work in every build.
 - `HERMES_BOT_APP_LOCK_DIR=<dir>`: discover in this lock dir and give it to a spawned backend. An empty dir
   means "no backend running" for tests. It does **not** change the Hermes home (still `~/.hermes`).
 - `HERMES_BOT_APP_FORCE_SPAWN=1`: skip discovery and always spawn.

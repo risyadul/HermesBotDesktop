@@ -423,7 +423,7 @@ Coverage:
 
 Code: `Sources/HermesGatewayKit/GroupChat.swift` (typed wire views + typed `GroupsAPI` calls),
 `RoomTimeline.swift` (log reducer, discussion phase, send gate, poll policy, `RoomSync`),
-`Sources/HermesBotApp/GroupChatViews.swift` (`RoomModel`, `RoomView`, `CreateRoomView`),
+`Sources/HermesBotApp/RoomModel.swift`, `RoomView.swift`, `CreateRoomView.swift`,
 `Sources/GroupChatHarness/main.swift` (`group-chat-harness`, live evidence). Tests:
 `Tests/HermesGatewayKitTests/GroupChatTests.swift`.
 

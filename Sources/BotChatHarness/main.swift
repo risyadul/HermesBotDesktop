@@ -48,6 +48,11 @@ func lockDirListing(_ dir: URL) -> [String] {
     }
 }
 
+enum HarnessFailure: RedactionSafeError {
+    case step(String)
+    var description: String { if case .step(let s) = self { return s }; return "" }
+}
+
 final class Box: @unchecked Sendable {
     let lock = NSLock()
     var wire: [String] = []
@@ -89,7 +94,7 @@ do {
                                          "provider": $0.provider.map(JSONValue.string) ?? .null,
                                          "is_default": .bool($0.isDefault)] })
     guard let bot = bots.first(where: { $0.name == (wantedProfile ?? "") }) ?? bots.first(where: \.isDefault) ?? bots.first else {
-        throw RoundTrip.Failure.step("no bots")
+        throw HarnessFailure.step("no bots")
     }
     let title = "hba-m1-\(stamp)"
     let chat = try await BotChatSession.open(backend, bot: bot, title: title)

@@ -151,7 +151,12 @@ public final class EventRouter: @unchecked Sendable {
     private let lock = NSLock()
     private var handlers: [UUID: (String, Handler)] = [:]
     private var disconnectHandlers: [UUID: @Sendable (String) -> Void] = [:]
-    public var tap: Handler?
+    private var tapHandler: Handler?
+    /// Taps every event. Guarded by `lock`: it can be set while events are being routed.
+    public var tap: Handler? {
+        get { lock.withLock { tapHandler } }
+        set { lock.withLock { tapHandler = newValue } }
+    }
 
     func addDisconnect(_ h: @escaping @Sendable (String) -> Void) -> UUID {
         let id = UUID()
@@ -176,7 +181,7 @@ public final class EventRouter: @unchecked Sendable {
 
     func dispatch(type: String, payload: JSONValue?, raw: JSONValue) {
         let sid = raw["params"]?["session_id"]?.string ?? ""
-        let targets = lock.withLock { handlers.values.filter { $0.0 == sid }.map(\.1) }
+        let (tap, targets) = lock.withLock { (tapHandler, handlers.values.filter { $0.0 == sid }.map(\.1)) }
         tap?(type, payload, raw)
         targets.forEach { $0(type, payload, raw) }
     }
