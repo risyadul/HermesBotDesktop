@@ -145,7 +145,7 @@ struct RootView: View {
         if let name = model.selectedBot, let bot = model.bots.first(where: { $0.name == name }) {
             BotChatView(chat: model.chat(for: bot)).paneArrival(motion: motion).id(name)
         } else if case .room(let id)? = model.selection, let room = model.roomModel(id) {
-            RoomView(model: room).paneArrival(motion: motion).id(id)
+            RoomView(model: room, activity: model.activityModel(for: room)).paneArrival(motion: motion).id(id)
         } else {
             placeholder
         }

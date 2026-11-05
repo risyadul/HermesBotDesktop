@@ -11,6 +11,8 @@ import SwiftUI
 
 struct RoomView: View {
     @ObservedObject var model: RoomModel
+    /// The room's Activity panel model (nil without a backend: the panel then shows turn status only).
+    var activity: RoomActivityModel? = nil
     @ObservedObject private var avatars = AvatarStore.shared
     @StateObject private var memory: RoomMotionMemory
     @State private var draft = ""
@@ -19,10 +21,15 @@ struct RoomView: View {
     @FocusState private var composerFocused: Bool
     @State private var paste = AttachmentPasteMonitor()
     @State private var dropTargeted = false
+    /// Persisted Activity panel visibility, bound through a @State copy as in BotChatView (an @AppStorage
+    /// write reaches the view outside the toggle's transaction, so the no-animation path still slid it).
+    @AppStorage("hba.roomActivity") private var storedActivity = false
+    @State private var showActivity = UserDefaults.standard.object(forKey: "hba.roomActivity") as? Bool ?? false
     @Environment(\.motionEnabled) private var motion
 
-    init(model: RoomModel) {
+    init(model: RoomModel, activity: RoomActivityModel? = nil) {
         self.model = model
+        self.activity = activity
         _memory = StateObject(wrappedValue: RoomMotionMemory.of(model.id))
     }
 
@@ -48,6 +55,9 @@ struct RoomView: View {
             noteBar
             composer
         }
+        // As in BotChatView: no intrinsic minimum, so the Activity inspector split never widens past the
+        // window at the 820 pt minimum (InspectorLayoutTests).
+        .frame(minWidth: 0, maxWidth: .infinity)
         .background(DS.Palette.window)
         .overlay { if dropTargeted { DropHighlight() } }
         .dropDestination(for: URL.self) { urls, _ in
@@ -66,6 +76,11 @@ struct RoomView: View {
         .navigationTitle(model.room.name)
         .navigationSubtitle("\(model.room.members.count) bots")
         .toolbar { toolbar }
+        .inspector(isPresented: $showActivity) {
+            RoomActivityPanel(room: model, activity: activity)
+                .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
+        }
+        .onChange(of: showActivity) { _, shown in storedActivity = shown }
         .onAppear {
             model.start()
             let model = model
@@ -97,6 +112,15 @@ struct RoomView: View {
             } label: { Label("Room", systemImage: "ellipsis.circle") }
                 .help("Room actions")
                 .disabled(!model.composer.isOpen)
+        }
+        ToolbarItem(placement: .primaryAction) {
+            // ⌥⌘I as in Bot Chat: the two panes are never on screen together. System inspector animation with
+            // motion on; a no-animation transaction with it off.
+            Button {
+                if motion { showActivity.toggle() } else { withDSAnimation(false) { showActivity.toggle() } }
+            } label: { Label("Activity", systemImage: "sidebar.trailing") }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+                .help("Show or hide what each bot is doing (⌥⌘I)")
         }
     }
 

@@ -153,6 +153,7 @@ final class BotActivityTests: XCTestCase {
             switch params["action"]?.string {
             case "list": return ["plugins": [["name": "bot-activity", "status": "enabled", "version": "0.1.0", "source": "user"]]]
             case "install": return ["ok": true, "plugin_name": "bot-activity", "enabled": true]
+            case "toggle": return ["ok": true, "name": "bot-activity"]
             case "remove": return ["ok": true]
             default: return ["__error": ["code": 4017, "message": "unknown"]]
             }
@@ -164,12 +165,14 @@ final class BotActivityTests: XCTestCase {
         let state = try await m.botActivityState()
         XCTAssertTrue(state.isEnabled)
         try await m.installBotActivity()
+        try await m.enableBotActivity()
         try await m.removeBotActivity()
         let calls = gw.received.filter { $0["method"]?.string == "plugins.manage" }.compactMap { $0["params"] }
         XCTAssertEqual(calls, [
             ["action": "list"],
             ["action": "install", "repo": "https://github.com/risyadul/hermes-bot-activity",
              "ref": "da1c9d10eb228cd6f0a93e255ee92c8c3a6717f2", "enable": true],
+            ["action": "toggle", "name": "bot-activity", "enable": true],
             ["action": "remove", "name": "bot-activity"],
         ])
         XCTAssertEqual(BotActivityPluginManager.pinnedRef.count, 40, "a full commit SHA")

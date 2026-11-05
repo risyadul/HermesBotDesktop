@@ -13,6 +13,8 @@ final class AppModel: ObservableObject {
     @Published var chats: [String: ChatModel] = [:]
     @Published var rooms: [RoomSummary] = []
     @Published var roomModels: [String: RoomModel] = [:]
+    /// Activity panel models per room (`activityModel(for:)`, RoomActivityModel.swift).
+    var activityModels: [String: RoomActivityModel] = [:]
     @Published var showCreateRoom = false
     /// `groups.capabilities` answered at connect. False on an older Hermes Agent without `groups.*`:
     /// Group Chat is off (no "+", a notice), Bot Chat still works.
@@ -131,6 +133,8 @@ final class AppModel: ObservableObject {
         unsubscribeDisconnect(b)
         for m in roomModels.values { m.shutdown() }
         roomModels = [:]
+        for m in activityModels.values { m.shutdown() }
+        activityModels = [:]
         for c in chats.values { c.close() }
         chats = [:]
         rooms = []
@@ -187,6 +191,7 @@ final class AppModel: ObservableObject {
         if selection == .room(id) { selection = nil }
         rooms.removeAll { $0.roomId == id }
         roomModels[id] = nil
+        activityModels.removeValue(forKey: id)?.shutdown()
         log("room \(id) disbanded → removed from the sidebar")
     }
 
@@ -225,6 +230,7 @@ final class AppModel: ObservableObject {
         }
         if let b = backend { unsubscribeDisconnect(b) }  // our own close is not a lost connection
         for m in roomModels.values { m.shutdown() }
+        for m in activityModels.values { m.shutdown() }
 #if DEBUG
         await disbandCreatedRooms()
 #endif

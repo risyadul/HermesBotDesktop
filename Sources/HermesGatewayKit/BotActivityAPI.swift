@@ -257,6 +257,14 @@ public struct BotActivityPluginManager: Sendable {
                               timeout: Self.installTimeout)
     }
 
+    /// `plugins.manage {action: "toggle", name, enable: true}` (`_plugins_toggle`, `:1860-1877`): turns on a copy
+    /// that is installed but disabled (install would refuse an existing directory).
+    @discardableResult
+    public func enableBotActivity() async throws -> JSONValue {
+        try await client.call("plugins.manage", ["action": "toggle", "name": .string(BotActivityAPI.pluginName), "enable": true],
+                              timeout: 60)
+    }
+
     /// `plugins.manage {action: "remove", name}` (`_plugins_remove`, `:1926-1934`): user installs only.
     @discardableResult
     public func removeBotActivity() async throws -> JSONValue {

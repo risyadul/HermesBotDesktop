@@ -144,13 +144,15 @@ struct ToolGroupView: View {
 /// (`ThinkingDisclosure`, `message-parts.tsx:203-342`). The user's toggle wins over both defaults.
 struct ThoughtRow: View {
     let line: ChatLine
+    /// Bot Chat opens a streaming Thought; the narrow Activity panel keeps it collapsed until clicked.
+    var opensWhileStreaming = true
     @EnvironmentObject private var disclosure: DisclosureStore
     @Environment(\.motionEnabled) private var motion
 
     static let previewHeight: CGFloat = 160
 
     var body: some View {
-        let expanded = disclosure.isOpen(.thought, line.id, fallback: line.streaming)
+        let expanded = disclosure.isOpen(.thought, line.id, fallback: line.streaming && opensWhileStreaming)
         VStack(alignment: .leading, spacing: DS.Space.s1) {
             Button {
                 toggle(disclosure, .thought, line.id, to: !expanded, motion: motion)
