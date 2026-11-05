@@ -547,7 +547,22 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   stroke in a guessed background colour), so it reads over the sidebar material and the toolbar and
   neither tile is clipped.
 - `sidebar-row`: avatar, title, subtitle; hover tint; the selection background is one shared shape that
-  slides between rows.
+  slides between rows. A room row puts the last message's age (caption, muted, `5m` / `3h` / `2d` / `Nov 3`)
+  after its title and the last message ("Alpha: …", "You: …") as its subtitle, falling back to the members
+  before any message. Its trailing slot holds the `needs-you` badge, else the breathing round dot.
+- `needs-you` badge: a small `attention` capsule (soft fill, hairline ring) with an SF Symbol: `at` when a bot
+  wrote `@user` that the user has neither answered nor seen, `hand.raised.fill` when a bot waits on an
+  approval. Never on the room that is on screen.
+- `thread-pane`: the room's inspector column shows an open thread instead of the Activity panel (Activity
+  takes the column back and closes the thread): "Thread" (`title-pane`) + its first message (meta, muted) and
+  a close button, the message the thread hangs off, a `round-divider` with the reply count, the thread's rows,
+  and its own composer ("Reply in thread"). In the room timeline a thread message has a `thread-link` above it
+  ("Thread · <first message>", caption muted, text-bubble symbol) and the message a thread hangs off has one
+  below it ("2 replies ›"); both tint `hover` on hover and open the thread.
+- `message-actions`: on hover, a strip of icon buttons over the message's top trailing corner (window fill,
+  hairline ring, control radius, no shadow): Reply to @bot (`at`, bot messages), Reply in thread
+  (`text.bubble`, not inside the thread pane) and Copy (`doc.on.doc`). The same actions are the message's
+  context menu.
 - `status-chip`: avatar 20, member name, state label. States come only from real room data: `waiting`
   (no terminal turn yet; bot-colour hairline at 45%), `replied` (ink label + checkmark), `passed` and
   `cancelled` (muted label, full opacity), `failed` (danger label, ring and symbol), `needs retry` and

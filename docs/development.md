@@ -28,8 +28,9 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                             ChatTranscript (submit gate, turn settling, tool lines, history seeding), Redaction (token-safe errors),
                             ServeProcess (owned backend), GatewayClient (JSON-RPC/WS),
                             GroupsAPI (raw groups.* calls), GroupChat (typed groups.* views + calls),
-                            RoomTimeline (log reducer, phases, send gate, poll policy, RoomSync),
-                            RoomPoller (one generation-guarded poll loop per room), JSONValue
+                            RoomTimeline (log reducer, phases, send gate, poll policy, RoomSync, RoomThreads),
+                            RoomPoller (one generation-guarded poll loop per room), RoomDigest (sidebar
+                            preview, age, @user rule), JSONValue
   CanonicalBotChat.swift      the bot's one "Bot Chat": find -> resume, create only when absent, detach-only teardown
   ChatAttachments.swift       image/pdf/file attach RPCs, client-side checks, prompt text
   MediaTags.swift             MEDIA:<path> parsing + MediaSafety (deny rules for Open/Reveal)
@@ -80,9 +81,14 @@ Sources/HermesBotApp/       SwiftUI app:
                               caches folder, open-or-reveal check (never runs files)
   BotChatView.swift           Bot Chat pane (transcript, composer, streaming text)
   BotInspector.swift          bot details inspector, DefaultTag
-  RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions)
+  RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions, rename, per-thread
+                              drafts, Reply to @bot / Reply in thread); talks to `any RoomActions`
   RoomView.swift              Group Chat pane; RoomRows.swift (ribbon, timeline rows),
-                              RoomActionViews.swift (approval/retry cards, @mentions), CreateRoomView.swift
+                              RoomActionViews.swift (approval/retry cards, @mentions), CreateRoomView.swift,
+                              RoomRenameView.swift, RoomThreadViews.swift (thread pane, thread links,
+                              message action strip)
+  RoomDigests.swift           RoomDigestHub (sidebar room rows: groups.list → log tails → state for unsettled
+                              rooms, seen-through per room in UserDefaults) and the room row view
   RoomActivityModel.swift     per-room Activity inspector state: bot-activity polling, plugin enable/remove;
                               RoomActivityPresentation.swift (rows, chips, turn-state fallback),
                               RoomActivityPanel.swift (panel, enable sheet)
@@ -92,7 +98,8 @@ Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, Group
                             shapes, RoomPoller lifecycle + room availability
                             + parity suites: CanonicalBotChat, BotChatRebind (reclaim/session.info), ChatAttachment,
                             ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand (ParityTestSupport: fakes)
-Tests/HermesBotAppTests/    ChatModel (with FakeChatLink), BotChatUIModel, MediaViews; app regressions: Try Again reconnects after a failed load (ConnectFlow + real
+Tests/HermesBotAppTests/    ChatModel (with FakeChatLink), BotChatUIModel, MediaViews, RoomModel Group Chat
+                            actions + RoomDigestHub (with FakeRoomActions); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate; real-window suites are opt-in
