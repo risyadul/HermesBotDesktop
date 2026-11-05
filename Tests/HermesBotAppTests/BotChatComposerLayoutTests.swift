@@ -77,4 +77,39 @@ final class BotChatComposerLayoutTests: XCTestCase {
         XCTAssertTrue(content.bounds.insetBy(dx: -1, dy: -1).contains(frame), "composer field \(frame) is off screen")
         XCTAssertGreaterThanOrEqual(frame.width, 60, "the field keeps room to type")
     }
+
+    /// Live UI test 2026-11-06 (round 2) flagged unlabeled tiny AX buttons. The ⌘Return "Queue message" button
+    /// that keeps the shortcut working while a reply runs is `accessibilityHidden` and stays so; this pins
+    /// that the shortcut still queues from the window. (The four 6 × 4.5 pt buttons in the report are the
+    /// sidebar scroll bar's arrow and page parts, `AXScrollBar` children, not app buttons.)
+    func testCommandReturnQueuesWhileAReplyRuns() throws {
+        try WindowTestGate.requireWindows()
+        guard NSScreen.main != nil else { throw XCTSkip("no window server session") }
+        let link = FakeChatLink(history: [ChatHistoryMessage(role: .user, text: "hello")])
+        let bot = try XCTUnwrap(Bot(["name": "hba-layout", "model": "test-model"]))
+        let chat = ChatModel(bot: bot, opener: { _ in link })
+        chat.log = { _ in }
+        let size = NSSize(width: DS.Size.windowMinWidth, height: DS.Size.windowMinHeight)
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 120, y: 120), size: size),
+                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(rootView: Host(chat: chat))
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        spin(0.8)
+        XCTAssertTrue(chat.isReady)
+        chat.draft = "go"
+        XCTAssertTrue(chat.submit())
+        chat.apply(.delta("Working on it"))
+        chat.draft = "a follow-up"
+        spin(0.4)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                   context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                                   isARepeat: false, keyCode: 36))
+        XCTAssertTrue(window.performKeyEquivalent(with: event), "⌘Return was not handled")
+        spin(0.3)
+        XCTAssertEqual(chat.queue.map(\.text), ["a follow-up"], "⌘Return queues the draft while the reply runs")
+    }
 }
