@@ -18,6 +18,9 @@ final class BotManagementTests: XCTestCase {
             case title(String)
             case configure(BotProfileAPI.Changes)
             case setAvatar(Int), clearAvatar, unsetModel, duplicate(String), delete(String)
+            case create(BotCreate.Request), readiness(String), look(BotLook.Patch), generate(String)
+            case searchSkills(String), installSkill(String, String)
+            case addMcp(MCPServers.NewServer), mcpKey(String, String), testMcp(String), signIn(String)
         }
         private var _calls: [Call] = []
         var calls: [Call] { lock.withLock { _calls } }
@@ -66,6 +69,75 @@ final class BotManagementTests: XCTestCase {
             return try duplicateResult.get()
         }
         func delete(_ name: String) async throws { record(.delete(name)); if let deleteError { throw deleteError } }
+
+        // A7 / A10 / A13 / A14. Reads the sheets make on their own (MCP list, pet gallery, thumbnails, the image
+        // probe) go to `reads`, so the write sequences above stay exact.
+        private var _reads: [String] = []
+        var reads: [String] { lock.withLock { _reads } }
+        private func read(_ s: String) { lock.withLock { _reads.append(s) } }
+
+        var createResult: Result<BotCreate.Created, Error> = .success(.init(name: "new", path: "/p/new"))
+        var rosterAfterCreateFailure: BotProfileAPI.Roster?
+        var readinessValue: SetupReadiness = .ready
+        var lookOutcome: BotMetaSync.Outcome = .persisted(BotUIMeta())
+        var lookError: Error?
+        var imagenAvailable = true
+        var generated: Result<Data, Error> = .failure(Boom())
+        var gallery: Result<[AvatarSources.Pet], Error> = .success([])
+        var thumbData: [String: Data] = [:]
+        var skillResults: Result<[SkillsHub.Result], Error> = .success([])
+        var installError: Error?
+        var mcpList: Result<[MCPServers.Server], Error> = .success([])
+        var mcpError: Error?
+        var mcpTestResult = MCPServers.TestResult(ok: true, tools: 2)
+        var signInError: Error?
+        var signInWaitsForCancel = false
+        var lastKey: String?
+        var lastCreate: BotCreate.Request? { calls.compactMap { if case .create(let r) = $0 { return r }; return nil }.last }
+        var looks: [BotLook.Patch] { calls.compactMap { if case .look(let p) = $0 { return p }; return nil } }
+
+        func create(_ request: BotCreate.Request) async throws -> BotCreate.Created {
+            record(.create(request))
+            if case .failure = createResult, let after = rosterAfterCreateFailure { lock.withLock { rosterValue = after } }
+            return try createResult.get()
+        }
+        func readiness(_ name: String) async -> SetupReadiness { record(.readiness(name)); return readinessValue }
+        func saveLook(_ name: String, _ patch: BotLook.Patch) async throws -> BotMetaSync.Outcome {
+            record(.look(patch))
+            if let lookError { throw lookError }
+            return lookOutcome
+        }
+        func imageGenerationAvailable() async -> Bool { read("probe"); return imagenAvailable }
+        func generateImage(prompt: String) async throws -> Data { record(.generate(prompt)); return try generated.get() }
+        func petGallery() async throws -> [AvatarSources.Pet] { read("gallery"); return try gallery.get() }
+        func petThumb(_ pet: AvatarSources.Pet) async -> Data? { read("thumb:\(pet.slug)"); return thumbData[pet.slug] }
+        func searchSkills(_ query: String) async throws -> [SkillsHub.Result] { record(.searchSkills(query)); return try skillResults.get() }
+        func installSkill(_ skill: String, profile: String) async throws {
+            record(.installSkill(skill, profile))
+            if let installError { throw installError }
+        }
+        func mcpServers(_ profile: String) async throws -> [MCPServers.Server] { read("mcp.list:\(profile)"); return try mcpList.get() }
+        func addMcpServer(_ profile: String, _ server: MCPServers.NewServer) async throws {
+            record(.addMcp(server))
+            if let mcpError { throw mcpError }
+        }
+        func setMcpKey(_ profile: String, server: String, envVar: String?, value: String) async throws {
+            record(.mcpKey(server, envVar ?? ""))
+            lock.withLock { lastKey = value }
+            if let mcpError { throw mcpError }
+        }
+        func testMcpServer(_ profile: String, _ server: String) async throws -> MCPServers.TestResult {
+            record(.testMcp(server))
+            return mcpTestResult
+        }
+        func signInMcp(_ profile: String, _ server: String, cancelled: @escaping @Sendable () -> Bool) async throws {
+            record(.signIn(server))
+            if signInWaitsForCancel {
+                while !cancelled() { try await Task.sleep(nanoseconds: 2_000_000) }
+                throw MCPServers.Cancelled()
+            }
+            if let signInError { throw signInError }
+        }
     }
 
     struct Boom: Error, RedactionSafeError { var description = "boom" }
@@ -204,7 +276,8 @@ final class BotManagementTests: XCTestCase {
         m.removeAvatar()
         XCTAssertFalse(m.showsAvatarImage)
         await m.save()
-        XCTAssertEqual(s.calls, [.clearAvatar])
+        XCTAssertEqual(s.calls, [.look(BotLook.imagePatch(hasImage: false)), .clearAvatar],
+                       "Desktop's editedLook: imageKind shape + custom, then the asset is cleared")
         XCTAssertEqual(closed.avatars, [nil])
 
         let s2 = FakeService()

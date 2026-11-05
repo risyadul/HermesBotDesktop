@@ -63,7 +63,10 @@ struct SidebarView: View {
                         row(.room(room.roomId)) { roomRow(room) }
                             .roomOrdering(room, rooms: model.rooms, store: roomOrder) { select(.room(room.roomId)) }
                     }
-                    sectionHeader("Bots") { EmptyView() }
+                    sectionHeader("Bots") {
+                        IconButton(symbol: "plus", label: "New bot") { model.newBot() }
+                            .disabled(model.backend == nil || model.botSheet != nil)
+                    }
                     if model.bots.isEmpty {
                         Text(model.phase.isConnected ? "No profiles found" : "Not loaded yet")
                             .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)

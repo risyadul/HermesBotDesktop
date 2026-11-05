@@ -32,7 +32,10 @@ struct HermesBotApp: App {
                 CommandGroup(after: .sidebar) {
                     Toggle("Animate Interface Changes", isOn: $motion)
                 }
-                CommandGroup(after: .newItem) { DesktopImportCommand(model: AppModel.shared) }
+                CommandGroup(after: .newItem) {
+                    NewBotCommand(model: AppModel.shared)
+                    DesktopImportCommand(model: AppModel.shared)
+                }
             }
         Settings { SettingsView() }
     }

@@ -1,14 +1,16 @@
 import Foundation
 import HermesGatewayKit
 
-/// The one bot-management sheet on screen (Edit, Duplicate or Delete), presented by `RootView`.
+/// The one bot-management sheet on screen (New Bot, Edit, Duplicate or Delete), presented by `RootView`.
 enum BotSheet: Identifiable {
+    case create(BotCreateModel)
     case edit(BotEditorModel)
     case duplicate(BotDuplicateModel)
     case delete(BotDeleteModel)
 
     var id: String {
         switch self {
+        case .create(let m): return m.id
         case .edit(let m): return "edit:" + m.id
         case .duplicate(let m): return m.id
         case .delete(let m): return m.id

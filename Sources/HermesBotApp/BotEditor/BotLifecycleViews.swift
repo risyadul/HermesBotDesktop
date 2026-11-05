@@ -92,6 +92,8 @@ struct BotSheetContent: View {
 
     var body: some View {
         switch sheet {
+        case .create(let m)?:
+            BotCreateView(model: m, maxHeight: BotEditorLayout.sheetMaxHeight(windowHeight: windowHeight))
         case .edit(let m)?:
             BotEditorView(model: m, identity: avatars.identity(profile: m.bot.name, title: m.bot.title),
                           maxHeight: BotEditorLayout.sheetMaxHeight(windowHeight: windowHeight))
