@@ -147,7 +147,8 @@ final class RoomModel: ObservableObject, Identifiable {
         onDisbanded?(self)
     }
 
-    private func note(_ s: String) {
+    /// Adds a line to the note bar (and the app log). Change Members notes a failed carry-over on the new room.
+    func note(_ s: String) {
         notes.append(s)
         if notes.count > 20 { notes.removeFirst(notes.count - 20) }
         AppModel.shared.log("room \(room.roomId): \(s)")

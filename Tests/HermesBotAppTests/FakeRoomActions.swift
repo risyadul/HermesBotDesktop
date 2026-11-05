@@ -16,6 +16,10 @@ final class FakeRoomActions: RoomActions, RoomDirectory, @unchecked Sendable {
     private var _drivers: [String: RoomDriverStatus] = [:]
     private var _renameError: Error?
     private var _sendError: Error?
+    private var _createError: Error?
+    private var _disbandError: Error?
+    private var _creates: [(roomId: String, name: String, members: [RoomMember])] = []
+    private var _sendRooms: [String] = []
     private var holdNextRename = false
     private var renameGate: CheckedContinuation<Void, Never>?
 
@@ -31,6 +35,11 @@ final class FakeRoomActions: RoomActions, RoomDirectory, @unchecked Sendable {
     func setDriver(_ roomId: String, _ d: RoomDriverStatus?) { lock.withLock { _drivers[roomId] = d } }
     func failRename(_ e: Error?) { lock.withLock { _renameError = e } }
     func failSend(_ e: Error?) { lock.withLock { _sendError = e } }
+    func failCreate(_ e: Error?) { lock.withLock { _createError = e } }
+    func failDisband(_ e: Error?) { lock.withLock { _disbandError = e } }
+    var creates: [(roomId: String, name: String, members: [RoomMember])] { lock.withLock { _creates } }
+    /// The room of each send, in `sends` order.
+    var sendRooms: [String] { lock.withLock { _sendRooms } }
     func holdRename() { lock.withLock { holdNextRename = true } }
     func releaseRename() { lock.withLock { renameGate?.resume(); renameGate = nil } }
     var renameParked: Bool { lock.withLock { renameGate != nil } }
@@ -68,6 +77,7 @@ final class FakeRoomActions: RoomActions, RoomDirectory, @unchecked Sendable {
         let error: Error? = lock.withLock {
             _calls.append("send:\(threadId)")
             _sends.append((text, threadId))
+            _sendRooms.append(roomId)
             return _sendError
         }
         if let error { throw error }
@@ -77,7 +87,27 @@ final class FakeRoomActions: RoomActions, RoomDirectory, @unchecked Sendable {
     func stopRoom(roomId: String, cancelId: String) async throws -> Int { record("stop"); return 0 }
     func retry(roomId: String, taskId: String) async throws -> JSONValue { record("retry"); return [:] }
     func approve(roomId: String, approval: RoomApproval, choice: String) async throws -> JSONValue { record("approve"); return [:] }
-    func disbandRoom(roomId: String, cancelId: String) async throws -> JSONValue { record("disband"); return [:] }
+    func disbandRoom(roomId: String, cancelId: String) async throws -> JSONValue {
+        record("disband")
+        if let e = lock.withLock({ _disbandError }) { throw e }
+        return [:]
+    }
+
+    /// Records `create:<room id>` and lists the new room (as the server does), or throws `failCreate`'s error.
+    func createRoom(roomId: String, name: String, members: [RoomMember]) async throws -> RoomSummary {
+        let error: Error? = lock.withLock {
+            _calls.append("create:\(roomId)")
+            _creates.append((roomId, name, members))
+            return _createError
+        }
+        if let error { throw error }
+        let room = RoomSummary(.object([
+            "room_id": .string(roomId), "name": .string(name), "revision": 1, "created_at": 1, "updated_at": 1,
+            "members": .array(members.map(\.json)),
+        ]))!
+        lock.withLock { _rooms.append(room) }
+        return room
+    }
 
     func renameRoom(roomId: String, eventId: String, name: String) async throws -> RoomSummary {
         let hold: Bool = lock.withLock {
