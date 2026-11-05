@@ -64,8 +64,11 @@ struct QuickSwitchCandidate: Identifiable, Equatable {
     let kind: Kind
     let title: String
     let subtitle: String
-    /// Matched against the query: title first.
+    /// The title and handle (a bot's @name, a board's slug), title first: what the ranking tiers look at.
     let fields: [String]
+    /// Also searched, but ranked after every title or handle match: a room's member names, a bot's description
+    /// and model.
+    var extraFields: [String] = []
     var id: SidebarItem { item }
 }
 
@@ -76,12 +79,12 @@ enum QuickSwitch {
         let roomRows = rooms.map { r in
             QuickSwitchCandidate(item: .room(r.roomId), kind: .room, title: r.name,
                                  subtitle: r.members.map(\.title).joined(separator: ", "),
-                                 fields: [r.name] + r.members.flatMap { [$0.title, $0.handle] })
+                                 fields: [r.name], extraFields: r.members.flatMap { [$0.title, $0.handle] })
         }
         let botRows = (bots.filter { !hidden($0.name) } + bots.filter { hidden($0.name) }).map { b in
             QuickSwitchCandidate(item: .bot(b.name), kind: .bot, title: b.title,
                                  subtitle: "@\(b.name)" + (hidden(b.name) ? " · hidden" : ""),
-                                 fields: [b.title, b.name] + [b.description, b.model].compactMap { $0 })
+                                 fields: [b.title, b.name], extraFields: [b.description, b.model].compactMap { $0 })
         }
         let boardRows = boards.map { b in
             QuickSwitchCandidate(item: .board(b.slug), kind: .board, title: b.name, subtitle: "Board", fields: [b.name, b.slug])
@@ -91,11 +94,57 @@ enum QuickSwitch {
 
     static let limit = 50
 
-    /// Empty query: every candidate in order. Otherwise the matches, best first (ties keep sidebar order).
+    /// How a candidate matches, strongest first. A match in the title or handle always outranks one that only
+    /// matches a room member's name, a description or a model (live UI test 2026-11-06, round 5: "gen" listed
+    /// three group chats with a member "generalist" above the bot itself).
+    enum Tier: Int, Comparable {
+        case other = 0, fuzzy, substring, wordStart, titlePrefix, exactTitle
+        static func < (a: Tier, b: Tier) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    /// The query as matched: lowercased, trimmed, a leading `@` dropped, inner whitespace collapsed.
+    static func normalized(_ query: String) -> String {
+        var q = query.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if q.hasPrefix("@") { q.removeFirst() }
+        return q
+    }
+
+    /// The candidate's tier for `query`, nil when nothing matches.
+    static func tier(_ query: String, _ c: QuickSwitchCandidate) -> Tier? {
+        let q = normalized(query)
+        guard !q.isEmpty else { return .other }
+        let title = c.title.lowercased(), fields = c.fields.map { $0.lowercased() }
+        if title == q { return .exactTitle }
+        if title.hasPrefix(q) { return .titlePrefix }
+        if fields.contains(where: { startsAWord(q, in: $0) }) { return .wordStart }
+        if fields.contains(where: { $0.contains(q) }) { return .substring }
+        if FuzzyMatch.best(query, fields: c.fields) != nil { return .fuzzy }
+        if FuzzyMatch.best(query, fields: c.extraFields) != nil { return .other }
+        return nil
+    }
+
+    /// Whether `q` appears in `field` at the start of a word (the start, or after a non-alphanumeric).
+    static func startsAWord(_ q: String, in field: String) -> Bool {
+        var rest = field[...]
+        while let r = rest.range(of: q) {
+            if r.lowerBound == field.startIndex { return true }
+            let before = field[field.index(before: r.lowerBound)]
+            if !before.isLetter && !before.isNumber { return true }
+            rest = field[field.index(after: r.lowerBound)...]
+        }
+        return false
+    }
+
+    /// Empty query: every candidate in order. Otherwise the matches by `Tier`, then fuzzy score, then sidebar
+    /// order.
     static func results(_ query: String, _ candidates: [QuickSwitchCandidate], limit: Int = limit) -> [QuickSwitchCandidate] {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return Array(candidates.prefix(limit)) }
-        let scored = candidates.enumerated().compactMap { i, c in FuzzyMatch.best(query, fields: c.fields).map { (c, $0, i) } }
-        return Array(scored.sorted { ($0.1, -$0.2) > ($1.1, -$1.2) }.prefix(limit).map(\.0))
+        let scored = candidates.enumerated().compactMap { i, c -> (QuickSwitchCandidate, Tier, Int, Int)? in
+            guard let tier = tier(query, c) else { return nil }
+            let score = FuzzyMatch.best(query, fields: tier == .other ? c.extraFields : c.fields) ?? 0
+            return (c, tier, score, i)
+        }
+        return Array(scored.sorted { ($0.1.rawValue, $0.2, -$0.3) > ($1.1.rawValue, $1.2, -$1.3) }.prefix(limit).map(\.0))
     }
 }
 

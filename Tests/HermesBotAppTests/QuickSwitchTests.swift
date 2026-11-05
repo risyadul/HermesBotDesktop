@@ -74,6 +74,49 @@ final class QuickSwitchTests: XCTestCase {
         XCTAssertEqual(QuickSwitch.results("a", all, limit: 2).count, 2)
     }
 
+    /// Live UI test 2026-11-06 (round 5): "gen" listed three "Group chat" rows (a member named generalist,
+    /// matched as a subsequence) above the bot generalist itself.
+    func testTitleAndHandleMatchesRankAboveMemberNames() {
+        let rooms = (1...3).map { i in
+            RoomSummary(.object(["room_id": .string("hba-\(i)"), "name": "Group chat", "revision": 1, "created_at": 1, "updated_at": 1,
+                                 "members": [["member_id": "generalist", "profile": "generalist", "handle": "generalist"],
+                                             ["member_id": "android", "profile": "android", "handle": "android"]]]))!
+        }
+        let bots = [bot("android", title: "Android Implementer"), bot("generalist", title: "generalist")]
+        let all = QuickSwitch.candidates(rooms: rooms, bots: bots, hidden: { _ in false }, boards: [])
+        let results = QuickSwitch.results("gen", all)
+        XCTAssertEqual(results.first?.item, .bot("generalist"))
+        XCTAssertEqual(results.map(\.item), [.bot("generalist"), .room("hba-1"), .room("hba-2"), .room("hba-3")],
+                       "member-name matches follow, in sidebar order")
+    }
+
+    func testRankingTiers() {
+        func c(_ title: String, handle: String? = nil, extra: [String] = [], _ id: String) -> QuickSwitchCandidate {
+            QuickSwitchCandidate(item: .bot(id), kind: .bot, title: title, subtitle: "",
+                                 fields: [title] + (handle.map { [$0] } ?? []), extraFields: extra)
+        }
+        // Each row: query, candidates in sidebar order, expected order.
+        let table: [(String, [QuickSwitchCandidate], [String])] = [
+            ("ops", [c("Daily ops", "a"), c("Ops room", "b"), c("Ops", "c")], ["c", "b", "a"]),  // exact > prefix > word start
+            ("ops", [c("Overlapping specs", "a"), c("Shops", "b"), c("Daily ops", "c")], ["c", "b", "a"]),  // word > substring > fuzzy
+            ("tri", [c("Inbox", handle: "inbox-triage", "a"), c("Tricks", "b")], ["b", "a"]),  // title prefix > handle word start
+            ("tri", [c("Patrick", "a"), c("Inbox", handle: "inbox-triage", "b")], ["b", "a"]),  // handle word start > substring
+            ("@gen", [c("Group chat", extra: ["generalist"], "a"), c("Legend", "b")], ["b", "a"]),  // substring > member name
+            ("gnrl", [c("Group chat", extra: ["generalist"], "a"), c("generalist", "b")], ["b", "a"]),  // fuzzy title > member name
+            ("OPS ROOM", [c("Ops room", "a")], ["a"]),  // case-insensitive, spaces kept
+        ]
+        for (query, candidates, expected) in table {
+            XCTAssertEqual(QuickSwitch.results(query, candidates).map { $0.item }, expected.map { .bot($0) }, "query \(query)")
+        }
+        XCTAssertEqual(QuickSwitch.tier("generalist", c("generalist", "x")), .exactTitle)
+        XCTAssertEqual(QuickSwitch.tier("gen", c("Gentle", "x")), .titlePrefix)
+        XCTAssertEqual(QuickSwitch.tier("gen", c("Group chat", extra: ["generalist"], "x")), .other)
+        XCTAssertNil(QuickSwitch.tier("zzz", c("Group chat", extra: ["generalist"], "x")))
+        XCTAssertTrue(QuickSwitch.startsAWord("ops", in: "daily-ops"))
+        XCTAssertFalse(QuickSwitch.startsAWord("ops", in: "shops"))
+        XCTAssertTrue(QuickSwitch.startsAWord("ops", in: "shops ops"), "a later occurrence at a word start counts")
+    }
+
     // MARK: message search
 
     private let sources: [MessageSearch.Source] = [

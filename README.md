@@ -300,7 +300,9 @@ have **not been tested** with this app yet.
 - **Switching:** ⌘1 to ⌘9 select the first nine group chats and bots the sidebar shows (in its order; the filter
   applies, boards are skipped); they are listed in the **Go** menu. **⌘K** (Go → Quick Switch…) opens a switcher:
   type a few letters of a group chat, bot or board (fuzzy: `lnch` finds "Launch plan"), ↑/↓ to choose, Return to
-  open, Esc to close.
+  open, Esc to close. An exact title comes first, then titles starting with what you typed, then a word or
+  @handle starting with it, then titles containing it, then fuzzy matches; a group chat found only through a
+  member's name comes after all of those.
 - **Search messages:** **⇧⌘F** (Go → Search Messages…), or Tab in the switcher, searches the messages the app
   already holds: the Bot Chats you opened since launch and, for every group chat, its loaded log or the latest
   200 events the sidebar's background check fetched. Results show the chat, the author and the text around the
