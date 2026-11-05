@@ -25,6 +25,16 @@ protocol ChatSessionLink: AnyObject, Sendable {
     func answer(_ request: ServerRequest, _ answer: ServerRequestAnswer) async throws
     func decline(_ request: ServerRequest, code: Int, message: String) async throws
     @discardableResult func approvalReceived(requestId: String) async throws -> Bool
+
+    /// Composer controls (ChatControls.swift): the info the chat opened with, steering the running turn,
+    /// model and reasoning effort for this chat only, context usage.
+    var openInfo: SessionInfoSnapshot? { get }
+    func redirect(_ text: String) async throws -> String
+    func modelOptions() async throws -> ModelCatalog
+    func switchModel(model: String, provider: String, confirmExpensive: Bool) async throws -> ModelSwitchOutcome
+    func setReasoning(_ effort: String) async throws -> String
+    func usage() async throws -> ContextUsage?
+    func contextBreakdown() async throws -> ContextBreakdown
 }
 
 extension BotChatSession: ChatSessionLink {}
