@@ -34,6 +34,7 @@ final class SidebarLayoutTests: XCTestCase {
     private var windows: [NSWindow] = []
 
     override func setUp() async throws {
+        try PixelExactGate.skipOnCI()
         guard NSScreen.main != nil else { throw XCTSkip("no window server session") }
         savedDefaults = defaultsKeys.map { UserDefaults.standard.object(forKey: $0) }
         savedSplitFrames = UserDefaults.standard.dictionaryRepresentation().filter { $0.key.hasPrefix(Self.splitFramesPrefix) }

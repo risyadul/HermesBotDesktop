@@ -20,7 +20,9 @@ layout, harness CLIs and test-only environment variables. Protocol details are i
 
 1. Branch from `main`.
 2. `swift build` and `swift test` must pass. The test suite does not need a live backend; a few app tests open
-   a real window and need a GUI session.
+   a real window and need a GUI session. The pixel-exact window suites (`InspectorLayoutTests`,
+   `SidebarLayoutTests`, `MotionSheetTests`) skip on CI because hosted runners have a smaller screen and an
+   older macOS; run `swift test` locally before any UI change.
 3. Add a regression test for bug fixes where the logic is testable (most logic lives in `HermesGatewayKit`).
 4. UI changes follow [DESIGN.md](DESIGN.md) (tokens mirrored in `Sources/HermesBotApp/DesignSystem.swift`).
    Include light and dark screenshots in the pull request.

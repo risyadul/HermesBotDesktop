@@ -9,6 +9,8 @@ import XCTest
 /// alpha from the window server while it opens and closes.
 @MainActor
 final class MotionSheetTests: XCTestCase {
+    override func setUp() async throws { try PixelExactGate.skipOnCI() }
+
     private final class Box: ObservableObject { @Published var show = false }
 
     private struct Host: View {
