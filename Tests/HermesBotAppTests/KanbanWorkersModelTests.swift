@@ -167,6 +167,18 @@ final class KanbanWorkersModelTests: XCTestCase {
         XCTAssertEqual(changes, 0, "same workers, same server clock: the sheet is not re-rendered")
     }
 
+    /// The sheet's model is built inside the StateObject autoclosure (once per view identity), not in `init`,
+    /// which SwiftUI re-runs on every parent update (each time building a throwaway model).
+    func testTheWorkersSheetBuildsItsModelOnce() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let view = try String(contentsOf: root.appendingPathComponent("Sources/HermesBotApp/KanbanWorkersView.swift"), encoding: .utf8)
+        let initStart = try XCTUnwrap(view.range(of: "init(slug: String, api: any KanbanService"))
+        let initBody = view[initStart.lowerBound...].prefix(600)
+        XCTAssertTrue(initBody.contains("_model = StateObject(wrappedValue: {"), "built in the autoclosure")
+        XCTAssertFalse(initBody.contains("let m = KanbanWorkersModel(slug: slug, api: api)\n        m.onChanged"),
+                       "not eagerly in init")
+    }
+
     func testPollingPausesWhileSuspended() {
         let m = KanbanWorkersModel(slug: "main", api: fake(), sleep: { _ in try await Task.sleep(nanoseconds: 3_600_000_000_000) })
         m.setSuspended(true)
