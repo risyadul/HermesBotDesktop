@@ -7,34 +7,31 @@ import UniformTypeIdentifiers
 /// provider first, skills, toolsets, MCP servers and SOUL. Presented by `motionSheet`, so it closes through
 /// the model (`onClose`), not `\.dismiss`.
 ///
-/// With Advanced open the fields scroll between the pinned header and the pinned Cancel / Save row, and the
-/// sheet is `maxHeight` tall (the parent window's height less a margin): a fixed 340 pt body
-/// left the sheet 484 pt tall in any window, with skills, toolsets, MCP and SOUL out of reach (live UI test
-/// 2026-11-06, round 2; BotEditorLayoutTests).
+/// The fields scroll between the pinned header and the pinned Cancel / Save row. The sheet is as tall as its
+/// content, at most `maxHeight` (the parent window's height less a margin; `CappedHeightLayout`): a fixed
+/// 340 pt body left the sheet 484 pt tall in any window, with skills, toolsets, MCP and SOUL out of reach (live
+/// UI test 2026-11-06, round 2; BotEditorLayoutTests).
 struct BotEditorView: View {
     @ObservedObject var model: BotEditorModel
     let identity: BotIdentity
-    /// The sheet's height while Advanced is open (`BotEditorLayout.sheetMaxHeight`); the minimum window's by default.
+    /// The tallest the sheet may be (`BotEditorLayout.sheetMaxHeight`); the minimum window's by default.
     var maxHeight: CGFloat = BotEditorLayout.sheetMaxHeight(windowHeight: DS.Size.windowMinHeight)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s4) {
-            VStack(alignment: .leading, spacing: DS.Space.s0) {
-                Text("Edit \(model.bot.title)").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
-                Text("@\(model.bot.name)").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
-            }
-            if scrolls {
-                // Takes the height left between the header and the footer. A fixed sheet height (not a
-                // maximum): the sheet window only grows to a size its content requires.
+        CappedHeightLayout(maxHeight: maxHeight) {
+            VStack(alignment: .leading, spacing: DS.Space.s4) {
+                VStack(alignment: .leading, spacing: DS.Space.s0) {
+                    Text("Edit \(model.bot.title)").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
+                    Text("@\(model.bot.name)").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                }
+                // Takes the height left between the header and the footer once the sheet is capped.
                 ScrollView { fields.padding(.trailing, DS.Space.s3) }
                     .frame(maxHeight: .infinity, alignment: .top)
-            } else {
-                fields
+                footer
             }
-            footer
+            .padding(DS.Space.s5)
+            .frame(width: DS.Size.sheetWidth, alignment: .top)
         }
-        .padding(DS.Space.s5)
-        .frame(width: DS.Size.sheetWidth, height: scrolls ? maxHeight : nil, alignment: .top)
         .background(DS.Palette.window)
         .disabled(model.saving)
         // The buttons answer; the binding's setter does nothing, so dismissing never races the chosen action.
@@ -45,9 +42,6 @@ struct BotEditorView: View {
             Text(model.pendingConfirm?.message ?? "")
         }
     }
-
-    /// Advanced or the avatar picker open: the fields scroll inside a sheet as tall as the window allows.
-    private var scrolls: Bool { model.advancedOpen || model.avatarPickerOpen }
 
     private var fields: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
@@ -151,6 +145,26 @@ enum BotEditorLayout {
     }
     static let listHeight: CGFloat = 150
     static let soulHeight: CGFloat = 160
+}
+
+/// The bot sheets' height: their content's own height, capped at `maxHeight` (the parent window less its
+/// margin), where the fields' scroll view takes what is left between the pinned header and footer. A fixed
+/// sheet height left a large gap above Cancel / Create while Advanced was collapsed (live UI test 2026-11-06,
+/// round 5); a sheet window only grows to a size its content requires, so the cap is a layout, not a
+/// `maxHeight` frame.
+struct CappedHeightLayout: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        // A vertical scroll view proposed no height reports its content's height: the sheet's natural height.
+        let natural = content.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: natural.width, height: min(natural.height, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
 }
 
 /// One field's failure, in danger `meta`, selectable.

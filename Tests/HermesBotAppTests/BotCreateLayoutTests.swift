@@ -54,6 +54,40 @@ final class BotCreateLayoutTests: XCTestCase {
         }
     }
 
+    /// Live UI test 2026-11-06 (round 5): New Bot was the window less 80 pt tall with Advanced collapsed, a
+    /// large empty gap above Cancel / Create. Both bot sheets are now as tall as their content and only a
+    /// taller content is capped (and scrolls).
+    func testCollapsedSheetsAreAsTallAsTheirContentAndOnlyCappedWhenTaller() async throws {
+        let s = FakeService()
+        let create = BotCreateModel(roster: [], service: s)
+        let edit = BotEditorModel(bot: Bot(["name": "hba-layout"])!, service: s, hadAvatar: false)
+        let identity = BotIdentity(profile: "hba-layout", title: "hba-layout", slot: 0)
+        let sheets: [(String, (CGFloat) -> AnyView)] = [
+            ("New Bot", { AnyView(BotCreateView(model: create, maxHeight: $0)) }),
+            ("Edit", { AnyView(BotEditorView(model: edit, identity: identity, maxHeight: $0)) }),
+        ]
+        for (name, sheet) in sheets {
+            let natural = host(sheet(900)).height
+            XCTAssertEqual(host(sheet(1400)).height, natural, accuracy: 1, "\(name) collapsed: its content's height, not the cap")
+            XCTAssertLessThan(natural, 900 - 200, "\(name): no gap above the buttons (\(natural) pt)")
+            XCTAssertEqual(host(sheet(natural + 40)).height, natural, accuracy: 1, "\(name): a cap above the content leaves it be")
+
+            // A window too short for the content: the sheet stops at the cap and the fields scroll.
+            let cap = natural - 120
+            XCTAssertEqual(host(sheet(cap)).height, cap, accuracy: 1, "\(name) capped")
+            let content = try XCTUnwrap(windows.last?.contentView)
+            func views(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(views) }
+            let scroll = try XCTUnwrap(views(content).compactMap { $0 as? NSScrollView }.max { $0.frame.width < $1.frame.width })
+            XCTAssertGreaterThan(scroll.documentView?.frame.height ?? 0, scroll.contentView.bounds.height + 60,
+                                 "\(name): the fields below the fold are reachable by scrolling")
+        }
+
+        create.toggleAdvanced()
+        let limit = BotEditorLayout.sheetMaxHeight(windowHeight: DS.Size.windowMinHeight)
+        XCTAssertEqual(host(BotCreateView(model: create, maxHeight: limit)).height, limit, accuracy: 1,
+                       "Advanced open: as tall as the window allows")
+    }
+
     func testEditSheetWithAvatarPickerSkillsFinderAndMcpFormFits() async throws {
         let s = FakeService()
         s.snapshot = .init(skills: [.init(name: "web", enabled: true)],

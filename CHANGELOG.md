@@ -218,6 +218,8 @@ Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes
 - Bots created or deleted in Hermes Desktop or the CLI appear in or leave the sidebar within seconds.
 - A legacy routine whose pause keeps failing is retried with a backoff, not on every refresh.
 - The Routines toolbar button opens its sheet again.
+- New Bot and Edit bot sheets are as tall as their content (no empty gap above Cancel / Create with Advanced
+  collapsed); only content taller than the window scrolls.
 - Bot Chat: the approval pill reads "Approvals: Off" (Manual, Smart) instead of a bare "⚡ Off"; a narrow composer
   shows the short form.
 - Search Messages: "No messages found" explains what is searched and suggests opening the chat; results update

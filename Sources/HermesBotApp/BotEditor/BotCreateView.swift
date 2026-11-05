@@ -2,32 +2,35 @@ import AppKit
 import HermesGatewayKit
 import SwiftUI
 
-/// A7 sheet: the fields scroll between the pinned header and the Cancel / Create row, inside the window
-/// (`BotEditorLayout.sheetMaxHeight`); after a create with something to report it shows the result.
+/// A7 sheet: the fields scroll between the pinned header and the Cancel / Create row. The sheet is as tall as
+/// its content, at most `maxHeight` (`CappedHeightLayout`, `BotEditorLayout.sheetMaxHeight`); after a create
+/// with something to report it shows the result.
 struct BotCreateView: View {
     @ObservedObject var model: BotCreateModel
     var maxHeight: CGFloat = BotEditorLayout.sheetMaxHeight(windowHeight: DS.Size.windowMinHeight)
     @ObservedObject private var avatars = AvatarStore.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s4) {
-            VStack(alignment: .leading, spacing: DS.Space.s0) {
-                Text("New Bot").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
-                Text("A named teammate with its own memory, skills and chat. It can message your other bots.")
-                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).fixedSize(horizontal: false, vertical: true)
+        CappedHeightLayout(maxHeight: maxHeight) {
+            VStack(alignment: .leading, spacing: DS.Space.s4) {
+                VStack(alignment: .leading, spacing: DS.Space.s0) {
+                    Text("New Bot").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
+                    Text("A named teammate with its own memory, skills and chat. It can message your other bots.")
+                        .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).fixedSize(horizontal: false, vertical: true)
+                }
+                if case .created(let outcome) = model.phase {
+                    result(outcome)
+                    Spacer(minLength: 0)
+                    resultFooter(outcome)
+                } else {
+                    ScrollView { fields.padding(.trailing, DS.Space.s3) }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                    footer
+                }
             }
-            if case .created(let outcome) = model.phase {
-                result(outcome)
-                Spacer(minLength: 0)
-                resultFooter(outcome)
-            } else {
-                ScrollView { fields.padding(.trailing, DS.Space.s3) }
-                    .frame(maxHeight: .infinity, alignment: .top)
-                footer
-            }
+            .padding(DS.Space.s5)
+            .frame(width: DS.Size.sheetWidth, alignment: .top)
         }
-        .padding(DS.Space.s5)
-        .frame(width: DS.Size.sheetWidth, height: maxHeight, alignment: .top)
         .background(DS.Palette.window)
     }
 

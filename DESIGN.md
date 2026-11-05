@@ -564,11 +564,12 @@ toolbar. Minimum window 820 × 520.
   Open New Room" with no Return shortcut). No Cancel once the room exists. Long names and errors stop at a few
   lines (full text in the tooltip) so both steps fit the 520 pt window minimum.
 - **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Change Avatar… / Remove, Title
-  (placeholder: the name the bot shows now) and Description, and an Advanced disclosure. With Advanced or the
-  avatar picker open the sheet is the main window's height less 80 pt (440 pt at the 520 pt minimum): the title
-  stays on top, the fields scroll, and Cancel / Save stay pinned at the bottom. Each field's failure is a danger
+  (placeholder: the name the bot shows now) and Description, and an Advanced disclosure. The sheet is as tall
+  as its content, at most the main window's height less 80 pt (440 pt at the 520 pt minimum); content taller
+  than that (Advanced or the avatar picker open, a short window) keeps the title on top, scrolls the fields and
+  keeps Cancel / Save pinned at the bottom. No empty gap above the buttons. Each field's failure is a danger
   `meta` line under that field.
-  **New Bot** is that same scrolling sheet from the start (title "New Bot", a muted one-line explanation): avatar
+  **New Bot** is the same sheet (title "New Bot", a muted one-line explanation): avatar
   preview + Change Avatar…, Name (a muted "Profile name: @slug" line under it, or the problem in danger),
   Title, Description, a "Say hello when its Bot Chat opens" checkbox, then Advanced (Clone from, the shared model
   picker, a 120 pt SOUL editor in SF Mono, the share-keys and skip-skills checkboxes with `caption` hints). The
