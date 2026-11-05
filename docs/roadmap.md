@@ -31,12 +31,12 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 
 ## P0: replace the desktop app
 
-- [ ] **K0** Spike: REST/WebSocket client for backend plugin APIs (`/api/plugins/kanban/*`, `/events`, and
+- [x] **K0** Spike: REST/WebSocket client for backend plugin APIs (`/api/plugins/kanban/*`, `/events`, and
       `/api/plugins/bot-activity/*`) using the existing session token; detect when a plugin is disabled. Unblocks
       C1.10 and K1–K3 (S)
 - [ ] **E1** Keep the backend running after quit (login item / LaunchAgent for `hermes serve`), so rooms and
       routines keep running; the app attaches to it on launch (M–L)
-- [ ] **K8** Show whether the kanban dispatcher (`hermes gateway`) is running, with a way to start it (S–M)
+- [x] **K8** Show whether the kanban dispatcher (`hermes gateway`) is running, with a way to start it (S–M)
 - [ ] **C1.3** Activity feed for the current room run (queued, working, replied, passed, timed out, …) (M)
 - [ ] **C1.10** Per-bot activity panel in each room: what every member is doing live (status, tool calls with
       arguments/result/duration, reasoning). Room members run in hidden sessions whose events never reach
@@ -46,9 +46,9 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
       it out to every bot profile with the plugin's `POST /setup`; it can also be removed from the app. Until it is
       enabled the panel falls back to C1.3. Needs a README update, since the app then changes profile plugin config
       (M–L)
-- [ ] **K1** Kanban, read-only board: columns, cards, live updates, switch board (M)
-- [ ] **K2** Kanban card details: description, latest summary, dependencies, comments, worker log, attachments (M)
-- [ ] **K3** Kanban card actions: create, move between columns, assign, priority, archive, comment, requeue with a
+- [x] **K1** Kanban, read-only board: columns, cards, live updates, switch board (M)
+- [x] **K2** Kanban card details: description, latest summary, dependencies, comments, worker log, attachments (M)
+- [x] **K3** Kanban card actions: create, move between columns, assign, priority, archive, comment, requeue with a
       note, message the running worker (M–L)
 
 ## P1: daily friction

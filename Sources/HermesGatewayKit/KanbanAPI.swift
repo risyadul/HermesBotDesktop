@@ -11,6 +11,9 @@ public struct KanbanAPI: Sendable {
     public static let commentAuthor = "hermes-bot-app"
     /// Desktop's drawer log tail (`fetchLog`, api.ts: 16 KiB).
     public static let defaultLogTail = 16_384
+    /// The server's upload cap (`KANBAN_ATTACHMENT_MAX_BYTES`, `hermes_cli/kanban_db.py:135`; larger uploads
+    /// answer 413). Larger files are refused before sending; downloads are capped the same.
+    public static let maxAttachmentBytes = 25 * 1024 * 1024
 
     public let rest: PluginREST
 
@@ -109,6 +112,50 @@ public struct KanbanAPI: Sendable {
     public func addComment(taskId: String, body: String, board: String?, author: String = KanbanAPI.commentAuthor) async throws {
         _ = try await rest.post(Self.taskPath(taskId) + "/comments", query: Self.boardQuery(board),
                                 body: ["author": .string(author), "body": .string(body)])
+    }
+
+    /// Desktop's "Requeue with note" second step: `POST /tasks/{id}/reclaim {}` (`ReclaimBody`, only an optional
+    /// `reason`; `reclaim_task_endpoint`, `plugin_api.py:1008-1024`; api.ts `reclaimTask`). Releases the
+    /// worker's claim so the dispatcher runs the task again. 409 when the task is not running/claimed.
+    public func reclaim(_ id: String, board: String?, reason: String? = nil) async throws {
+        var body: [String: JSONValue] = [:]
+        if let reason, !reason.isEmpty { body["reason"] = .string(reason) }
+        _ = try await rest.post(Self.taskPath(id) + "/reclaim", query: Self.boardQuery(board), body: .object(body))
+    }
+
+    // MARK: - attachments (`plugin_api.py:464-528`)
+
+    /// `GET /tasks/{id}/attachments` → `{attachments: [...]}`.
+    public func attachments(taskId: String, board: String?) async throws -> [KanbanAttachment] {
+        let r = try await rest.get(Self.taskPath(taskId) + "/attachments", query: Self.boardQuery(board))
+        return KanbanAttachment.list(r["attachments"])
+    }
+
+    /// `POST /tasks/{id}/attachments`: `multipart/form-data` with the file in field `file` (FastAPI
+    /// `UploadFile`) and `uploaded_by` as a form field, as Desktop's `uploadAttachment` sends it (plus the
+    /// author). Over `maxAttachmentBytes` is refused before sending. Returns the stored row (the server may
+    /// rename it: `foo (1).pdf`).
+    @discardableResult
+    public func uploadAttachment(taskId: String, filename: String, contentType: String?, data: Data, board: String?,
+                                 uploadedBy: String = KanbanAPI.commentAuthor) async throws -> KanbanAttachment? {
+        guard data.count <= Self.maxAttachmentBytes else {
+            throw PluginREST.Failure.refused("attachment is larger than \(PluginREST.sizeText(Self.maxAttachmentBytes))")
+        }
+        let body = PluginREST.multipart(filename: filename, contentType: contentType, data: data,
+                                        fields: [("uploaded_by", uploadedBy)])
+        let r = try await rest.send(.post, Self.taskPath(taskId) + "/attachments", query: Self.boardQuery(board), raw: body,
+                                    maxBytes: Self.maxAttachmentBytes + 64 * 1024)
+        return r["attachment"]?.nonNull.flatMap(KanbanAttachment.init(json:))
+    }
+
+    /// `GET /attachments/{id}` (`FileResponse`): the file's bytes.
+    public func downloadAttachment(_ id: Int, board: String?) async throws -> Data {
+        try await rest.download("/attachments/\(id)", query: Self.boardQuery(board), maxBytes: Self.maxAttachmentBytes)
+    }
+
+    /// `DELETE /attachments/{id}` → `{ok, id}`; 404 when it is already gone.
+    public func deleteAttachment(_ id: Int, board: String?) async throws {
+        _ = try await rest.delete("/attachments/\(id)", query: Self.boardQuery(board))
     }
 
     // MARK: - helpers

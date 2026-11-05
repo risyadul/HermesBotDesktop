@@ -36,7 +36,8 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   ServerRequests.swift        server->client requests (approval, clarify, sudo, secret): frames, answers, cancel
   SlashCommands.swift         commands.catalog (curated like Desktop) + invocation classification
   ToolActivity.swift          tool.start/progress/complete payloads
-  PluginREST.swift            /api/plugins/<name>/ REST client (session token header, loopback, no redirects)
+  PluginREST.swift            /api/plugins/<name>/ REST client (session token header, loopback, no redirects;
+                              multipart upload + download with size caps)
   KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models
   BotActivityAPI.swift        bot-activity plugin calls + install/enable/remove via plugins.manage (pinned ref);
                               BotActivityFeed.swift: paging merge, cursor, member phases
@@ -63,7 +64,10 @@ Sources/HermesBotApp/       SwiftUI app:
   KanbanHub.swift             board list for the sidebar, per-board models, dispatcher status (K8)
   KanbanBoardModel.swift      one board: polling, lanes, optimistic actions + rollback, details (KanbanService)
   KanbanBoardView.swift       board pane: header, lanes, cards, card menus, dispatcher chip
-  KanbanTaskInspector.swift   card details inspector, New Task sheet; KanbanSidebar.swift: Boards rows
+  KanbanTaskInspector.swift   card details inspector (attachments, message worker / requeue), New Task sheet;
+                              KanbanSidebar.swift: Boards rows
+  KanbanAttachments.swift     card attachments on disk: upload read + size cap, download name sanitising,
+                              caches folder, open-or-reveal check (never runs files)
   BotChatView.swift           Bot Chat pane (transcript, composer, streaming text)
   BotInspector.swift          bot details inspector, DefaultTag
   RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions)

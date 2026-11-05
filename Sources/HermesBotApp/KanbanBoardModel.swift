@@ -20,6 +20,12 @@ protocol KanbanService: Sendable {
     func setPriority(_ id: String, _ priority: Int, board: String?) async throws -> KanbanTask?
     func reassign(_ id: String, to profile: String?, board: String?, reclaimFirst: Bool) async throws
     func addComment(taskId: String, body: String, board: String?, author: String) async throws
+    func reclaim(_ id: String, board: String?, reason: String?) async throws
+    func attachments(taskId: String, board: String?) async throws -> [KanbanAttachment]
+    func uploadAttachment(taskId: String, filename: String, contentType: String?, data: Data, board: String?,
+                          uploadedBy: String) async throws -> KanbanAttachment?
+    func downloadAttachment(_ id: Int, board: String?) async throws -> Data
+    func deleteAttachment(_ id: Int, board: String?) async throws
 }
 
 extension KanbanAPI: KanbanService {}
@@ -223,6 +229,20 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     @Published private(set) var log: KanbanWorkerLog?
     @Published private(set) var logError: String?
     @Published private(set) var logLoading = false
+    /// The open card's attachments (from its details, refreshed by `GET /tasks/{id}/attachments`).
+    @Published private(set) var attachments: [KanbanAttachment] = []
+    /// The last failed attachment action (list, upload, open, delete), in plain words.
+    @Published private(set) var attachmentError: String?
+    /// Uploads in flight for the open card.
+    @Published private(set) var uploading = 0
+    /// Attachments being downloaded to open.
+    @Published private(set) var opening: Set<Int> = []
+    /// A short confirmation under the comment box (Requeue with note).
+    @Published private(set) var inspectorNote: String?
+
+    /// Where downloads are saved and how a checked one is shown; tests replace both.
+    var attachmentRoot = KanbanAttachmentFiles.root
+    var openFile: @MainActor (URL, KanbanAttachmentFiles.Action) -> Void = { KanbanAttachmentFiles.perform($0, $1) }
 
     /// Bumped by `start` and `stop`: answers of an older loop are dropped.
     private(set) var generation = 0
@@ -437,6 +457,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         detailBasis = taskId.flatMap(task)
         detail = nil; detailError = nil
         log = nil; logError = nil
+        attachments = []; attachmentError = nil; inspectorNote = nil
         if taskId != nil { Task { await loadDetail() } }
     }
 
@@ -448,6 +469,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
             let d = try await api.task(id, board: slug)
             guard mine == detailSeq, selectedTaskId == id else { return }
             detail = d; detailError = nil
+            attachments = d.attachments
         } catch {
             guard mine == detailSeq, selectedTaskId == id else { return }
             detailError = Self.describe(error)
@@ -479,6 +501,115 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
             return true
         } catch {
             self.error = "Comment failed: \(Self.describe(error))"
+            return false
+        }
+    }
+
+    static let requeuedNote = "Note posted; the task will restart with it."
+
+    /// The open card is being worked on: a comment reaches the worker's current turn.
+    var selectedIsRunning: Bool { selectedTask?.status == "running" }
+
+    /// Desktop's "Requeue with note" (drawer.tsx `requeueMut`): post the note, then reclaim the task so the
+    /// dispatcher runs it again with the note in context. The reclaim is never sent when the note was not
+    /// posted. True when the note was posted (the draft can go), even if the reclaim then failed.
+    func requeueWithNote(_ body: String) async -> Bool {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let id = selectedTaskId, !text.isEmpty else { return false }
+        inspectorNote = nil
+        do {
+            try await api.addComment(taskId: id, body: text, board: slug, author: KanbanAPI.commentAuthor)
+        } catch {
+            self.error = "Requeue with note failed: \(Self.describe(error))"
+            return false
+        }
+        do {
+            try await api.reclaim(id, board: slug, reason: nil)
+            error = nil
+            inspectorNote = Self.requeuedNote
+            actionsDone += 1
+        } catch {
+            self.error = "The note was posted, but the requeue failed: \(Self.describe(error))"
+        }
+        Task { await refresh() }
+        await loadDetail()
+        return true
+    }
+
+    // MARK: attachments (K2)
+
+    func dismissAttachmentError() { attachmentError = nil }
+
+    func loadAttachments() async {
+        guard let id = selectedTaskId else { return }
+        do {
+            let list = try await api.attachments(taskId: id, board: slug)
+            guard selectedTaskId == id else { return }
+            attachments = list
+        } catch {
+            guard selectedTaskId == id else { return }
+            attachmentError = "Attachments not loaded: \(Self.describe(error))"
+        }
+    }
+
+    /// Uploads files to the open card, one after another; a file that cannot be read or is over the limit is
+    /// refused before anything is sent, the others still go. Then the list is reloaded.
+    func upload(_ urls: [URL]) async {
+        let files = urls.filter(\.isFileURL)
+        guard let id = selectedTaskId, !files.isEmpty else { return }
+        attachmentError = nil
+        var failures: [String] = []
+        for url in files {
+            uploading += 1
+            do {
+                let file = try await Task.detached(priority: .userInitiated) { try KanbanAttachmentFiles.readUpload(url) }.value
+                _ = try await api.uploadAttachment(taskId: id, filename: file.name, contentType: file.contentType, data: file.data,
+                                               board: slug, uploadedBy: KanbanAPI.commentAuthor)
+            } catch let e as KanbanAttachmentFiles.Failure {
+                failures.append(e.description)
+            } catch {
+                failures.append("\(VisibleText.reveal(url.lastPathComponent)): \(Self.describe(error))")
+            }
+            uploading -= 1
+        }
+        guard selectedTaskId == id else { return }
+        await loadAttachments()
+        if !failures.isEmpty { attachmentError = "Upload failed: " + failures.joined(separator: " ") }
+    }
+
+    /// Downloads an attachment into the app's caches and opens it after the click-time check (or reveals it).
+    func open(_ attachment: KanbanAttachment) async {
+        guard !opening.contains(attachment.id) else { return }
+        opening.insert(attachment.id)
+        defer { opening.remove(attachment.id) }
+        let name = VisibleText.reveal(attachment.filename)
+        do {
+            let data = try await api.downloadAttachment(attachment.id, board: slug)
+            let root = attachmentRoot
+            let (file, action) = try await Task.detached(priority: .userInitiated) {
+                let file = try KanbanAttachmentFiles.save(data, filename: attachment.filename, id: attachment.id, root: root)
+                return (file, KanbanAttachmentFiles.action(for: file))
+            }.value
+            if case .refuse(let reason) = action { attachmentError = "“\(name)” was not opened: \(reason)"; return }
+            openFile(file, action)
+        } catch let e as KanbanAttachmentFiles.Failure {
+            attachmentError = "“\(name)” could not be opened: \(e.description)"
+        } catch {
+            attachmentError = "“\(name)” could not be downloaded: \(Self.describe(error))"
+        }
+    }
+
+    /// Deletes an attachment (the view asks first). False on failure.
+    @discardableResult
+    func delete(_ attachment: KanbanAttachment) async -> Bool {
+        do {
+            try await api.deleteAttachment(attachment.id, board: slug)
+            attachments.removeAll { $0.id == attachment.id }
+            attachmentError = nil
+            await loadAttachments()
+            return true
+        } catch {
+            attachmentError = "Delete “\(VisibleText.reveal(attachment.filename))” failed: \(Self.describe(error))"
             return false
         }
     }

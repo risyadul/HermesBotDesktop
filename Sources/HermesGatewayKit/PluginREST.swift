@@ -103,8 +103,66 @@ public struct PluginREST: Sendable {
         return v
     }
 
-    func sendRaw(_ method: Method, _ path: String, query: [URLQueryItem], body: JSONValue?) async throws -> Data {
-        let req = try request(method, path, query: query, body: body)
+    /// A non-JSON request body: `data` sent as is with `contentType`.
+    public struct RawBody: Sendable, Equatable {
+        public let data: Data
+        public let contentType: String
+        public init(data: Data, contentType: String) { self.data = data; self.contentType = contentType }
+    }
+
+    /// Size cap for a raw upload or a download when the route names none.
+    public static let defaultMaxBytes = 50 * 1024 * 1024
+
+    /// One file as a single-part `multipart/form-data` body (FastAPI `UploadFile`), plus plain text fields.
+    /// Mirrors Desktop's `multipartBody` (apps/desktop/electron/main.ts): field `file`, the filename with
+    /// `"`, CR and LF replaced, `application/octet-stream` when no type is known.
+    public static func multipart(field: String = "file", filename: String, contentType: String?, data: Data,
+                                 fields: [(String, String)] = [], boundary: String = "----hermes-" + UUID().uuidString) -> RawBody {
+        func clean(_ s: String) -> String {
+            String(String.UnicodeScalarView(s.unicodeScalars.map { $0 == "\"" || $0 == "\r" || $0 == "\n" || $0.properties.generalCategory == .control ? "_" : $0 }))
+        }
+        var body = Data()
+        for (name, value) in fields {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(clean(name))\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        let name = clean(filename).isEmpty ? "file" : clean(filename)
+        let type = contentType.map(clean).flatMap { $0.isEmpty ? nil : $0 } ?? "application/octet-stream"
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(clean(field))\"; filename=\"\(name)\"\r\nContent-Type: \(type)\r\n\r\n".utf8))
+        body.append(data)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        return RawBody(data: body, contentType: "multipart/form-data; boundary=\(boundary)")
+    }
+
+    /// Sends a non-JSON body (an upload). Refused before sending when the body is over `maxBytes`. The
+    /// answer is read as JSON like `send`.
+    public func send(_ method: Method, _ path: String, query: [URLQueryItem] = [], raw: RawBody,
+                     maxBytes: Int = PluginREST.defaultMaxBytes) async throws -> JSONValue {
+        guard raw.data.count <= maxBytes else { throw Failure.refused("upload is larger than \(Self.sizeText(maxBytes))") }
+        let data = try await sendRaw(method, path, query: query, body: nil, raw: raw)
+        if data.isEmpty { return .null }
+        guard let v = try? JSONDecoder().decode(JSONValue.self, from: data) else { throw Failure.decode("response is not JSON") }
+        return v
+    }
+
+    /// "25 MB", "1 KB" (binary units, as the server's own limit text).
+    public static func sizeText(_ bytes: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
+    }
+
+    /// `GET` for a file: the 2xx body as bytes (`Accept: */*`). Refused when the answer is over `maxBytes`
+    /// (its Content-Length or what arrived); the bytes are never handed on then.
+    public func download(_ path: String, query: [URLQueryItem] = [], maxBytes: Int = PluginREST.defaultMaxBytes) async throws -> Data {
+        try await sendRaw(.get, path, query: query, body: nil, accept: "*/*", maxBytes: maxBytes)
+    }
+
+    func sendRaw(_ method: Method, _ path: String, query: [URLQueryItem], body: JSONValue?, raw: RawBody? = nil,
+                 accept: String = "application/json", maxBytes: Int? = nil) async throws -> Data {
+        var req = try request(method, path, query: query, body: body)
+        req.setValue(accept, forHTTPHeaderField: "Accept")
+        if let raw, method != .get, method != .delete {
+            req.setValue(raw.contentType, forHTTPHeaderField: "Content-Type")
+            req.httpBody = raw.data
+        }
         let session = URLSession(configuration: makeConfiguration(), delegate: HostRendezvous.RefuseRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let data: Data, response: URLResponse
@@ -114,6 +172,9 @@ public struct PluginREST: Sendable {
         }
         guard let http = response as? HTTPURLResponse else { throw Failure.transport("not an HTTP response") }
         if let failure = Self.failure(status: http.statusCode, body: data, plugin: plugin, secrets: [access.token]) { throw failure }
+        if let maxBytes, data.count > maxBytes || http.expectedContentLength > Int64(maxBytes) {
+            throw Failure.refused("download is larger than \(Self.sizeText(maxBytes))")
+        }
         return data
     }
 

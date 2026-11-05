@@ -498,7 +498,12 @@ toolbar. Minimum window 820 × 520.
   title, a `P<n>` tag when prioritised, state flags (running dot; attention for blocked / needs input /
   no heartbeat; danger for failed runs; muted "won't run" for a ready card with no assignee), then
   assignee avatar 20 + @handle, comment count and age. The card details inspector uses the Bot Chat
-  inspector's widths and remembered state. The dispatcher chip is a `status-chip`: muted when running,
+  inspector's widths and remembered state. Its Attachments section has a paperclip icon button in the
+  header, one row per file (doc icon, name in `link`, then size · date · uploader in caption muted, a trash
+  icon button that asks first) and takes dropped files with the composer's dashed `DropHighlight`. On a
+  running card the comment box reads "Message the running worker…", a caption-muted hint sits under the
+  full-width field, and Requeue with note (secondary) sits left of Send (primary); otherwise the field and
+  Comment share one row. The dispatcher chip is a `status-chip`: muted when running,
   attention when stopped (with Start) or not installed (its popover shows `hermes gateway install` to
   copy).
 - **Empty states** are centred in the pane, never pinned to the composer by a bottom-anchored scroll.

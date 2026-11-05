@@ -133,8 +133,16 @@ for every bot (or turns on a copy that is installed but disabled). **Turn Off Ac
 ## Kanban
 
 The **Boards** section in the sidebar shows your Hermes Kanban boards (the built-in `kanban` plugin). You can
-see the columns and cards, open a card for its description, summary, dependencies, comments and worker log,
-and create, move, assign, prioritize, comment on and archive cards.
+see the columns and cards, open a card for its description, summary, dependencies, attachments, comments and
+worker log, and create, move, assign, prioritize, comment on and archive cards.
+
+- **Attachments:** attach files to a card with the paperclip or by dropping them on its Attachments list (up to
+  25 MB each, the server's limit), open them, or delete them. Opening downloads a copy into the app's caches
+  folder; documents open in their usual app, while apps, scripts, installers, web pages and archives are only
+  shown in Finder, never run.
+- **Message the running worker:** on a running card the comment box sends your note to the worker, which picks
+  it up in its current turn within a few seconds. **Requeue with note** posts the note and restarts the task
+  from scratch with it.
 
 Cards are worked on by the Kanban dispatcher, which runs inside `hermes gateway`, not inside this app. The
 board header shows whether it is running. If it is installed but stopped, **Start** runs `hermes gateway
@@ -145,8 +153,16 @@ start`; if it is not installed, run `hermes gateway install` once.
 When this app starts its own backend, quitting the app stops it, and with it any Group Chat round in progress
 and the scheduler for routines. **Settings → Keep Hermes running in the background** installs a per-user
 LaunchAgent (`~/Library/LaunchAgents/io.github.risyadul.hermesbot.serve.plist`) that starts `hermes serve` at
-login and restarts it if it crashes; the app then attaches to it. Turning the setting off unloads and deletes
-the LaunchAgent. It is off by default.
+login and restarts it if it crashes; the app then attaches to it. It is off by default. Its log is
+`~/Library/Logs/HermesBotApp/background-serve.log`.
+
+- Turning it on while the app runs its own backend takes effect at the next launch; the live connection is
+  left alone.
+- Turning it off unloads and deletes the LaunchAgent, which stops that Hermes. If the app was attached to it,
+  the window shows the lost connection; Try Again starts the app's own backend.
+- If the status shows **Installed but not running**, **Start** loads it again. If it shows **Hermes not
+  found** (for example after moving or reinstalling Hermes), **Reinstall** rewrites it with the current
+  `hermes` path.
 
 ## Configuration
 

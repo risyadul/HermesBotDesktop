@@ -9,6 +9,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         var json: String = "{}"
         /// Answer with a 302 to this URL instead.
         var redirectTo: URL?
+        /// Answer with these bytes (and this content type) instead of `json`.
+        var data: Data?
+        var contentType = "application/json"
     }
 
     /// One request as the stub saw it (body read from the stream URLSession hands protocols).
@@ -17,6 +20,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         let url: URL
         let headers: [String: String]
         let body: JSONValue?
+        /// The body bytes as sent (uploads are not JSON).
+        var rawBody: Data?
     }
 
     typealias Handler = @Sendable (Seen) -> Reply
@@ -50,6 +55,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         guard let url = request.url else { return }
         let port = url.port ?? 80
         var body: JSONValue?
+        var raw: Data?
         if let stream = request.httpBodyStream {
             stream.open()
             var data = Data()
@@ -57,10 +63,13 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             while stream.hasBytesAvailable { let n = stream.read(&buf, maxLength: buf.count); if n <= 0 { break }; data.append(buf, count: n) }
             stream.close()
             body = try? JSONDecoder().decode(JSONValue.self, from: data)
+            raw = data
         } else if let data = request.httpBody {
             body = try? JSONDecoder().decode(JSONValue.self, from: data)
+            raw = data
         }
-        let s = Seen(method: request.httpMethod ?? "GET", url: url, headers: request.allHTTPHeaderFields ?? [:], body: body)
+        let s = Seen(method: request.httpMethod ?? "GET", url: url, headers: request.allHTTPHeaderFields ?? [:], body: body,
+                     rawBody: raw)
         let handler = Self.lock.withLock { () -> Handler? in
             Self.seen[port, default: []].append(s)
             return Self.handlers[port]
@@ -78,9 +87,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let resp = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1",
-                                   headerFields: ["Content-Type": "application/json"])!
+                                   headerFields: ["Content-Type": reply.contentType])!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(reply.json.utf8))
+        client?.urlProtocol(self, didLoad: reply.data ?? Data(reply.json.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
 

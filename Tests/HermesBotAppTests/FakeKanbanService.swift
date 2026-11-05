@@ -17,6 +17,13 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
         var createWarning: String?
         var createError: Error?
         var commentError: Error?
+        var reclaimError: Error?
+        var attachments: [String: [JSONValue]] = [:]
+        var uploads: [(name: String, contentType: String?, bytes: Int)] = []
+        var uploadError: Error?
+        var download = Data("placeholder bytes".utf8)
+        var downloadError: Error?
+        var deleteError: Error?
         var comments: [String: [JSONValue]] = [:]
         var assignees = ["alice", "bob"]
         var calls: [String] = []
@@ -102,7 +109,8 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
         record("task")
         let (t, comments) = with { s in (s.columns.flatMap(\.tasks).first { $0["id"]?.string == id }, s.comments[id] ?? []) }
         guard let t else { throw PluginREST.Failure.http(status: 404, detail: "task \(id) not found") }
-        return try KanbanTaskDetail(json: ["task": t, "comments": .array(comments),
+        let files = with { $0.attachments[id] ?? [] }
+        return try KanbanTaskDetail(json: ["task": t, "comments": .array(comments), "attachments": .array(files),
                                            "links": ["parents": ["t_parent"], "children": []],
                                            "link_tasks": [["id": "t_parent", "title": "Parent placeholder", "status": "done"]]])
     }
@@ -165,5 +173,47 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
             s.comments[taskId, default: []].append(["id": .number(Double(s.nextId)), "author": .string(author),
                                                     "body": .string(body), "created_at": 1_760_000_301])
         }
+    }
+
+    func reclaim(_ id: String, board: String?, reason: String?) async throws {
+        record("reclaim")
+        if let error = with({ $0.reclaimError }) { throw error }
+        _ = update(id, ["status": "ready"])
+    }
+
+    static func attachment(_ id: Int, task: String, name: String, size: Int = 10) -> JSONValue {
+        ["id": .number(Double(id)), "task_id": .string(task), "filename": .string(name), "size": .number(Double(size)),
+         "uploaded_by": "hermes-bot-app", "created_at": 1_760_000_302]
+    }
+
+    func attachments(taskId: String, board: String?) async throws -> [KanbanAttachment] {
+        record("attachments")
+        return with { $0.attachments[taskId] ?? [] }.compactMap(KanbanAttachment.init(json:))
+    }
+
+    func uploadAttachment(taskId: String, filename: String, contentType: String?, data: Data, board: String?,
+                          uploadedBy: String) async throws -> KanbanAttachment? {
+        record("upload")
+        if let error = with({ $0.uploadError }) { throw error }
+        let row: JSONValue = with { s in
+            s.nextId += 1
+            s.uploads.append((filename, contentType, data.count))
+            let row = Self.attachment(100 + s.nextId, task: taskId, name: filename, size: data.count)
+            s.attachments[taskId, default: []].append(row)
+            return row
+        }
+        return KanbanAttachment(json: row)
+    }
+
+    func downloadAttachment(_ id: Int, board: String?) async throws -> Data {
+        record("download")
+        if let error = with({ $0.downloadError }) { throw error }
+        return with { $0.download }
+    }
+
+    func deleteAttachment(_ id: Int, board: String?) async throws {
+        record("delete")
+        if let error = with({ $0.deleteError }) { throw error }
+        with { s in for k in s.attachments.keys { s.attachments[k]?.removeAll { $0["id"]?.intValue == id } } }
     }
 }

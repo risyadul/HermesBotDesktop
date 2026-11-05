@@ -3,8 +3,29 @@ import HermesGatewayKit
 import SwiftUI
 
 // Card details (K2) in the board's native inspector: title, status / assignee / priority (each a menu: the
-// K3 actions), dates, description and latest summary as markdown, dependencies (click to open), comments
-// with an add box, runs, and the worker log tail on demand. Plus the New Task sheet.
+// K3 actions), dates, description and latest summary as markdown, dependencies (click to open), attachments
+// (open, attach with the paperclip or by dropping files, delete), comments with an add box (on a running card
+// it messages the worker, with Requeue with note), runs, and the worker log tail on demand. Plus the New
+// Task sheet.
+
+/// The comment box's words by the card's state (Desktop drawer.tsx `CommentComposer`). On a running card the
+/// worker folds new comments into its current turn, so the box addresses the worker and offers Requeue with
+/// note (post, then reclaim: the task restarts with the note), which Desktop also offers only there.
+struct KanbanComposerCopy: Equatable {
+    let placeholder: String
+    let send: String
+    let hint: String?
+    let showsRequeue: Bool
+
+    static let requeue = "Requeue with note"
+
+    init(running: Bool) {
+        placeholder = running ? "Message the running worker…" : "Add a comment…"
+        send = running ? "Send" : "Comment"
+        hint = running ? "Folded into the worker’s current turn within a few seconds." : nil
+        showsRequeue = running
+    }
+}
 
 struct KanbanTaskInspector: View {
     @ObservedObject var model: KanbanBoardModel
@@ -12,6 +33,8 @@ struct KanbanTaskInspector: View {
     @ObservedObject private var avatars = AvatarStore.shared
     @State private var comment = ""
     @State private var sending = false
+    @State private var deleteCandidate: KanbanAttachment?
+    @State private var dropTargeted = false
 
     var body: some View {
         if let task = model.selectedTask {
@@ -35,6 +58,7 @@ struct KanbanTaskInspector: View {
                         section("Result") { MarkdownView(blocks: MarkdownBlock.parse(result)).tint(DS.Palette.link).textSelection(.enabled) }
                     }
                     if let detail = model.detail { dependencies(detail) }
+                    attachmentsSection
                     comments
                     if let runs = model.detail?.runs, !runs.isEmpty { self.runs(runs) }
                     workerLog
@@ -44,7 +68,14 @@ struct KanbanTaskInspector: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .id(task.id)
-            .onChange(of: model.selectedTaskId) { _, _ in comment = "" }  // a draft never moves to another card
+            .onChange(of: model.selectedTaskId) { _, _ in comment = ""; deleteCandidate = nil }  // a draft never moves to another card
+            .confirmationDialog("Delete “\(VisibleText.reveal(deleteCandidate?.filename ?? ""))”?",
+                                isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })) {
+                Button("Delete", role: .destructive) {
+                    if let a = deleteCandidate { Task { await model.delete(a) } }
+                    deleteCandidate = nil
+                }
+            } message: { Text("The file is removed from the card in Hermes, for every app and worker.") }
         } else {
             EmptyStateView(symbol: "rectangle.portrait.on.rectangle.portrait", title: "No card selected",
                            message: "Click a card to see its description, comments and worker log here.")
@@ -143,15 +174,44 @@ struct KanbanTaskInspector: View {
                         MarkdownView(blocks: MarkdownBlock.parse(c.body)).tint(DS.Palette.link).textSelection(.enabled)
                     }
                 }
-                HStack(alignment: .bottom, spacing: DS.Space.s2) {
-                    TextField("Add a comment", text: $comment, axis: .vertical)
-                        .lineLimit(DS.Kanban.commentLines)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(send)
-                    Button("Send", action: send)
-                        .buttonStyle(DSButtonStyle(kind: .primary))
-                        .disabled(sending || comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                composer(KanbanComposerCopy(running: model.selectedIsRunning))
+            }
+        }
+    }
+
+    @ViewBuilder private func composer(_ copy: KanbanComposerCopy) -> some View {
+        let empty = sending || comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let field = TextField(copy.placeholder, text: $comment, axis: .vertical)
+            .lineLimit(DS.Kanban.commentLines)
+            .textFieldStyle(.roundedBorder)
+            .onSubmit(send)
+        let sendButton = Button(copy.send, action: send)
+            .buttonStyle(DSButtonStyle(kind: .primary))
+            .disabled(empty)
+        VStack(alignment: .leading, spacing: DS.Space.s1 + DS.Space.s0) {
+            if copy.showsRequeue {
+                // The inspector is narrow: the field takes the full width and both buttons sit under it.
+                field
+                if let hint = copy.hint {
+                    Text(hint).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                HStack(spacing: DS.Space.s2) {
+                    Spacer(minLength: 0)
+                    Button(action: requeue) { Label(KanbanComposerCopy.requeue, systemImage: "arrow.clockwise") }
+                        .buttonStyle(DSButtonStyle(kind: .secondary))
+                        .disabled(empty)
+                        .help("Post the note and restart the task from scratch with it in context")
+                    sendButton
+                }
+            } else {
+                HStack(alignment: .bottom, spacing: DS.Space.s2) {
+                    field
+                    sendButton
+                }
+            }
+            if let note = model.inspectorNote {
+                Label(note, systemImage: "checkmark.circle").font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
             }
         }
     }
@@ -164,6 +224,86 @@ struct KanbanTaskInspector: View {
             if await model.addComment(body) { comment = "" }
             sending = false
         }
+    }
+
+    private func requeue() {
+        let body = comment
+        guard !sending, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        sending = true
+        Task {
+            if await model.requeueWithNote(body) { comment = "" }
+            sending = false
+        }
+    }
+
+    // MARK: attachments
+
+    private var attachmentsSection: some View {
+        let list = model.attachments
+        return VStack(alignment: .leading, spacing: DS.Space.s1 + DS.Space.s0) {
+            HStack(spacing: DS.Space.s1) {
+                Text(list.isEmpty ? "Attachments" : "Attachments (\(list.count))")
+                    .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).accessibilityAddTraits(.isHeader)
+                if model.uploading > 0 { ProgressView().controlSize(.mini) }
+                Spacer(minLength: 0)
+                IconButton(symbol: "paperclip", label: "Attach Files…") {
+                    pickAttachments(message: "Choose files to attach to this card (up to \(KanbanAPI.maxAttachmentBytes / (1024 * 1024)) MB each).") { urls in
+                        Task { await model.upload(urls) }
+                    }
+                }
+            }
+            if list.isEmpty {
+                Text(model.uploading > 0 ? "Uploading…" : "No attachments. Drop files here or use the paperclip.")
+                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+            }
+            ForEach(list) { attachmentRow($0) }
+            if let e = model.attachmentError {
+                HStack(alignment: .top, spacing: DS.Space.s1) {
+                    Text(e).font(DS.Typeface.meta).foregroundStyle(DS.Palette.danger).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    IconButton(symbol: "xmark", label: "Dismiss") { model.dismissAttachmentError() }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: DS.Size.controlHeight * 2, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .overlay { if dropTargeted { DropHighlight() } }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard !files.isEmpty else { return false }
+            Task { await model.upload(files) }
+            return true
+        } isTargeted: { dropTargeted = $0 }
+    }
+
+    private func attachmentRow(_ a: KanbanAttachment) -> some View {
+        let name = VisibleText.reveal(a.filename.isEmpty ? "attachment-\(a.id)" : a.filename)
+        let busy = model.opening.contains(a.id)
+        return HStack(spacing: DS.Space.s1) {
+            Button { Task { await model.open(a) } } label: {
+                HStack(spacing: DS.Space.s1 + DS.Space.s0) {
+                    Image(systemName: busy ? "arrow.down.circle" : "doc").font(DS.Typeface.icon).foregroundStyle(DS.Palette.muted)
+                    VStack(alignment: .leading, spacing: DS.Space.s0) {
+                        Text(name).font(DS.Typeface.meta).foregroundStyle(DS.Palette.link).lineLimit(1).truncationMode(.middle)
+                        Text(Self.attachmentDetail(a)).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+            .help("Open \(name)")
+            .accessibilityLabel("Open attachment \(name)")
+            Spacer(minLength: 0)
+            IconButton(symbol: "trash", label: "Delete \(name)…") { deleteCandidate = a }
+        }
+    }
+
+    /// "12 KB · Nov 5, 14:02 · by hermes-bot-app".
+    static func attachmentDetail(_ a: KanbanAttachment) -> String {
+        [ByteCountFormatter.string(fromByteCount: Int64(a.size), countStyle: .file), a.createdAt.map(date),
+         a.uploadedBy.map { "by \($0)" }].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func runs(_ runs: [KanbanRun]) -> some View {

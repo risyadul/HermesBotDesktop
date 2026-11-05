@@ -12,8 +12,11 @@ All notable changes to this project are documented here. The format follows
   every bot), and it can be turned off again from the panel.
 - Kanban boards in the sidebar (Boards section, with running and blocked counts). A board shows its lanes and
   cards, refreshes every few seconds while open, and switches between boards. Cards open into a details
-  panel (description, latest summary, dependencies, comments, runs, worker log); drag a card to another lane,
-  or use its menu to assign it, set its priority, archive it, or copy its id. New Task creates a card. The
+  panel (description, latest summary, dependencies, attachments, comments, runs, worker log); drag a card to
+  another lane, or use its menu to assign it, set its priority, archive it, or copy its id. Attach files with
+  the paperclip or by dropping them (up to 25 MB), open or delete them; scripts and apps are only shown in
+  Finder. On a running card the comment box messages the worker, and Requeue with note restarts the task
+  with your note. New Task creates a card. The
   board header says whether the kanban dispatcher (`hermes gateway`) is running, starts it when it is
   installed, and shows the install command when it is not.
 - Settings → Keep Hermes running in the background: an opt-in LaunchAgent keeps `hermes serve` running after you

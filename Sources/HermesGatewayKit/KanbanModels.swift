@@ -260,8 +260,7 @@ public struct KanbanTaskDetail: Sendable, Equatable, Decodable {
     public let linkTasks: [KanbanLinkedTask]
     public let childResults: [KanbanLinkedTask]
     public let runs: [KanbanRun]
-    /// Attachment rows as received (not modelled in P0).
-    public let attachments: [JSONValue]
+    public let attachments: [KanbanAttachment]
 
     public init(from decoder: Decoder) throws { try self.init(json: try JSONValue(from: decoder)) }
 
@@ -275,8 +274,36 @@ public struct KanbanTaskDetail: Sendable, Equatable, Decodable {
         linkTasks = (j["link_tasks"]?.array ?? []).compactMap(KanbanLinkedTask.init(json:))
         childResults = (j["child_results"]?.array ?? []).compactMap(KanbanLinkedTask.init(json:))
         runs = (j["runs"]?.array ?? []).compactMap(KanbanRun.init(json:))
-        attachments = j["attachments"]?.array ?? []
+        attachments = KanbanAttachment.list(j["attachments"])
     }
+}
+
+/// One file attached to a task (`_attachment_dict`, `plugin_api.py:197-200`; `Attachment`, `kanban_db.py:760-771`).
+/// Downloaded by `id` (`GET /attachments/{id}`). The server's on-disk `stored_path` is not kept: the app never
+/// reads backend paths directly.
+public struct KanbanAttachment: Sendable, Equatable, Identifiable {
+    public let id: Int
+    public let taskId: String
+    /// Already sanitised by the server (`_safe_attachment_name`); sanitised again before it names a local file.
+    public let filename: String
+    public let contentType: String?
+    public let size: Int
+    public let uploadedBy: String?
+    public let createdAt: Int?
+
+    public init?(json j: JSONValue) {
+        guard let id = j["id"]?.intValue else { return nil }
+        self.id = id
+        taskId = j["task_id"]?.string ?? ""
+        filename = j["filename"]?.string ?? ""
+        contentType = j["content_type"]?.nonEmptyString
+        size = max(0, j["size"]?.intValue ?? 0)
+        uploadedBy = j["uploaded_by"]?.nonEmptyString
+        createdAt = j["created_at"]?.intValue
+    }
+
+    /// Lenient list: rows without an id are dropped.
+    static func list(_ v: JSONValue?) -> [KanbanAttachment] { (v?.array ?? []).compactMap(KanbanAttachment.init(json:)) }
 }
 
 /// `GET /tasks/{id}/log` (`get_task_log`, `plugin_api.py:1255-1266`). The on-disk `path` is not kept.
