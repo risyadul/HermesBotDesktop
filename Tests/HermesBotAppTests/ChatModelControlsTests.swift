@@ -64,6 +64,55 @@ final class ChatModelControlsTests: XCTestCase {
         XCTAssertTrue(m.showsReasoning, "unknown capabilities: assume reasoning, like Desktop")
     }
 
+    /// Live UI test 2026-11-06 (round 2): the gauge stayed absent until a turn reported usage, because a resumed
+    /// chat's `session.usage` carries no context figures until a turn runs in that backend. The open now falls
+    /// back to the read-only `session.context_breakdown` estimate, as Desktop's status bar does.
+    private func opening(_ l: FakeChatLink, retries: [Double] = [0.05, 0.05]) async throws -> ChatModel {
+        let m = ChatModel(bot: bot, opener: { _ in l })
+        m.log = { _ in }
+        m.usageRetryDelays = retries
+        m.open()
+        try await waitUntil { m.isReady }
+        return m
+    }
+
+    func testOpenFillsTheGaugeFromTheBreakdownWhenUsageHasNoFigures() async throws {
+        let l = FakeChatLink()
+        l.breakdownResult = ContextBreakdown(categories: [.init(id: "conversation", label: "Conversation", tokens: 30_000)],
+                                             usage: ContextUsage(used: 34_000, max: 200_000, percent: 17, estimated: true))
+        let m = try await opening(l)
+        try await waitUntil { m.contextUsage != nil }
+        XCTAssertEqual(m.contextUsage, ContextUsage(used: 34_000, max: 200_000, percent: 17, estimated: true))
+        XCTAssertEqual(l.reads.filter { $0 == "usage" || $0 == "breakdown" }, ["usage", "breakdown"], "read-only, usage first")
+        XCTAssertEqual(m.contextBreakdown?.categories.first?.tokens, 30_000)
+        XCTAssertTrue(l.calls.allSatisfy { $0 == "catalog" }, "nothing written (the open's slash catalog aside): \(l.calls)")
+    }
+
+    func testOpenRetriesAZeroedBreakdownThenGivesUp() async throws {
+        let l = FakeChatLink()  // no agent yet: the breakdown has no context_max
+        let m = try await opening(l)
+        try await waitUntil { l.reads.filter { $0 == "breakdown" }.count == 2 }
+        l.breakdownResult = ContextBreakdown(categories: [], usage: ContextUsage(used: 10, max: 100, percent: 10, estimated: true))
+        try await waitUntil { m.contextUsage != nil }
+        XCTAssertEqual(m.contextUsage?.percent, 10, "the agent was built meanwhile: the next retry fills the gauge")
+
+        let quiet = FakeChatLink()
+        let n = try await opening(quiet)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(n.contextUsage)
+        XCTAssertEqual(quiet.reads.filter { $0 == "breakdown" }.count, 3, "one read, then one per retry delay, then it stops")
+    }
+
+    func testOpenStopsRetryingOnceATurnReportsUsage() async throws {
+        let l = FakeChatLink()
+        let m = try await opening(l, retries: [0.2, 0.2])
+        try await waitUntil { l.reads.contains("breakdown") }
+        m.apply(.usage(ContextUsage(used: 5, max: 50, percent: 10)))
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(l.reads.filter { $0 == "breakdown" }.count, 1, "no retry after a figure arrived")
+        XCTAssertEqual(m.contextUsage?.percent, 10)
+    }
+
     func testPickingAModelSwitchesThisChatOnlyAndPaintsAtOnce() async throws {
         let l = link()
         let m = try await ready(l)

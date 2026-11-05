@@ -73,6 +73,10 @@ final class ChatModel: ObservableObject, Identifiable {
     private let opener: ChatOpener
     private var openTask: Task<Void, Never>?
     var catalogTask: Task<SlashCatalog?, Never>?
+    /// The context gauge's first figure after open (`primeUsage`).
+    var usageTask: Task<Void, Never>?
+    /// Seconds between `session.context_breakdown` retries while the backend has no agent for the chat yet.
+    var usageRetryDelays: [Double] = [1, 4, 12]
     /// Client-side checks for a picked file (tests inject a fake; production stats the file).
     var checkFile: (URL) throws -> ChatAttachments.Checked = { try ChatAttachments.check($0) }
     /// Pasted images sent with the running turn: deleted once it settles (the backend reads them during it).
@@ -142,7 +146,7 @@ final class ChatModel: ObservableObject, Identifiable {
             + "history=\(s.history.count) open_requests=\(s.openRequests.count) running=\(s.inflight != nil)")
         loadCatalog()
         loadModelOptions()
-        if contextUsage == nil { refreshUsage() }
+        if contextUsage == nil { primeUsage() }
         drainQueue()
     }
 
@@ -154,6 +158,7 @@ final class ChatModel: ObservableObject, Identifiable {
         closed = true
         openTask?.cancel()
         catalogTask?.cancel()
+        usageTask?.cancel()
         drainTask?.cancel()
         session?.detach()
         session = nil

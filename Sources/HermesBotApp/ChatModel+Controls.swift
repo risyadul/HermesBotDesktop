@@ -138,6 +138,37 @@ extension ChatModel {
         }
     }
 
+    /// The gauge as the chat opens, read-only. `session.usage` first; a resumed chat whose agent has not run a
+    /// turn in this backend reports no context figures there, so (like Desktop's status bar) the
+    /// `session.context_breakdown` estimate fills it, retried after `usageRetryDelays` while the backend answers
+    /// with a zeroed breakdown (no agent built yet). Stops once any figure arrives (a turn's usage, too).
+    func primeUsage() {
+        guard let s = session else { return }
+        usageTask?.cancel()
+        usageTask = Task {
+            do {
+                if let u = try await s.usage() { self.contextUsage = u; return }
+            } catch {
+                self.log("session.usage failed: \(Self.message(error, bot: self.bot))")
+            }
+            for delay in [0] + self.usageRetryDelays {
+                if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                guard !Task.isCancelled, !self.closed, self.session === s, self.contextUsage == nil else { return }
+                do {
+                    let b = try await s.contextBreakdown()
+                    guard self.contextUsage == nil else { return }
+                    if let u = b.usage {
+                        self.contextUsage = u
+                        self.contextBreakdown = b
+                        return
+                    }
+                } catch {
+                    self.log("session.context_breakdown failed: \(Self.message(error, bot: self.bot))")
+                }
+            }
+        }
+    }
+
     /// `session.context_breakdown` for the usage popover (also refreshes the gauge's figure).
     func loadContextBreakdown() {
         guard let s = session, !breakdownLoading else { return }
