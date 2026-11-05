@@ -90,6 +90,15 @@ final class NotificationCoordinator {
         }
     }
 
+    // MARK: kanban (K9)
+
+    /// A watched kanban card finished or became blocked (KanbanIntegrations.swift builds the content). Same
+    /// rule as the others: only while enabled and the app is not frontmost.
+    func kanbanCard(_ content: NotificationContent) {
+        guard enabled(), !appActive() else { return }
+        poster?.post(content)
+    }
+
     // MARK: posting
 
     private func consider(_ event: AttentionEvent) {

@@ -27,6 +27,29 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
         var comments: [String: [JSONValue]] = [:]
         /// `include_archived` of every `board` call, in order.
         var boardArchivedFlags: [Bool] = []
+        /// K6: AI answers (`ok: false` replies are set here too), the call error, and what was sent.
+        var estimateReply: JSONValue = ["ok": true, "est_tokens": 120_000, "complexity": "M", "rationale": "Two files", "model": "aux-model"]
+        var decomposeReply: JSONValue?
+        var specifyReply: JSONValue?
+        var aiError: Error?
+        var aiAuthors: [String?] = []
+        var modelProviders: JSONValue = [["slug": "prov", "label": "Provider", "models": ["model-a", "model-b"]]]
+        var overrides: [(id: String, override: KanbanModelOverride)] = []
+        var overrideError: Error?
+        /// K7: boards CRUD, transfer and orchestration; what was sent.
+        var manageError: Error?
+        var createdBoards: [(slug: String, name: String)] = []
+        var renamedBoards: [(slug: String, name: String)] = []
+        var archivedBoards: [String] = []
+        var exports: [(slug: String, output: String)] = []
+        var imports: [String] = []
+        var importReply: JSONValue = ["board": "imported", "name": "Imported", "renamed": false, "warnings": []]
+        var orchestration: JSONValue = ["orchestrator_profile": "", "default_assignee": "", "auto_decompose": true,
+                                        "auto_promote_children": true, "resolved_orchestrator_profile": "alice",
+                                        "resolved_default_assignee": "alice", "active_profile": "alice"]
+        var orchestrationPatches: [KanbanOrchestrationPatch] = []
+        var orchestrationError: Error?
+        var profiles = ["alice", "bob"]
         /// K5: the `/workers/active` rows, and per-call errors.
         var workers: [JSONValue] = []
         var workersError: Error?
@@ -286,5 +309,157 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
             s.terminated.append((runId, reason))
             s.workers.removeAll { $0["run_id"]?.intValue == runId }
         }
+    }
+
+    // MARK: K6 AI actions + model override
+
+    private func status(of id: String) -> String? {
+        with { $0.columns.flatMap(\.tasks).first { $0["id"]?.string == id }?["status"]?.string }
+    }
+
+    private func aiGate(author: String?) throws {
+        let error: Error? = with { s in s.aiAuthors.append(author); return s.aiError }
+        if let error { throw error }
+    }
+
+    func estimate(taskId: String, board: String?) async throws -> KanbanEstimate {
+        record("estimate")
+        try await actionGate()
+        try aiGate(author: nil)
+        return KanbanEstimate(json: with { $0.estimateReply })
+    }
+
+    /// Default: two subtasks in `todo`, the parent moves to `todo` (`decompose_triage_task`); a non-triage card
+    /// is refused with `ok: false`, as the server does.
+    func decompose(taskId: String, board: String?, author: String?) async throws -> KanbanDecomposeResult {
+        record("decompose")
+        try await actionGate()
+        try aiGate(author: author)
+        if let reply = with({ $0.decomposeReply }) { return KanbanDecomposeResult(json: reply) }
+        guard status(of: taskId) == "triage" else {
+            return KanbanDecomposeResult(json: ["ok": false, "task_id": .string(taskId), "reason": "task is not in triage"])
+        }
+        let ids: [String] = with { s in
+            (1...2).map { n in
+                s.nextId += 1
+                let t = Self.task("t_child\(s.nextId)", "Subtask \(n) placeholder", status: "todo", assignee: "bob", created: 1_760_000_299)
+                if let i = s.columns.firstIndex(where: { $0.name == "todo" }) { s.columns[i].tasks.append(t) }
+                return "t_child\(s.nextId)"
+            }
+        }
+        _ = update(taskId, ["status": "todo"])
+        return KanbanDecomposeResult(json: ["ok": true, "task_id": .string(taskId), "fanout": true,
+                                            "child_ids": .array(ids.map(JSONValue.string))])
+    }
+
+    /// Default: the title is rewritten and the card moves to `todo` (`specify_triage_task`).
+    func specify(taskId: String, board: String?, author: String?) async throws -> KanbanSpecifyResult {
+        record("specify")
+        try await actionGate()
+        try aiGate(author: author)
+        if let reply = with({ $0.specifyReply }) { return KanbanSpecifyResult(json: reply) }
+        guard status(of: taskId) == "triage" else {
+            return KanbanSpecifyResult(json: ["ok": false, "task_id": .string(taskId), "reason": "task is not in triage"])
+        }
+        _ = update(taskId, ["status": "todo", "title": "Specified placeholder", "body": "Spec placeholder"])
+        return KanbanSpecifyResult(json: ["ok": true, "task_id": .string(taskId), "new_title": "Specified placeholder"])
+    }
+
+    func modelOptions() async throws -> [KanbanModelProvider] {
+        record("modelOptions")
+        return KanbanModelProvider.list(with { $0.modelProviders })
+    }
+
+    func setModelOverride(_ id: String, _ override: KanbanModelOverride, board: String?) async throws -> KanbanTask? {
+        record("override")
+        try await actionGate()
+        if let error = with({ $0.overrideError }) { throw error }
+        with { $0.overrides.append((id, override)) }
+        let o = override
+        return try update(id, ["model_override": o.model.isEmpty ? .null : .string(o.model),
+                               "provider_override": o.provider.isEmpty ? .null : .string(o.provider),
+                               "reasoning_effort": o.effort.isEmpty ? .null : .string(o.effort)]).map { try KanbanTask(json: $0) }
+    }
+
+    // MARK: K7 boards + orchestration
+
+    private func manageGate() throws {
+        if let error = with({ $0.manageError }) { throw error }
+    }
+
+    func createBoard(slug: String, name: String) async throws -> KanbanBoardSummary? {
+        record("createBoard")
+        try manageGate()
+        let row: JSONValue = ["slug": .string(slug), "name": .string(name), "archived": false, "counts": [:]]
+        with { s in
+            s.createdBoards.append((slug, name))
+            s.boards.append(row)
+        }
+        return try KanbanBoardSummary(json: row)
+    }
+
+    func renameBoard(_ slug: String, name: String) async throws -> KanbanBoardSummary? {
+        record("renameBoard")
+        try manageGate()
+        with { s in
+            s.renamedBoards.append((slug, name))
+            for i in s.boards.indices where s.boards[i]["slug"]?.string == slug {
+                if case .object(var o) = s.boards[i] { o["name"] = .string(name); s.boards[i] = .object(o) }
+            }
+        }
+        return nil
+    }
+
+    func archiveBoard(_ slug: String) async throws -> KanbanBoardRemoval {
+        record("archiveBoard")
+        try manageGate()
+        with { s in
+            s.archivedBoards.append(slug)
+            s.boards.removeAll { $0["slug"]?.string == slug }
+        }
+        return KanbanBoardRemoval(json: ["result": ["slug": .string(slug), "action": "archived", "new_path": "/placeholder/_archived/x"],
+                                         "current": "default"])
+    }
+
+    func exportBoard(_ slug: String, to output: String) async throws -> KanbanBoardExport {
+        record("exportBoard")
+        try manageGate()
+        with { $0.exports.append((slug, output)) }
+        return KanbanBoardExport(json: ["board": .string(slug), "archive": .string(output), "size": 2048])
+    }
+
+    func importBoard(archive: String) async throws -> KanbanBoardImport {
+        record("importBoard")
+        try manageGate()
+        let reply: JSONValue = with { s in
+            s.imports.append(archive)
+            let r = s.importReply
+            if let slug = r["board"]?.string { s.boards.append(Self.summary(slug)) }
+            return r
+        }
+        return KanbanBoardImport(json: reply)
+    }
+
+    func orchestration() async throws -> KanbanOrchestration {
+        record("orchestration")
+        if let error = with({ $0.orchestrationError }) { throw error }
+        return KanbanOrchestration(json: with { $0.orchestration })
+    }
+
+    func setOrchestration(_ patch: KanbanOrchestrationPatch) async throws -> KanbanOrchestration {
+        record("setOrchestration")
+        if let error = with({ $0.orchestrationError }) { throw error }
+        return KanbanOrchestration(json: with { s in
+            s.orchestrationPatches.append(patch)
+            guard case .object(var o) = s.orchestration, case .object(let p) = patch.json else { return s.orchestration }
+            for (k, v) in p { o[k] = v }
+            s.orchestration = .object(o)
+            return s.orchestration
+        })
+    }
+
+    func profiles() async throws -> [KanbanProfile] {
+        record("profiles")
+        return with { $0.profiles }.compactMap { KanbanProfile(json: ["name": .string($0)]) }
     }
 }

@@ -518,10 +518,35 @@ toolbar. Minimum window 820 × 520.
   Comment share one row. The dispatcher chip is a `status-chip`: muted when running,
   attention when stopped (with Start) or not installed (its popover shows `hermes gateway install` to
   copy).
+  K6/K7/K9 additions: the header row has a Board menu (`ellipsis.circle`, borderless, no indicator) after the
+  switcher: New Board…, Rename Board…, Export Board…, Import Board…, Orchestration Settings…, Delete Board…
+  (destructive, disabled for `default`; its confirmation says the board is archived, not erased, and warns
+  when it is Hermes' current board). New / Rename and Orchestration are `sheetWidth` sheets like New Task
+  (name field with the derived id in caption muted, a taken id in danger; orchestration: two profile pickers
+  with "Default (resolved)" first and two toggles, each with a caption-muted line, saved on change). Board
+  action results use the note bar (muted with a check, danger on failure). The card inspector gains a Model
+  field under Priority (a borderless menu: Profile Default, one submenu per provider, Other Model…, a
+  Reasoning submenu; label "provider: model · Effort"), an Assignee chat icon button (Open Bot Chat) when the
+  assignee is a bot in the roster, and an "AI actions" section after the fields: Estimate, Decompose…,
+  Specify… as `button-secondary` (one row, or stacked when narrow; Decompose / Specify only enabled on
+  triage cards), a mini spinner with "Estimating…", the estimate as "~120k tokens · Medium" (meta strong)
+  with the rationale and "Rough guess, not a bill · model" muted, and the last outcome as a meta label (muted
+  check, or danger) with the created subtasks as `link` rows. Decompose and Specify confirm first. The card
+  menu adds Open Bot Chat with @x, the three AI actions and a "Notify When Done or Blocked" toggle (also in
+  the inspector's ••• menu).
+- **Create Task from Message** (Group Chat and Bot Chat message menus, after Copy): the New Task sheet with a
+  caption line "From Alice in Launch" under its title, a Board picker first, and the title, description and
+  assignee prefilled.
 - **Group Chat Activity panel** (the room inspector, 200–260 pt): tool titles wrap to two lines with the
   count and duration kept beside them, and the "Turn finished · 4.2s" divider label never shrinks (its
   trailing rule gives way). Two or more finished turns in a row with nothing between them share one divider,
   "3 turns finished · 4.3–15s" (the range of their durations).
+- **Change Members sheet** (`sheet`, 460 pt): step 1 is the create-room form titled "Change members" with a muted
+  `meta` line explaining that a new room is made, the current bots ticked, and Create New Room (primary). Step 2
+  says what was created, then "What about the previous room?" as a radio group: Keep it (default; a checkbox to
+  rename it "… (old)", Return = Open New Room) or Disband it (a danger `meta` line, `button-danger` "Disband and
+  Open New Room" with no Return shortcut). No Cancel once the room exists. Long names and errors stop at a few
+  lines (full text in the tooltip) so both steps fit the 520 pt window minimum.
 - **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Choose Image… / Remove, Title
   (placeholder: the name the bot shows now) and Description, and an Advanced disclosure. With Advanced open the
   sheet is the main window's height less 80 pt (440 pt at the 520 pt minimum): the title stays on top, the

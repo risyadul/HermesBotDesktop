@@ -38,7 +38,10 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   exists, it does not start a new one. If the chat is running in another Hermes app (error 4090), the app
   says so; open it in that app.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
-  hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
+  hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa. You can
+  copy them into this app as a **read-only archive** with **File → Import from Hermes Desktop…** (see
+  [Importing Hermes Desktop group chats](#importing-hermes-desktop-group-chats)); that only reads, and the copy
+  is kept by this app alone.
 - **It changes your profiles and bot config only when you ask it to.** Bots are your existing Hermes
   profiles. **Pin to Top**, **Hide Bot** and a bot's **title** are saved in that profile's `profile.yaml` under
   `ui_meta` → `hermes-bots` (`pinned`, `hidden`, `title`), the same place and keys Hermes Desktop uses, so both
@@ -52,7 +55,9 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   from Hermes; the bots' copies stay on disk, inactive.
 - **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
   Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use. **Terminate Run** and **Reclaim
-  Task** (Workers) stop a running worker process.
+  Task** (Workers) stop a running worker process. **Decompose** and **Specify** create or rewrite cards with
+  Hermes' auxiliary model, **Estimate** makes a model call, and board actions (create, rename, delete,
+  import) and **Orchestration Settings** change Hermes' boards and config for every client.
 - **Routines are real.** Routines you create, pause, resume or delete change that bot's Hermes cron jobs, the
   same ones Hermes Desktop's Routines and `hermes cron` show. When it lists a bot's routines, the app pauses
   any old-style delegated routine Hermes Desktop marks unsafe, as Hermes Desktop does.
@@ -106,7 +111,11 @@ have **not been tested** with this app yet.
    .build/debug/HermesBotApp        # or: swift run HermesBotApp (the package has several executables)
    ```
 5. **First chat:** pick a bot in the sidebar and send a message. For Group Chat, press **+**, choose 2–6
-   bots, and send the opening message.
+   bots, and send the opening message. If something is missing on first run, the app shows a setup screen
+   instead of an error: **Hermes not found** (install it, or set `HERMES_BOT_APP_HERMES_BIN`; Try Again),
+   **no model configured** (`hermes setup` or `hermes model`, then Check Again; detected with the read-only
+   `setup.runtime_check`), or **only one bot** (Bot Chat works; the commands to add a second bot, with Copy
+   buttons). The app never runs those commands for you.
 6. **Quit** with ⌘Q, by closing the window, or with Ctrl+C in the terminal you launched it from. All three
    run the same cleanup (see the data section above). Force-killing the app (`kill -9`) skips it.
 
@@ -215,6 +224,15 @@ through the running Hermes backend.
 
 - **Rename a room:** room menu (⋯) → **Rename…**. The new name shows at once; if Hermes refuses it, the old name
   comes back and the note above the composer says why. Bots see the new name from their next turn.
+- **Change members:** room menu (⋯) → **Change Members…** (available once the room has loaded). Hermes can't
+  change who is in a room, so this starts a new group chat: pick 2 to 6 bots (the current ones are ticked, the
+  name is kept and can be changed) and choose **Create New Room**. Its first message is a context note from you:
+  where it continues from, who joined and left, and the previous room's last 12 messages (at most about 4,000
+  characters), quoted one per line. Files are not copied; their names are mentioned. The note asks the bots to
+  reply `(pass)`, so they wait for your next message. Then choose what happens to the previous room: **Keep it**
+  (the default; tick **Rename it to "… (old)"** to rename it) or **Disband it** (the room id is retired and the
+  file copies made for it are deleted). The new room opens after that. If Hermes refuses to create the room,
+  nothing changes; if only the context note fails, the new room is still made and its note bar says so.
 - **Threads:** hover a message (or right-click it) and choose **Reply in thread**. The thread opens in the right
   column with its own composer; the room composer below the timeline always writes to the whole room. Replying
   in thread to a room message starts a thread on it, and the first reply quotes that message, because bots only
@@ -227,6 +245,22 @@ through the running Hermes backend.
   approval. Rooms you are not looking at are checked every 5–15 seconds. In messages, `@user` (a bot asking
   for you) is amber; mentions of bots are blue.
 - **Drafts** are kept per room and per thread while the app runs, so switching rooms does not lose them.
+
+## Importing Hermes Desktop group chats
+
+Hermes Desktop runs its own group chats in the desktop app; they are not the backend's hosted rooms this app
+uses. Desktop also saves a short copy of each one (the last 16 messages, up to 1200 characters each) into your
+default profile, and **File → Import from Hermes Desktop…** reads that copy (`profiles.list`, read-only).
+
+- Pick the rooms to import; they appear under **Desktop archive** at the bottom of the sidebar (collapsible,
+  hidden while empty). Opening one shows its members and saved messages, read-only. Earlier messages Desktop did
+  not save are counted, not shown.
+- The archive is this app's own copy (`~/Library/Application Support/HermesBotApp/Desktop Archive/`). Importing
+  never changes Hermes, your profiles or Hermes Desktop, and never creates rooms. Import again to refresh a room;
+  **Remove from Archive** deletes only this app's copy.
+- **Continue in a New Room…** opens New Group Chat with the archived name and its members that are bots on
+  this Hermes (at least two are needed), and puts the last few messages, quoted, into the new room's composer
+  for you to edit and send.
 
 ## Group Chat activity
 
@@ -269,6 +303,24 @@ worker log, and create, move, assign, prioritize, comment on and archive cards.
 
 - **Filters:** the filter button next to the search field shows one profile's cards at a time, shows archived
   cards (an Archived lane), and groups the Running lane by profile (remembered).
+- **AI actions:** a card's details (and its right-click menu) offer **Estimate** (a rough token and size
+  guess, not a bill), and on a Triage card **Decompose…** (splits it into subtasks across your bots; the
+  new subtasks are listed and open with a click) and **Specify…** (rewrites its title and description and
+  moves it to Todo). Both change the card at once, so they ask first, and they can take a minute or more.
+  **Model** pins the model and reasoning effort a card's worker uses (Profile default otherwise). Reassign
+  is the **Assignee** menu (it releases a running worker first).
+- **Boards:** the ••• **Board** menu in the board header creates, renames and deletes boards, exports a board
+  to a `.tar.gz` archive and imports one as a new board. Deleting archives the board (it can be restored in
+  Hermes); the `default` board can't be deleted, and deleting Hermes' current board warns first.
+  **Orchestration Settings…** sets the orchestrator profile, the default assignee, automatic decomposition
+  of triage cards and whether subtasks are queued right away (Hermes' config, shared by every board).
+- **From chats to cards:** right-click a message in a Group Chat or a Bot Chat for **Create Task from
+  Message…**: a New Task sheet with the message as the description, its first line as the title and its bot
+  as the suggested assignee; pick the board there. A card's assignee opens its Bot Chat (**Open Bot Chat
+  with @…** in the card menu, or the chat button next to the assignee).
+- **Notifications for cards:** cards you create in the app, and cards you mark **Notify When Done or
+  Blocked** (card menu), notify when they finish or get blocked while the app is in the background (checked
+  every 15 seconds, also while the app's windows are hidden). Clicking the notification opens the card.
 - **Workers:** **Workers** in the board header lists the cards being worked on right now: which bot runs which
   card, for how long and its last heartbeat (amber after two minutes without one). **Inspect Run** shows the
   run, the worker process and its log. **Terminate Run** and **Reclaim Task** stop the worker and put the card
@@ -328,7 +380,13 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
 
 - **Backend does not start:** check `~/Library/Logs/HermesBotApp/serve.log` (the error message names it);
   usually the `hermes` path (quick start step 3) or a missing provider config (step 1).
-- **"hermes not found":** set `HERMES_BOT_APP_HERMES_BIN` to the full path of the binary.
+- **"Install Hermes Agent" screen / "hermes not found":** install Hermes Agent, or set
+  `HERMES_BOT_APP_HERMES_BIN` to the full path of the binary and start the app from that terminal; the screen
+  lists the places it checked.
+- **"Choose a model for Hermes" screen:** Hermes runs but has no usable provider; run `hermes setup` or
+  `hermes model`, then press Check Again.
+- **Import from Hermes Desktop finds nothing:** Desktop saves its group chats into the default profile of the
+  Hermes it is connected to; connect this app to the same Hermes.
 - **Bots list is empty / Group Chat needs more bots:** see quick start step 2.
 - **"Group Chat needs Hermes Agent v2026.9.14 or later":** the backend does not offer `groups.*`; update
   Hermes Agent. The "+" button stays disabled until then.

@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- First-run setup screens (E2) instead of a bare error: **Install Hermes Agent** when no `hermes` is found
+  (docs link, the `HERMES_BOT_APP_HERMES_BIN` override with a Copy button, the places checked, Try Again);
+  **Choose a model for Hermes** when the backend answers but `setup.runtime_check` (read-only) says no model can
+  be served (`hermes setup` / `hermes model`, Check Again); and, with a single bot, Open Bot Chat plus the
+  `hermes profile create <name>` / `hermes -p <name> setup` commands for a second bot, with Copy buttons. The app
+  never runs them. Other connection failures keep the "Can't reach Hermes" screen.
+- **File → Import from Hermes Desktop…** (E4 / D17): lists the group chats Hermes Desktop saved to the default
+  profile (`ui_meta` → `hermes-bots-groups`, read with `profiles.list`; never written) and copies the chosen
+  ones into a read-only **Desktop archive** sidebar section (collapsible, hidden when empty) kept by this app.
+  An archived room shows its members and saved messages; **Continue in a New Room…** opens New Group Chat
+  prefilled with its name and members and puts a quoted carry-over into the new room's composer (not sent).
+- Kanban AI actions on a card: **Estimate** (rough tokens and size), and on Triage cards **Decompose…** (lists
+  the subtasks it created) and **Specify…** (rewrites the card and moves it to Todo), both confirmed first.
+  A **Model** field pins a card's model and reasoning effort (Profile default otherwise).
+- Kanban board management from the board's ••• menu: New, Rename, Delete (archives; never `default`, a warning
+  for Hermes' current board), Export to a `.tar.gz` and Import as a new board, and **Orchestration
+  Settings…** (orchestrator profile, default assignee, auto-decompose, queue subtasks right away).
+- Kanban integrations: **Create Task from Message…** in Group Chat and Bot Chat message menus (prefilled New
+  Task sheet with a board picker), **Open Bot Chat with @…** for a card's assignee, and notifications when a
+  card you created in the app, or marked **Notify When Done or Blocked**, finishes or gets blocked.
 - Manage bots without the CLI (right-click a bot, or the ••• menu in Bot details):
   - **Edit…** a bot's title, description and avatar (PNG/JPEG up to 15 MB, saved as a 256 px square), and under
     Advanced its model and provider (Hermes' model list, typed in, or Inherit), skills, toolsets, MCP servers
@@ -39,6 +59,10 @@ All notable changes to this project are documented here. The format follows
 - Dock badge with the number of approvals and questions waiting in Bot Chats and Group Chats.
 - Group Chat: rename a room from the room menu (Rename…). The new name shows at once and goes back if Hermes
   refuses it, with the reason above the composer.
+- Group Chat: change members from the room menu (Change Members…). Hermes has no way to change a room's members,
+  so the app creates a new room with the chosen bots and the same name, posts a context note quoting the
+  previous room's last 12 messages (capped, one safe line each, file names only), then keeps the previous room
+  (optionally renamed "… (old)") or disbands it, and opens the new room.
 - Group Chat threads: Reply in thread opens the thread beside the room with its own composer; the room
   composer keeps writing to the whole room. A thread started on a room message quotes it in its first reply,
   since bots only see their own thread. Thread messages are labelled in the room timeline, and a message with a

@@ -131,6 +131,8 @@ enum NotificationRoute: Equatable {
     case open(SidebarItem)
     case answerChat(bot: String, requestId: String, approve: Bool)
     case answerRoom(roomId: String, memberId: String, requestId: String, approve: Bool)
+    /// K9: a watched kanban card's notification (KanbanCardNotice).
+    case openCard(board: String, task: String)
 
     static let targetKey = "target"
     static let requestKey = "request"
@@ -141,6 +143,7 @@ enum NotificationRoute: Equatable {
 
     /// `action` is the notification action identifier (Approve / Deny, or the default click).
     static func parse(action: String, userInfo: [String: String]) -> NotificationRoute? {
+        if let card = KanbanCardNotice.route(userInfo) { return card }
         guard let target = userInfo[targetKey].flatMap(item) else { return nil }
         let approve: Bool
         switch action {

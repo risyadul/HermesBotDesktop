@@ -10,6 +10,8 @@ extension AppModel {
         switch route {
         case .open(let item):
             open(item)
+        case .openCard(let board, let task):
+            openCard(board: board, task: task)
         case .answerChat(let bot, let requestId, let approve):
             guard let chat = chats[bot], let r = chat.requests.first(where: { $0.id == requestId }) else {
                 log("notification answer: \(bot) request \(requestId) is no longer waiting")

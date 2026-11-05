@@ -19,6 +19,9 @@ struct RoomView: View {
     @StateObject private var memory: RoomMotionMemory
     @State private var confirmDisband = false
     @State private var showRename = false
+    /// Change Members… (C2.2): the sheet, and the flow it shows (a fresh one per opening).
+    @State private var showMembers = false
+    @State private var memberChange: RoomMemberChange?
     @State private var dismissedNote: String?
     @FocusState private var composerFocused: Bool
     @State private var paste = AttachmentPasteMonitor()
@@ -110,6 +113,12 @@ struct RoomView: View {
         .motionSheet(isPresented: $showRename, motion: motion) {
             RenameRoomView(current: model.room.name, onRename: { model.rename($0) }, onClose: { showRename = false })
         }
+        .motionSheet(isPresented: $showMembers, motion: motion) {
+            // The flow outlives the binding, so the sheet keeps its content while it slides out.
+            if let memberChange {
+                ChangeMembersSheet(change: memberChange, bots: AppModel.shared.bots, onClose: { showMembers = false })
+            }
+        }
         .confirmationDialog("Disband \(model.room.name)?", isPresented: $confirmDisband) {
             Button("Disband", role: .destructive) { Task { _ = await model.disband() } }
         } message: { Text("The room id is retired for good. This cannot be undone.") }
@@ -129,6 +138,12 @@ struct RoomView: View {
             Menu {
                 Button("Rename…") { showRename = true }
                     .disabled(model.busyActions.contains("rename"))
+                // Needs the loaded log: the new room gets this room's recent messages as context.
+                Button("Change Members…") {
+                    memberChange = AppModel.shared.memberChange(for: model)
+                    showMembers = true
+                }
+                    .disabled(model.lastSync == nil)
                 Divider()
                 Button("Disband Room…", role: .destructive) { confirmDisband = true }
             } label: { Label("Room", systemImage: "ellipsis.circle") }
@@ -260,7 +275,11 @@ struct RoomView: View {
             replyHandle: model.room.member(memberId)?.handle,
             onReply: { inspectorChange { model.replyToMember(seq: seq) } },
             onReplyInThread: inThreadPane || !model.composer.isOpen ? nil : { inspectorChange { model.replyInThread(seq: seq) } },
-            copyText: RoomPresentation.copyText(row))
+            copyText: RoomPresentation.copyText(row),
+            onCreateTask: RoomPresentation.copyText(row).map { text in
+                let seed = KanbanTaskSeed.room(text: text, member: model.room.member(memberId), roomName: model.room.name)
+                return { AppModel.shared.composeTask(from: seed) }
+            })
     }
 
     enum EmptyKind: Equatable { case loading, empty }

@@ -79,7 +79,7 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
       picker, deliver results to Bot Chat (`cron.manage`) (L)
 - [x] **A11** Duplicate a bot (`profiles.create {clone_from}`) (S)
 - [x] **A12** Delete a bot (never `default`), with confirmation (`hermes profile delete --yes`) (S)
-- [ ] **C2.2** Change room members: create a new room with the new members and carry a summary over (M)
+- [x] **C2.2** Change room members: create a new room with the new members and carry a summary over (M)
 - [x] **K4** Kanban filters and search: by profile, archived, group Running by profile (S)
 - [x] **K5** Kanban workers: active workers, inspect run, terminate, reclaim (M)
 
@@ -119,10 +119,10 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **C2.3** Spike: can room members' clarifying questions be answered from the app? (S)
 
 ### Kanban
-- [ ] **K6** Kanban AI actions: estimate, decompose, specify, reassign (M)
-- [ ] **K7** Kanban boards and orchestration settings: create/rename/delete, export/import, orchestrator profile,
+- [x] **K6** Kanban AI actions: estimate, decompose, specify, reassign (M)
+- [x] **K7** Kanban boards and orchestration settings: create/rename/delete, export/import, orchestrator profile,
       default assignee, model override (M)
-- [ ] **K9** Kanban integrations: open the assignee's Bot Chat from a card, "Create task from message" in rooms,
+- [x] **K9** Kanban integrations: open the assignee's Bot Chat from a card, "Create task from message" in rooms,
       notifications when a card finishes or is blocked, Boards section in the sidebar (M)
 
 ### macOS integration
@@ -140,13 +140,13 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **D12** "Summarize since I left" for rooms (M)
 
 ### Migration
-- [ ] **E4 / D17** One-time, read-only import of the desktop app's group chats (M)
+- [x] **E4 / D17** One-time, read-only import of the desktop app's group chats (M)
 
 ## Release gate
 
 Not needed to use the app yourself, but required before announcing a public release.
 
-- [ ] **E2** First-run onboarding: Hermes missing, no model configured, only one bot (M)
+- [x] **E2** First-run onboarding: Hermes missing, no model configured, only one bot (M)
 - [ ] **E3** Distribution: Developer ID notarization, auto-update, Intel testing (M)
 
 ## Backlog

@@ -13,6 +13,8 @@ enum SidebarItem: Hashable {
     case room(String)
     /// A kanban board, by slug (KanbanBoardView).
     case board(String)
+    /// A Hermes Desktop group chat in the read-only archive, by its archive key (DesktopArchiveModel).
+    case archive(String)
 }
 
 @MainActor
@@ -147,7 +149,8 @@ final class RoomModel: ObservableObject, Identifiable {
         onDisbanded?(self)
     }
 
-    private func note(_ s: String) {
+    /// Adds a line to the note bar (and the app log). Change Members notes a failed carry-over on the new room.
+    func note(_ s: String) {
         notes.append(s)
         if notes.count > 20 { notes.removeFirst(notes.count - 20) }
         AppModel.shared.log("room \(room.roomId): \(s)")
