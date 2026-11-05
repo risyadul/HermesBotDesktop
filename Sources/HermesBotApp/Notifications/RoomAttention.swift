@@ -32,7 +32,7 @@ struct RoomAttention: Equatable {
             guard let discussion = e.discussionEventId, !discussion.isEmpty else { continue }
             switch e.kind {
             case "message.member":
-                guard let text = e.text, UserMention.mentionsUser(text) else { continue }
+                guard let text = e.text, RoomDigest.addressesUser(text, room: room) else { continue }
                 let author = e.actor["display_name"]?.string ?? room?.member(e.memberId)?.title ?? e.memberId ?? "A bot"
                 openMentions[discussion] = Mention(discussion: discussion, author: author, text: text)
             case "room.activity":

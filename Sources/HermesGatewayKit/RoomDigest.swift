@@ -60,13 +60,11 @@ public struct RoomDigest: Sendable, Equatable {
         lastAddressSeq > max(lastUserSeq, seenThrough)
     }
 
-    /// `@user` as its own word, the way Hermes Desktop flags a member that needs the user
-    /// (`group-chat.ts`, `/@user\b/i`), but not inside an e-mail address or a longer handle
-    /// (`@user.name`, `@users`). A room member whose handle is `user` makes it a bot mention instead.
+    /// `@user` as its own mention (`UserMention`, the grammar the notifications and the transcript use too):
+    /// not inside an e-mail address or a longer handle (`@user.name`, `@users`). A room member whose handle is
+    /// `user` makes it a bot mention instead.
     public static func addressesUser(_ text: String, room: RoomSummary?) -> Bool {
-        if room?.members.contains(where: { $0.handle.lowercased() == "user" }) == true { return false }
-        return text.range(of: #"(?<![A-Za-z0-9._%+-])@user(?![A-Za-z0-9_-]|\.[A-Za-z0-9])"#,
-                          options: [.regularExpression, .caseInsensitive]) != nil
+        UserMention.mentionsUser(text, memberHandles: room?.members.map(\.handle) ?? [])
     }
 
     /// One line for the sidebar: the attachments block is dropped (a files-only message reads "N files"),

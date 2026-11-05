@@ -187,27 +187,3 @@ enum DockBadge {
 
     static func label(_ count: Int) -> String? { count > 0 ? "\(count)" : nil }
 }
-
-/// `@user` in a member's message: the bot is addressing the person (Desktop's mention grammar,
-/// `group-rounds.ts`: `@([a-z0-9][a-z0-9._-]*)`, case-insensitive; trailing `.`/`-`/`_` are punctuation).
-enum UserMention {
-    static func mentionsUser(_ text: String) -> Bool {
-        let chars = Array(text)
-        var i = 0
-        while i < chars.count {
-            defer { i += 1 }
-            guard chars[i] == "@" else { continue }
-            if i > 0, isHandleChar(chars[i - 1]) { continue }  // an e-mail address, not a mention
-            var j = i + 1
-            var handle = ""
-            while j < chars.count, isHandleChar(chars[j]) { handle.append(chars[j]); j += 1 }
-            while let last = handle.last, ".-_".contains(last) { handle.removeLast() }
-            if handle.lowercased() == "user" { return true }
-        }
-        return false
-    }
-
-    private static func isHandleChar(_ c: Character) -> Bool {
-        c.isASCII && (c.isLetter || c.isNumber || c == "." || c == "_" || c == "-")
-    }
-}

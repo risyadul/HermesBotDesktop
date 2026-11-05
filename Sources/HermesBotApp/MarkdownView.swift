@@ -1,4 +1,5 @@
 import AppKit
+import HermesGatewayKit
 import SwiftUI
 
 /// Renders `MarkdownBlock`s the way Hermes Desktop shows a reply: headings, paragraphs, bulleted and
@@ -326,35 +327,31 @@ enum TextStyling {
     }
 
     /// `@handle` of a room member (and `@all` / `@everyone`): blue and semibold. `@user` (a bot asking the
-    /// user) is `attention` and semibold, so "the bot needs you" stands out. Not inside inline code or a link,
-    /// and not mid-word (`a@b.c` is not a mention). Group Chat only (`handles` empty in Bot Chat).
+    /// user) is `attention` and semibold, so "the bot needs you" stands out, unless a member is handled
+    /// `user`. Not inside inline code or a link, and not mid-word (`a@b.c` is not a mention): the grammar is
+    /// `UserMention`'s, shared with the room badge and the notifications. Group Chat only (`handles` empty in
+    /// Bot Chat).
     static func highlightMentions(_ a: inout AttributedString, handles: Set<String>) {
         guard !handles.isEmpty else { return }
         let text = String(a.characters)
-        for range in mentionRanges(text, handles: handles) {
+        let userIsMember = handles.contains { UserMention.isUser($0) }
+        for m in mentionRanges(text, handles: handles) {
+            let range = m.range
             let start = text.distance(from: text.startIndex, to: range.lowerBound)
             let length = text.distance(from: range.lowerBound, to: range.upperBound)
             let lo = a.characters.index(a.startIndex, offsetBy: start)
             let hi = a.characters.index(lo, offsetBy: length)
             let ar = lo..<hi
             if a[ar].runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
-            a[ar].foregroundColor = isUserMention(text[range]) ? DS.Palette.attention : DS.Palette.link
+            a[ar].foregroundColor = m.isUser && !userIsMember ? DS.Palette.attention : DS.Palette.link
             a[ar].font = DS.Typeface.bodyStrong
         }
     }
 
-    /// `@user` (any case): the address Hermes bots use for the human (`UserMention`).
-    static func isUserMention(_ mention: Substring) -> Bool { mention.dropFirst().lowercased() == "user" }
-
-    /// Ranges of `@handle` mentions of `handles` (plus @all / @everyone and @user) in `text`.
-    static func mentionRanges(_ text: String, handles: Set<String>) -> [Range<String.Index>] {
-        guard let re = try? NSRegularExpression(pattern: "(?<![\\w@])@([A-Za-z0-9][A-Za-z0-9._:-]*[A-Za-z0-9]|[A-Za-z0-9])")
-        else { return [] }
-        let ns = text as NSString
-        return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
-            let h = ns.substring(with: m.range(at: 1))
-            guard handles.contains(h) || ["all", "everyone", "user"].contains(h.lowercased()) else { return nil }
-            return Range(m.range, in: text)
+    /// `@handle` mentions of `handles` (plus @all / @everyone and @user) in `text`.
+    static func mentionRanges(_ text: String, handles: Set<String>) -> [UserMention.Mention] {
+        UserMention.mentions(in: text).filter {
+            handles.contains($0.handle) || ["all", "everyone", "user"].contains($0.handle.lowercased())
         }
     }
 
