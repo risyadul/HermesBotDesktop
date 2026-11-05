@@ -9,7 +9,7 @@
 > stop/approve/retry/disband, the polling update model, cleanup limits) is
 > [gateway-contract.md §7](gateway-contract.md#7-group-chat-m2). It supersedes §3.8 and §7 here.
 
-Status: M0 spike, 2026-11-03. Kanban card t_d9705d95.
+Status: M0 spike, 2026-11-03.
 Reference source (read-only): [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) @ `8a7a5a905fc6` (local checkout `~/.hermes/hermes-agent`)
 (Hermes Agent v0.21.6). Paths below are relative to that checkout.
 

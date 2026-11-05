@@ -9,7 +9,8 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 > **Independent project.** Not affiliated with or endorsed by Nous Research. "Hermes" refers to the
 > Hermes Agent backend this app connects to.
 
-**Status: early / pre-release.** Build from source only; no signed release binary yet.
+**Status: early / pre-release.** Build from source, or download an ad-hoc signed (not notarized) zip from
+[GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases); see [Download / packaging](#download--packaging).
 
 <p align="center">
   <img src="docs/screenshots/screenshot-dark.png" alt="Hermes Bot macOS Group Chat (Dark Mode)" width="700">
@@ -30,11 +31,13 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 - **It uses your real Hermes install (`~/.hermes`).** If a Hermes backend is already running (for example the
   Hermes desktop app), this app attaches to it. Otherwise it starts its own `hermes serve` on `~/.hermes` and
   stops it when you quit. A backend it attached to is never stopped.
-- **1:1 chats are deleted when you quit (default).** Bot Chat sessions created by this app are closed and
+- **Bot Chat sessions are deleted on quit (default).** 1:1 chats created by this app are closed and
   deleted on Quit. To keep them, launch with `HERMES_BOT_APP_KEEP_SESSIONS=1`.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
   hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
 - **It does not change your profiles or bot config.** Bots are your existing Hermes profiles.
+- **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
+  elsewhere is rejected.
 - Setting `HERMES_HOME` does **not** isolate the app today; it always uses `~/.hermes`.
 
 ## Requirements
@@ -44,7 +47,7 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 | macOS | 14 or later (Apple Silicon tested; Intel untested) |
 | Toolchain | Xcode 26 / Swift 6.3 (tested). Command Line Tools only: **untested** |
 | Hermes Agent | installed and configured with a model provider (see below) |
-| `hermes` binary | at `~/.local/bin/hermes`, **or** set `HERMES_BOT_APP_HERMES_BIN` (the app does not search `$PATH`) |
+| `hermes` binary | found automatically: `HERMES_BOT_APP_HERMES_BIN`, `~/.local/bin/hermes`, `$PATH`, then `/opt/homebrew/bin` and `/usr/local/bin`. It must be executable and not group/world-writable |
 
 Hermes Agent compatibility: tested only against a Hermes Agent `main` build (`v0.21.6+783.g8a7a5a9`).
 The `groups.*` API this app needs is present in stable `v2026.9.14` and later, but stable releases
@@ -67,8 +70,8 @@ have **not been tested** with this app yet.
    `hermes profile create reviewer --clone` also works but copies the active profile's `config.yaml` **and `.env`
    (credentials)** into the new profile; only use it if that is what you want.
    Bot Chat alone works with a single profile.
-3. **Make the `hermes` binary findable.** If `which hermes` is not `~/.local/bin/hermes` (Homebrew, pipx,
-   venv, …):
+3. **(Optional) Point the app at a specific `hermes` binary.** The app already looks in `~/.local/bin`, on
+   `$PATH` and in the Homebrew locations. Only if yours lives elsewhere (pipx, venv, …):
    ```sh
    export HERMES_BOT_APP_HERMES_BIN="$(which hermes)"
    ```
@@ -88,7 +91,7 @@ have **not been tested** with this app yet.
 
 | Variable | Effect |
 |---|---|
-| `HERMES_BOT_APP_HERMES_BIN=<path>` | `hermes` executable used when the app has to start a backend |
+| `HERMES_BOT_APP_HERMES_BIN=<path>` | override: `hermes` executable used when the app has to start a backend |
 | `HERMES_BOT_APP_KEEP_SESSIONS=1` | keep 1:1 chat sessions on quit |
 | `HERMES_BOT_APP_NO_SPAWN=1` | only attach to a running backend; never start one |
 | `HERMES_BOT_APP_APPEARANCE=light\|dark` | force appearance |
@@ -99,14 +102,32 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
 
 > ⚠️ Failure messages below are not yet verified on a clean machine.
 
-- **Backend does not start:** check `~/Library/Logs/HermesBotApp/serve.log`; usually the `hermes` path
-  (quick start step 3) or a missing provider config (step 1).
+- **Backend does not start:** check `~/Library/Logs/HermesBotApp/serve.log` (the error message names it);
+  usually the `hermes` path (quick start step 3) or a missing provider config (step 1).
+- **"hermes not found":** set `HERMES_BOT_APP_HERMES_BIN` to the full path of the binary.
 - **Bots list is empty / Group Chat needs more bots:** see quick start step 2.
-- **Group Chat unavailable:** your Hermes Agent version may lack `groups.*`; update Hermes.
+- **"Group Chat needs Hermes Agent v2026.9.14 or later":** the backend does not offer `groups.*`; update
+  Hermes Agent. The "+" button stays disabled until then.
+- **Connection lost:** the app shows a failure screen; press Try Again to reconnect.
+- **My Bot Chat history is gone:** by design, 1:1 sessions are deleted on quit unless
+  `HERMES_BOT_APP_KEEP_SESSIONS=1`.
+
+## Download / packaging
+
+Tagged releases attach `HermesBot-<version>-macos-arm64.zip` on
+[GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases). To build the same bundle yourself:
+
+```sh
+scripts/package-app.sh [version]    # writes dist/HermesBot.app and dist/HermesBot-<version>-macos-arm64.zip
+```
+
+The app is **ad-hoc signed, not notarized** (no Developer ID). On first launch macOS will refuse it:
+right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine HermesBot.app`. These
+packages have only been checked to build, sign and lint; launching them on a clean machine is untested.
 
 ## Known limitations
 
-- macOS only; build from source (no signed/notarized `.app`).
+- macOS only; release builds are ad-hoc signed, not notarized.
 - Group Chat follows rooms by polling (the backend has no push for rooms yet).
 - No isolated mode for end users; always uses `~/.hermes`.
 
@@ -116,7 +137,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/developmen
 harness CLIs and protocol notes ([gateway contract](docs/gateway-contract.md),
 [groups contract](docs/groups-contract.md)).
 
-Security issues: please report privately, see [SECURITY.md](SECURITY.md).
+Security issues: please report privately, see [SECURITY.md](SECURITY.md). Please follow the
+[Code of Conduct](CODE_OF_CONDUCT.md). Changes are listed in the [CHANGELOG](CHANGELOG.md).
 
 ## License
 

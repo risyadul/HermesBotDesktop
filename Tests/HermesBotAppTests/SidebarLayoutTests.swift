@@ -14,9 +14,9 @@ import XCTest
 /// and the inspector column with its text lie inside the window.
 @MainActor
 final class SidebarLayoutTests: XCTestCase {
-    private static let botNames = ["default", "android-implementer", "code-reviewer", "generalist", "orchestrator", "hba-layout"]
-    private static let description = "Thief: explorer dan tester yang gesit di semua platform (mobile, web, desktop, "
-        + "backend/API) pada environment DEV/staging; tanpa commit/push/Jira."
+    private static let botNames = ["default", "mobile-implementer", "reviewer", "assistant", "planner", "hba-layout"]
+    private static let description = "Scout: explorer and tester who moves fast across all platforms (mobile, web, desktop, "
+        + "backend/API) in DEV/staging environments; no commit/push/tickets."
     /// The two window sizes the divider probes use. 520 is the window's minimum height; the content's
     /// own minimum height may make the actual window taller, and tags carry the actual height.
     private static let minimumSizes = [NSSize(width: DS.Size.windowMinWidth, height: 572),
@@ -98,7 +98,7 @@ final class SidebarLayoutTests: XCTestCase {
         UserDefaults.standard.set(false, forKey: DS.Motion.settingKey)
         let model = AppModel()
         model.bots = try Self.botNames.map { name in
-            var json: [String: JSONValue] = ["name": .string(name), "model": "gemini-3.8-flash-high",
+            var json: [String: JSONValue] = ["name": .string(name), "model": "example-model-flash",
                                              "provider": "antigravity", "skill_count": 97]
             if name == "hba-layout" { json["description"] = .string(Self.description) }
             return try XCTUnwrap(Bot(.object(json)))
@@ -239,7 +239,7 @@ final class SidebarLayoutTests: XCTestCase {
             let texts = axElements(content).filter {
                 $0.accessibilityRole() == .staticText && !frame($0).isEmpty && columnFrame.intersects(frame($0))
             }
-            XCTAssertTrue(texts.contains { axLabel($0).hasPrefix("Thief: explorer") }, "\(tag): inspector About missing", file: file, line: line)
+            XCTAssertTrue(texts.contains { axLabel($0).hasPrefix("Scout: explorer") }, "\(tag): inspector About missing", file: file, line: line)
             for text in texts {
                 XCTAssertTrue(columnFrame.insetBy(dx: -1, dy: -1).contains(frame(text)) && bounds.contains(frame(text)),
                               "\(tag): inspector text \(frame(text)) '\(axLabel(text).prefix(30))' clipped", file: file, line: line)

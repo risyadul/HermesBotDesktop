@@ -1,10 +1,10 @@
 # Gateway contract: attach-first connection + Bots + Bot Chat 1:1 (M1) + Group Chat (M2)
 
-Status: M1, 2026-11-03, round 2 (review run300 fixes: §1.6 token-safe errors, §3.3 submit gate,
-§4.5 turn settling, §4.6 disconnect). Kanban card t_b7dee3ff. Builds on `docs/groups-contract.md` (M0, `groups.*`,
+Status: M1, 2026-11-03, round 2 (review fixes: §1.6 token-safe errors, §3.3 submit gate,
+§4.5 turn settling, §4.6 disconnect). Builds on `docs/groups-contract.md` (M0, `groups.*`,
 WS framing, error envelope), which stays valid; this file adds the connection procedure and the 1:1
 chat methods the app now uses.
-M2 (Kanban card t_6670e18c, 2026-11-03): §7 is the final `groups.*` contract the Group Chat uses (room
+M2 (2026-11-03): §7 is the final `groups.*` contract the Group Chat uses (room
 update model, approve/stop/retry). Where §7 and groups-contract.md differ, §7 wins.
 Reference source (read-only): [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) @ `8a7a5a905fc6` (local checkout `~/.hermes/hermes-agent`).
 Paths below are relative to that checkout.
@@ -46,7 +46,7 @@ Implemented in `Sources/HermesGatewayKit/HostRendezvous.swift` (discovery) and `
 - The CLI's own attach ladder reads only `serve` (`hermes_cli/main_dashboard.py:818-835`). The app reads
   `serve` first, then `desktop-serve`.
 - [run] On this machine during M1: `host-desktop-serve.json` = pid 29903, port 51410, protocolVersion 1,
-  served profiles `[default, android-implementer, code-reviewer, generalist, orchestrator, thief]`;
+  served profiles `[default, builder, reviewer, assistant, planner, researcher]`;
   no `host-serve.json` (only the bare `host-serve.lock`). `evidence/m1/baseline.txt`.
 
 ### 1.2 Accepting a record (all must pass; mirrors the Python checks)
@@ -85,7 +85,7 @@ env: clean, HERMES_HOME=~/.hermes, HERMES_DASHBOARD_SESSION_TOKEN=<32 random byt
 - `--isolated` only skips the child's own attach-first ladder (`main_dashboard.py:895`): without it, a
   `host-serve` owner appearing between our discovery and the child's start would make the child print
   "already running" and exit 0 without READY.
-- **Correction to probe t_8cf3b257 §1 syarat 2 / §5.2**: `--isolated` does NOT keep the child out of the
+- **Correction to an earlier probe, §1 requirement 2 / §5.2**: `--isolated` does NOT keep the child out of the
   rendezvous. After bind every non-desktop serve claims `ROLE_SERVE` and publishes `host-serve.json` +
   `.token` when the lock is free (`web_server.py:1320-1371`, called unconditionally at `:1465`). A later
   CLI `hermes serve` would therefore attach to the app's backend. [run] `spawn-run1-console.log`:
@@ -127,7 +127,7 @@ env: clean, HERMES_HOME=~/.hermes, HERMES_DASHBOARD_SESSION_TOKEN=<32 random byt
 
 Foundation transport errors from `URLSessionWebSocketTask` carry the request URL in `userInfo`
 (`NSErrorFailingURLKey` / `NSErrorFailingURLStringKey`), i.e. `ws://…/api/ws?token=<live token>`.
-Interpolating one (`"\(error)"`) printed the token (review run300 BLOCK-001: `session.close`/`session.delete`
+Interpolating one (`"\(error)"`) printed the token (an earlier review finding: `session.close`/`session.delete`
 notes after a client-side socket close). Rules now:
 
 - `GatewayClient.sanitize` converts every Foundation error into
@@ -156,8 +156,8 @@ notes after a client-side socket close). Rules now:
 - The app maps each profile to a bot: `name`, `display_name`, `description`, `model`, `provider`,
   `is_default`, `skill_count`.
 - [run] attached to desktop-serve 29903: 6 bots = the user's real profiles
-  (`default` [is_default, claude-opus-5-5[1m]], `android-implementer`, `code-reviewer`, `generalist`,
-  `orchestrator`, `thief` [gemini-3.8-flash-high]). The spawned same-home serve returned the same 6.
+  (`default` [is_default, claude-opus-5-5[1m]], `builder`, `reviewer`, `assistant`,
+  `planner`, `researcher` [example-model-flash]). The spawned same-home serve returned the same 6.
 
 ## 3. Bot Chat 1:1
 
@@ -213,7 +213,7 @@ Implemented in `Sources/HermesGatewayKit/BotChat.swift` (`BotChatSession`).
   while a turn runs, and it changes nothing when it refuses.
 - `ChatModel.submit` calls it synchronously on the main actor before starting the network task. The
   view clears its draft only when `submit` returns true. Return (`TextField.onSubmit`) and the Send
-  button share that path; `.disabled` on the button alone did not stop Return (review BLOCK-002).
+  button share that path; `.disabled` on the button alone did not stop Return (found in review).
 - [test] `testBusyRefusesSubmitAndKeepsState`, `testDoubleSubmitBeforeAnyEventPassesOnce`.
 - [run] `kb-probe` (NSEvent Return keyCode 36 into the real NSTextField, first responder
   `_SystemTextFieldFieldEditor`):
@@ -236,7 +236,7 @@ Implemented in `Sources/HermesGatewayKit/BotChat.swift` (`BotChatSession`).
   `HERMES_BOT_APP_KEEP_SESSIONS=1` keeps them.
 - Crash path [run]: an app SIGKILL leaves the stored row. `close_on_disconnect` reaps only the live
   session. The leftover in `app-spawn-sigkill` was deleted afterwards with
-  `bot-chat-harness --delete thief <id>`.
+  `bot-chat-harness --delete researcher <id>`.
 - Other methods [src, not called]: `session.interrupt {session_id, expected_hosted_task_id?}`
   (`contracts/sessions.py:604-619`) is wired in `BotChatSession.interrupt()`, but no UI calls it in M1.
 
@@ -266,7 +266,7 @@ Implemented in `Sources/HermesGatewayKit/BotChat.swift` (`BotChatSession`).
 
 ### 4.3 Event sequence of one turn [run]
 
-Taken from `evidence/m1/attach-run1/wire.log`, attached to Electron desktop-serve, profile `thief`.
+Taken from `evidence/m1/attach-run1/wire.log`, attached to Electron desktop-serve, profile `researcher`.
 
 | t (s) | type | payload (shape) |
 |---|---|---|
@@ -291,7 +291,7 @@ Taken from `evidence/m1/attach-run1/wire.log`, attached to Electron desktop-serv
   deltas are withheld while the buffer could still be a silence marker (`prompt_turn.py:31-42`, `744-767`).
   A client must keep the streamed text when `message.complete.text` is `""`. The app uses `hba-` titles,
   so this path was not exercised.
-- Observed chunking [run]: with gemini-3.8-flash-high via antigravity, the reply text arrives as 2–7
+- Observed chunking [run]: with example-model-flash via antigravity, the reply text arrives as 2–7
   `message.delta` frames in a 0.2–0.7 s burst, after 8–22 s of `thinking`/`reasoning` events.
   - App attach run: `ui message.delta` at 23.575 → 24.300 s, the bubble growing 109 → 870 chars over
     7 frames (`app-attach-console.log`).
@@ -323,7 +323,7 @@ Round 2 re-runs (`evidence/m1-r2/`):
 
 ### 4.5 Settling a turn: the final text is authoritative [src + test + run]
 
-Review BLOCK-003: the app kept the streamed text whenever any delta had arrived. It therefore dropped
+Review finding: the app kept the streamed text whenever any delta had arrived. It therefore dropped
 a final that extended or replaced the stream. The producer marks a post-stream rewrite
 (`transform_llm_output`) with `response_transformed: true`: "the renderer must treat this payload as
 the authoritative replacement even without a prefix relationship" (`prompt_turn.py:962-965`).
@@ -400,7 +400,7 @@ Coverage:
 
 - Same-home room worker: an app-spawned serve on `~/.hermes` runs a room worker on the root
   `shared-state.db` next to Electron and the messaging gateway. Leases fence double execution
-  (probe t_8cf3b257). Which process runs a room's turn depends on who holds that room's lease.
+  (earlier probe). Which process runs a room's turn depends on who holds that room's lease.
 - `groups.*` rooms still have no WS push (groups-contract §5). Group Chat must poll
   `groups.log`/`groups.state`.
   - Member token streams stay invisible: hidden sessions have no transport.
@@ -480,7 +480,7 @@ therefore polls (`RoomModel.start` → `RoomSync.refresh`):
    newer snapshot. Each result is checked against the generation it was requested under after the
    await: a stale one is dropped before it is applied, published (`onSync`) or followed by a sleep, and
    a result behind the applied cursor is dropped too. Run 1 lacked this: delayed poll 1 overwrote
-   poll 2 after disappear/appear (review BLOCK-001, cursors `[2, 1]`) [test + probe, §7.11].
+   poll 2 after disappear/appear (found in review, cursors `[2, 1]`) [test + probe, §7.11].
 2. Cadence (`RoomPollPolicy`): 0 s while the log is behind, 1 s while *busy*, 5 s idle. The server's
    own worker polls at 0.25 s active (`hosted_room_service.py:31`). *Busy* =
    `driver_status.working` (any task `queued|running|stopping`) or `blocked`, or the latest user message
@@ -491,7 +491,7 @@ therefore polls (`RoomModel.start` → `RoomSync.refresh`):
 3. After every action (send, stop, retry, approve) the model cancels the pending sleep and syncs at once.
 
 UI proof that it does not freeze after send (`evidence/m2/app-multi/console.log`, attached Electron
-backend, room `hba-e380e47310ee`, thief + code-reviewer): `ui room.sync cursor=1 [message.user]
+backend, room `hba-e380e47310ee`, researcher + reviewer): `ui room.sync cursor=1 [message.user]
 working=true queued:1` (2.3 s) → `cursor=3 [message.member, turn.settled] running:1 settled:1` (13.0 s) →
 `cursor=6 [message.member, turn.settled, room.activity] working=false settled:2` (21.3 s); snapshots
 `r2-working.png`, `r3-first-reply.png`, `r5-settled.png` show the rows appear without user input [run].
@@ -526,22 +526,22 @@ status from `driver_status`.
 
 `groups.send` `accepted` is only the append: completion = `message.member`/`turn.settled` per
 member, then `room.activity settled` with `working=false`. Harness `multi` (`evidence/m2/multi`): seq 1
-user → 2/3 thief reply + settled (11.8 s) → 4/5 code-reviewer reply + settled (18.0 s) → 6
+user → 2/3 researcher reply + settled (11.8 s) → 4/5 reviewer reply + settled (18.0 s) → 6
 `room.activity silent_round` (19.1 s), `working=false` [run].
 
 ### 7.5 Stop [src + run]
 
 `groups.stop` durably cancels every task in `queued|running|indeterminate|deferred|stopping`
 (`_STOPPABLE_STATUSES`, `hosted_room_service.py:36`) and appends the fence. Live, attached to Electron,
-1200-word essay prompt to thief (`evidence/m2/stop`): `cancelled=1` at 4.5 s → seq 2
-`room.stop_requested` → seq 3 `turn.cancelled member=thief` (5.7 s), 0 member replies, nothing new 8 s
+1200-word essay prompt to researcher (`evidence/m2/stop`): `cancelled=1` at 4.5 s → seq 2
+`room.stop_requested` → seq 3 `turn.cancelled member=researcher` (5.7 s), 0 member replies, nothing new 8 s
 later. Same through the app button (`evidence/m2/app-stop`: `ui.stop` → `groups.stop → cancelled 1` →
 `turn.cancelled`; snapshots `r2-working.png`, `r4-stopped.png`) [run].
 
 What Stop does NOT guarantee: that the member's model call has ended. The driver acknowledges the stop
 through `session.interrupt {expected_hosted_task_id}` on the member session
-(`hosted_room_driver.py:360-377`, `methods_session_interrupt.py:49-73`), which is cooperative. Run 308
-(`run308/app-stop` + `run308/cleanup-stop`): `turn.cancelled` at 6.9 s and disband at 8.4 s, yet thief's
+(`hosted_room_driver.py:360-377`, `methods_session_interrupt.py:49-73`), which is cooperative. trial 308
+(`trial-308/app-stop` + `trial-308/cleanup-stop`): `turn.cancelled` at 6.9 s and disband at 8.4 s, yet researcher's
 member runtime stayed `working` (derived title) for ~135 s more, then went `idle` with the title
 `Group: <room_id>` — which is only written after a `complete` turn (`prompt_turn.py:384-409`), so the
 physical turn most likely ran to completion [run + src inference]. Nothing was published to the room
@@ -565,24 +565,24 @@ retry it; the app shows that hint on 5118. Same-home processes that run room wor
 
 How a task becomes retryable in practice: the process running the turn dies. Runs:
 - Run 1 `retry-attach` (user install, attached to Electron): harness serve S on `~/.hermes` (private
-  lock dir) ran thief's turn; SIGKILL S → after expiry the lease row showed lease_generation 2 under
+  lock dir) ran researcher's turn; SIGKILL S → after expiry the lease row showed lease_generation 2 under
   the same process generation that held every app-created room (Electron) → `indeterminate`,
   `blocked=true`, pending `retry` → `groups.retry` → `queued` → reply + `turn.settled` +
   `room.activity silent_round`. Its `lease_before_kill` read came back blank (an unretried
   `immutable=1` read), so S's own generation was not recorded [run, weaker].
-- Run 306 `retry-attach-2` (stricter probe: retried reads, `lease_takeover_proven` requires a
+- trial 306 `retry-attach-2` (stricter probe: retried reads, `lease_takeover_proven` requires a
   readable before-row and a new process generation with a higher lease_generation): S generation
   `7587ec6e…|1` → SIGKILL at 7.8 s → `119d2c9b…|2` (Electron, the generation of the app-created rooms)
   at 34.0 s → pending retry (`indeterminate 1`, blocked) → `groups.retry` via Electron →
   `{retried: true, task.status: queued}` → `message.member` + `turn.settled` + `room.activity`
   (249.6 s) → disband. `turn.deferred` was never emitted: retry came from `indeterminate` [run].
-- Run 306 `retry-attach` (first attempt): the takeover went to ANOTHER generation (`35067914…|2`,
+- trial 306 `retry-attach` (first attempt): the takeover went to ANOTHER generation (`35067914…|2`,
   not Electron's) → `groups.retry` via Electron → 5118. `lease-after-failure.txt`: that process kept
   renewing the lease every ~15 s while the task sat `deferred`, so retry through Electron could not
   succeed. The room was then disbanded through Electron (a `deferred` task is cancelled directly in the
   DB, no lease needed: `tui_gateway/hosted_room_driver.py:202-221`) [run]. Which process held
   `35067914…` was not proven (the only other same-home worker running was the messaging gateway).
-- Isolated home, app Retry button: run 1 `app-retry-iso` and run 306 `run306/app-retry-iso`
+- Isolated home, app Retry button: run 1 `app-retry-iso` and trial 306 `trial-306/app-retry-iso`
   (`r-retry-pending.png`: retry bar with the side-effects warning, status `blocked · indeterminate 1`
   → Retry → `groups.retry → queued` → settled at 60 s) [run].
 
@@ -640,7 +640,7 @@ profile DB, created through `hosted_room_server_rpc.py` in the process whose wor
   3. `pending_title` is written (with `user` authority, overriding derived/llm) only after a `complete` turn
      (`prompt_turn.py:384-409`). A turn that never completes (process killed mid-turn — the retry
      scenarios SIGKILL serve S) leaves the row with its derived title or none.
-  Run 308 saw phase 2 → 3 live: after Stop + disband, thief's session stayed `working` with the derived
+  trial 308 saw phase 2 → 3 live: after Stop + disband, researcher's session stayed `working` with the derived
   title for ~135 s, then turned `idle` with `Group: hba-e6dfb4cab02f` (§7.5).
 - Ownership is proven per stored row, never from a generic `hba` prefix (`RoomSessionClassifier`,
   `Sources/HermesGatewayKit/RoomSessionCleanup.swift`), against a manifest of the test rooms
@@ -703,7 +703,7 @@ profile DB, created through `hosted_room_server_rpc.py` in the process whose wor
   showing a blank or agreeing title. Resumed runtimes always have a stored row (they resume one); a fresh
   runtime gets a newly minted timestamp+random id, so this needs an id collision at mint time.
 
-Deleted keys can come back (review run 313, BLOCK-003C) [src + run]. Deleting a member row does not end
+Deleted keys can come back (found in review) [src + run]. Deleting a member row does not end
 every writer of that id. The model title upgrade of a member's first turn runs in a daemon thread
 (`agent/title_generator.py:642-687`: set accounting context → `generate_title` → persist); `session.close`
 joins the turn thread only, not that upgrade (`tui_gateway/session_lifecycle.py:568-584`). When its LLM
@@ -761,34 +761,34 @@ after the cleanup returned: the next `audit`/`ledger-audit` then fails on it (ex
 After disband the driver's state calls refuse the room (`gateway/hosted_room_driver.py:346-357`), so no new
 member turn — and no new member session — is expected.
 
-Run 306 (attached to Electron `desktop-serve` pid 29903) [run] — historical: run 306 mapped sessions by
-exact title (+ an explicit `HBA_EXTRA_SESSIONS` list for untitled rows). Review run 307 showed that misses a
+Trial 306 (attached to Electron `desktop-serve` pid 29903) [run] — historical: trial 306 mapped sessions by
+exact title (+ an explicit `HBA_EXTRA_SESSIONS` list for untitled rows). A later review showed that misses a
 member session whose first turn is still running under its auto title (cleanup exited 0 with one left);
-superseded by the provenance rounds above (run 308 below):
-- `run306/audit-before`: 10 stored `Group: hba-*` rows (thief 7, code-reviewer 3), all 10 live and
+superseded by the provenance rounds above (trial 308 below):
+- `trial-306/audit-before`: 10 stored `Group: hba-*` rows (researcher 7, reviewer 3), all 10 live and
   `idle` in Electron's `active_list`, 0 title-only matches.
-- `run306/cleanup-old`: 10 × `session.close` → `closed: true`, then 10 × `session.delete` ok on the
-  first attempt; after: 0 rooms, 0 stored, 0 live. `run306/audit-after-old`: 0 `Group: hba-` sessions
+- `trial-306/cleanup-old`: 10 × `session.close` → `closed: true`, then 10 × `session.delete` ok on the
+  first attempt; after: 0 rooms, 0 stored, 0 live. `trial-306/audit-after-old`: 0 `Group: hba-` sessions
   in `active_list`. Electron health stayed 200, same pid.
-- The rerun app evidence (§7.9) added 2 rooms; `run306/cleanup-final` closed 3 runtimes and deleted 3
+- The rerun app evidence (§7.9) added 2 rooms; `trial-306/cleanup-final` closed 3 runtimes and deleted 3
   rows the same way.
 - The two `retry-attach` runs (§7.6) added 2 rooms. The failed one was disbanded by
-  `run306/cleanup-retry-room` (0 sessions mapped by title). `run306/audit-untitled` then found 2
-  untitled thief `bot_room` rows previewing `hba M2 retry 1793708891` (run 1) and `hba M2 retry
-  1793714398`: S's sessions; `run306/cleanup-untitled` deleted them. `run306/cleanup-retry2`: 1 close +
+  `trial-306/cleanup-retry-room` (0 sessions mapped by title). `trial-306/audit-untitled` then found 2
+  untitled researcher `bot_room` rows previewing `hba M2 retry 1793708891` (run 1) and `hba M2 retry
+  1793714398`: S's sessions; `trial-306/cleanup-untitled` deleted them. `trial-306/cleanup-retry2`: 1 close +
   1 delete + 1 untitled delete for the second run.
-- Final, `run306/audit-final` + `run306/list-final`: for all 11 card rooms 0 live rooms, 0 stored
+- Final, `trial-306/audit-final` + `trial-306/list-final`: for all 11 card rooms 0 live rooms, 0 stored
   rows, 0 live runtimes, 0 untitled hba rows; `groups.list` 0 `hba-*`; `active_list` 0 `Group: hba-`.
   In total 14 runtimes closed and 17 hidden rows deleted (14 titled + 3 untitled) through the gateway
   API; Electron (`desktop-serve` 29903, started 12:25:14) health 200 throughout, never restarted.
-- Not exercised in run 306: the 4023 retry branch (every delete went through on attempt 1), a session
+- Not exercised in trial 306: the 4023 retry branch (every delete went through on attempt 1), a session
   live in a backend other than the attached one.
 
-Run 308 (review round 2 rework; attached to Electron `desktop-serve` pid 29903; `evidence/m2/run308/`) [run]:
+Trial 308 (review round 2 rework; attached to Electron `desktop-serve` pid 29903; `evidence/m2/trial-308/`) [run]:
 - `audit-baseline`: 0 hba rooms live, 0 hba-looking `bot_room` rows in any of the 6 profiles, 0 active
   titles with `hba`.
 - The reviewer's repro, live: `app-stop` (Stop at 5.8 s → `turn.cancelled`, disband 8.4 s) → immediate
-  `cleanup-stop @room-manifest.jsonl`. Rounds 1–13 (~130 s): stored `thief` row with derived title
+  `cleanup-stop @room-manifest.jsonl`. Rounds 1–13 (~130 s): stored `researcher` row with derived title
   `[Discussion: "hba app hba-e6dfb4cab02f"] You…`, owned via `opening_preview`, its runtime `f9f6c90d`
   `working` → no close, delete deferred. Round 14: same key, title `Group: hba-e6dfb4cab02f`, `idle` →
   `session.close` → `closed: true`, `session.delete` ok. Rounds 15–16 empty → exit 0.
@@ -806,10 +806,10 @@ Run 308 (review round 2 rework; attached to Electron `desktop-serve` pid 29903; 
   survive), still-working-at-end fails, 4023 retried across rounds, persistent 4023 / title-only fail,
   late appearance needs 2 empty rounds. Disabling the preview/derived-title provenance fails 17 assertions.
 
-Run 310 (review round 3 rework, BLOCK-003A/003B; attached to Electron `desktop-serve` pid 29903;
-`evidence/m2/run310/`) [test + run]:
-- Unit (`RoomSessionCleanupTests`, 20 = 12 + 8 new): the reviewer's probe (`thief:same-key` owned,
-  `code-reviewer:same-key` titled `Group: unrelated-user-room`, two live runtimes on that key) → 0 close,
+Trial 310 (review round 3 rework; attached to Electron `desktop-serve` pid 29903;
+`evidence/m2/trial-310/`) [test + run]:
+- Unit (`RoomSessionCleanupTests`, 20 = 12 + 8 new): the reviewer's probe (`researcher:same-key` owned,
+  `reviewer:same-key` titled `Group: unrelated-user-room`, two live runtimes on that key) → 0 close,
   0 delete, 2 × `key_collision`, `ok: false`; collision with a non-member profile / another source;
   two runtimes on a unique id; live title of another room → `live_title_conflict` (controls: empty,
   same stored title, own `Group:` title → owned); duplicate owned ids (nothing while a runtime holds the id,
@@ -819,41 +819,41 @@ Run 310 (review round 3 rework, BLOCK-003A/003B; attached to Electron `desktop-s
   non-member/older rows ignored, exact title in a non-member profile → `member_mismatch`. Mutations (each
   guard removed in turn: id-collision, multi-runtime, live-title, unattributed scope, defer-on-any-runtime)
   each fail at least one test.
-- `audit-baseline @all-rooms-manifest.jsonl` (run 308 rooms) with the new rules: 6 profiles scanned, 0 owned,
+- `audit-baseline @all-rooms-manifest.jsonl` (trial 308 rooms) with the new rules: 6 profiles scanned, 0 owned,
   0 unresolved, 0 hba rooms live.
-- `app-stop` (`hba-3019f4b2a098`, thief + code-reviewer): Stop at 7.0 s → `cancelled 1` → disband 9.9 s →
-  immediate `cleanup-stop`: rounds 1–3 thief runtime `e27f9d56` `working` with the derived title → wait;
+- `app-stop` (`hba-3019f4b2a098`, researcher + reviewer): Stop at 7.0 s → `cancelled 1` → disband 9.9 s →
+  immediate `cleanup-stop`: rounds 1–3 researcher runtime `e27f9d56` `working` with the derived title → wait;
   round 4 `idle` → `session.close` → `closed: true`, `session.delete` ok (`exact_title`); rounds 5–6 empty →
   exit 0.
 - `app-multi` (`hba-39955ba0f349`): 2 replies, `settled: 2`, `working=false` at 29.8 s, disband →
-  `cleanup-multi`: round 1 closes both runtimes (thief, code-reviewer) and deletes both rows, rounds 2–3
+  `cleanup-multi`: round 1 closes both runtimes (researcher, reviewer) and deletes both rows, rounds 2–3
   empty → exit 0.
 - `audit-final @all-rooms-manifest.jsonl` (5 rooms): 0 owned, 0 unresolved, 0 foreign, 0 hba-looking
   `bot_room` rows in any profile, 0 active titles with `hba`; `groups.list` 0 `hba-*`.
   `db-readonly-final.txt` (read-only snapshot of `shared-state.db`): 19 retired `hba-*` rooms, 0 not retired,
   19 lease rows, 0 active.
 
-Run 312 (review round 4 rework, BLOCK-003A adapter inventory; attached to Electron `desktop-serve` pid 29903;
-`evidence/m2/run312/`) [test + run]:
+Trial 312 (review round 4 rework; attached to Electron `desktop-serve` pid 29903;
+`evidence/m2/trial-312/`) [test + run]:
 - Adapter-boundary tests (`Tests/HermesGatewayKitTests/AttachedSessionGatewayTests.swift`, 6): the real
   `AttachedSessionGateway` + `RoomSessionCleaner` against an in-process fake backend (WS JSON-RPC whose
   `session.list` hides unlisted rows + HTTP detail route over the whole store). The reviewer's repro — own
-  `thief:same-key` bot_room row, foreign `code-reviewer:same-key` row with source `kanban`/`tool`/`oneshot`
+  `researcher:same-key` bot_room row, foreign `reviewer:same-key` row with source `kanban`/`tool`/`oneshot`
   or archived/out-of-window (never in `session.list`), one idle runtime on `same-key`, live title blank or
-  agreeing — now gives 0 close, 0 delete, `key_collision` (detail `code-reviewer present(source=…)`),
+  agreeing — now gives 0 close, 0 delete, `key_collision` (detail `reviewer present(source=…)`),
   `ok: false`, foreign row and runtime untouched (8 variants). Controls: unique key (404 elsewhere) → close
   + delete + ok; prefix-resolved 200 for a longer id → absent (close allowed); no REST access, wrong
   token (401), 503, unknown-profile 404, 200 without id, dead port → `key_inventory_unknown`, 0 close/delete,
   not ok, no token in the report; own row gone on lookup → `key_inventory_changed`; status/body mapping.
   `mutations.txt`: removing the inventory gate fails 77 assertions; accepting a prefix id as present fails 4.
-- `key-inventory` (read-only, `key-inventory-console.log`): code-reviewer's newest `kanban` session and
-  thief's newest `oneshot` session are `not listed` by `session.list {include_hidden, limit 500}` in every
+- `key-inventory` (read-only, `key-inventory-console.log`): reviewer's newest `kanban` session and
+  researcher's newest `oneshot` session are `not listed` by `session.list {include_hidden, limit 500}` in every
   profile, yet the exact lookup answers `present(source=kanban)` / `present(source=oneshot)` in their own
   profile and `absent(not_found)` in the other 5; an unused id is absent everywhere; a listed `desktop` row
   is `listed` + `present` (control).
 - `app-stop` (`hba-9d00002f6183`): Stop at 6.7 s → `cancelled 1` → `turn.cancelled` (seq 3, 7.9 s) →
-  disband → immediate `cleanup-stop`: rounds 1–7 thief runtime `59fbd241` `working` under the derived title,
-  key inventory `thief present(source=bot_room)`, 5 × `absent(not_found)` → wait, delete deferred; round 8
+  disband → immediate `cleanup-stop`: rounds 1–7 researcher runtime `59fbd241` `working` under the derived title,
+  key inventory `researcher present(source=bot_room)`, 5 × `absent(not_found)` → wait, delete deferred; round 8
   `idle` → `session.close` → `closed: true`, `session.delete` ok; rounds 9–10 empty → exit 0 (96 s).
 - `app-multi` (`hba-bf337f0f66f5`): 2 replies, `settled: 2`, `working=false` at 34.1 s, disband →
   `cleanup-multi`: round 1 both keys proven unique (6 profiles each), 2 close + 2 delete; rounds 2–3 empty →
@@ -863,8 +863,8 @@ Run 312 (review round 4 rework, BLOCK-003A adapter inventory; attached to Electr
   `db-readonly-final.txt`: 23 retired `hba-*` rooms, 0 not retired, 23 lease rows, 0 active.
   Fresh `swift build --scratch-path` 0 warnings; `swift test` 74/74; token scan 0 hits.
 
-Run 314 (review round 5 rework, BLOCK-003C re-created keys; attached to Electron `desktop-serve` pid 29903;
-`evidence/m2/run314/`) [test + run]:
+Trial 314 (review round 5 rework; attached to Electron `desktop-serve` pid 29903;
+`evidence/m2/trial-314/`) [test + run]:
 - Tests (84 = 74 + 10): `RoomSessionLedgerTests` (8) — the reviewer's probe (owned `bot_room` row → delete →
   the same id re-appears as `source=unknown`, llm title, 0 messages before the 2nd empty round) now
   re-deletes it and is ok only with no row left (ledger `proven → deleted → redeleted`); ordinary control;
@@ -881,13 +881,13 @@ Run 314 (review round 5 rework, BLOCK-003C re-created keys; attached to Electron
 - Leftovers: `ledger-import` of every earlier attached cleanup dir (runs 306–313, implementer + reviewer,
   `HBA_IMPORT_BACKEND="role=desktop-serve pid=29903"`; 4 isolated-serve dirs refused) → 38 keys.
   `ledger-audit-before`: 31 absent, 7 `present(source=unknown, messages=0)` — exactly the reviewer's 7
-  (`thief:…214700_3c5d33`, `…215158_aea571`, `…222927_ec9a92`, `…231649_03185e`, `code-reviewer:…215041_2503fc`,
+  (`researcher:…214700_3c5d33`, `…215158_aea571`, `…222927_ec9a92`, `…231649_03185e`, `reviewer:…215041_2503fc`,
   `…223056_f8bbe9`, `…231935_6107a5`). `ledger-cleanup-historical`: 7 × `session.delete` (re-created
   placeholder) ok, then 7 empty rounds with all 38 absent → exit 0.
 - `app-stop` (`hba-cc21e8b2df5e`): Stop at 5.6 s → `room.stop_requested`, `turn.cancelled` (cursor 3, 5.8 s,
-  `working=false`, `cancelled 1`) → disband → immediate `cleanup-stop`: rounds 1–4 thief runtime `5ea78cb0`
-  `working` → wait; round 5 (42 s) idle → close + delete `thief:20261104_000322_2cb6e9`; round 6 (53 s) the
-  exact readback finds the SAME key `present(source=unknown, messages=0)` — the BLOCK-003C re-creation, live —
+  `working=false`, `cancelled 1`) → disband → immediate `cleanup-stop`: rounds 1–4 researcher runtime `5ea78cb0`
+  `working` → wait; round 5 (42 s) idle → close + delete `researcher:20261104_000322_2cb6e9`; round 6 (53 s) the
+  exact readback finds the SAME key `present(source=unknown, messages=0)` — the re-creation case, live —
   → deleted again; rounds 7–16 empty with the key absent → exit 0 (157 s).
 - `app-multi` (`hba-e5b0d8fcbd6c`): 2 replies, `settled 2`, cursor 6, `working=false` at 30.1 s → disband →
   `cleanup-multi`: round 1 2 close + 2 delete; no re-creation; 10 empty rounds → exit 0.
@@ -900,9 +900,9 @@ within 30 s of the last renewal; 0 active afterwards), until backend pruning. Th
 `groups.list` and cannot be removed through the API. The card owner accepted "0 live room / 0 active lease
 / 0 hba session" as the meaning of the card's "0 room/lease `hba-*`" (decision 2026-11-03); the waiver
 covers tombstones and expired lease rows only, not session rows.
-Correction (review run 313): the "0 hba sessions" figures written after runs 306–312 counted only
+Correction (found in review): the "0 hba sessions" figures written after runs 306–312 counted only
 `bot_room` rows / `hba` titles. They are withdrawn as proof of total cleanup: 7 keys those runs had deleted
-were stored again as `source=unknown` placeholders (run 314 below found exactly those 7 among 38 imported
+were stored again as `source=unknown` placeholders (trial 314 below found exactly those 7 among 38 imported
 keys and removed them). Session cleanliness is now stated only from the exact readback of the ledger.
 
 M2 status of the §6 risks: polling implemented (§7.2); member token streaming still invisible (only
@@ -924,8 +924,8 @@ also needed SIGKILL); exit 0 only means the app quit by itself — the flow's ou
 a serve up (with `retry`: after leaving a room with a lost turn) and the app attaches with
 `HERMES_BOT_APP_LOCK_DIR=~/.hermes-bot-app-spike/m2/locks`.
 
-Run 306 reruns from the final candidate (all attach-only or isolated; console + snapshots in
-`evidence/m2/run306/`):
+Trial 306 reruns from the final candidate (all attach-only or isolated; console + snapshots in
+`evidence/m2/trial-306/`):
 - `app-multi` (Electron): `groups.create hba-fb3514c6c12b` → send → `cursor=1 working queued:1` (1.6 s) →
   `cursor=3 [message.member, turn.settled]` (13.3 s) → `cursor=6 [message.member, turn.settled,
   room.activity] working=false settled:2` (22.0 s) → disband → removed from the sidebar.
@@ -948,7 +948,7 @@ Run 306 reruns from the final candidate (all attach-only or isolated; console + 
   backend other than the attached one (§7.8). An `llm`-upgraded title on a row with an empty preview
   (`unattributed` → fail, never closed/deleted; unit-tested) and a cross-profile `session_key`
   collision (`key_collision` → fail; unit-tested at the real adapter boundary with an unlisted
-  `kanban`/`tool`/`oneshot`/archived foreign row, §7.8 run 312) were not seen live; no collision was
+  `kanban`/`tool`/`oneshot`/archived foreign row, §7.8 trial 312) were not seen live; no collision was
   created in the user's install on purpose.
 - Ledger readback branches `ledger_key_present` (a remembered id stored again with another source or with
   messages) and `ledger_readback_unknown`, and a re-creation later than the cleanup's quiet window, were
@@ -962,7 +962,7 @@ Run 306 reruns from the final candidate (all attach-only or isolated; console + 
   no extra poll), nothing published or reported after `stop()`, single loop + nudge, stop during sleep,
   and the composer availability rules. With the generation guard removed, the two lifecycle tests fail.
 - Scratch probe with the candidate `RoomModel` + `RoomView` extracted verbatim
-  (`evidence/m2/run306/probe/`, fake in-process `/api/ws`; only `RoomView.onAppear` exposes the
+  (`evidence/m2/trial-306/probe/`, fake in-process `/api/ws`; only `RoomView.onAppear` exposes the
   `@State` draft): lifecycle 5/5 runs `cursors [2]`, final 2, 1 stale dropped, 0 syncs after stop;
   quit with a poll in flight → 0 syncs, no restart; direct `send` after disband / during disband →
   refused, 0 `groups.send`; failed disband (5114) → `open`, send accepted. Real NSEvent Return (keyCode
