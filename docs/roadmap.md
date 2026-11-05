@@ -139,13 +139,13 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **D12** "Summarize since I left" for rooms (M)
 
 ### Migration
-- [ ] **E4 / D17** One-time, read-only import of the desktop app's group chats (M)
+- [x] **E4 / D17** One-time, read-only import of the desktop app's group chats (M)
 
 ## Release gate
 
 Not needed to use the app yourself, but required before announcing a public release.
 
-- [ ] **E2** First-run onboarding: Hermes missing, no model configured, only one bot (M)
+- [x] **E2** First-run onboarding: Hermes missing, no model configured, only one bot (M)
 - [ ] **E3** Distribution: Developer ID notarization, auto-update, Intel testing (M)
 
 ## Backlog

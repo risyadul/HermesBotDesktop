@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- First-run setup screens (E2) instead of a bare error: **Install Hermes Agent** when no `hermes` is found
+  (docs link, the `HERMES_BOT_APP_HERMES_BIN` override with a Copy button, the places checked, Try Again);
+  **Choose a model for Hermes** when the backend answers but `setup.runtime_check` (read-only) says no model can
+  be served (`hermes setup` / `hermes model`, Check Again); and, with a single bot, Open Bot Chat plus the
+  `hermes profile create <name>` / `hermes -p <name> setup` commands for a second bot, with Copy buttons. The app
+  never runs them. Other connection failures keep the "Can't reach Hermes" screen.
+- **File → Import from Hermes Desktop…** (E4 / D17): lists the group chats Hermes Desktop saved to the default
+  profile (`ui_meta` → `hermes-bots-groups`, read with `profiles.list`; never written) and copies the chosen
+  ones into a read-only **Desktop archive** sidebar section (collapsible, hidden when empty) kept by this app.
+  An archived room shows its members and saved messages; **Continue in a New Room…** opens New Group Chat
+  prefilled with its name and members and puts a quoted carry-over into the new room's composer (not sent).
 - Manage bots without the CLI (right-click a bot, or the ••• menu in Bot details):
   - **Edit…** a bot's title, description and avatar (PNG/JPEG up to 15 MB, saved as a 256 px square), and under
     Advanced its model and provider (Hermes' model list, typed in, or Inherit), skills, toolsets, MCP servers
