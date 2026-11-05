@@ -19,14 +19,23 @@ public struct CommandResult: Sendable, Equatable {
 /// (`hermes gateway start`) so tests use fakes and never touch launchd.
 public protocol CommandRunner: Sendable {
     /// `executable` must be absolute. `environment: nil` = `ProcessCommandRunner.cleanEnvironment()`.
-    /// Throws only when the process cannot be launched; a non-zero exit is a result.
+    /// Throws when the process cannot be launched, or `CancellationError` when the calling task was
+    /// cancelled (the process is then terminated); a non-zero exit is a result.
     func run(_ executable: String, _ arguments: [String], environment: [String: String]?, timeout: TimeInterval) async throws -> CommandResult
 }
 
 /// `Foundation.Process` runner: no shell, clean environment, stdin from /dev/null, SIGTERM at the timeout
-/// then SIGKILL after 2 s.
+/// (or when the calling task is cancelled) then SIGKILL after 2 s.
+///
+/// Output is read while the process runs (a readability handler on a background queue, tail capped at
+/// `maxOutput`), never with a blocking read after exit: a grandchild that inherited the pipe (e.g. a daemon
+/// the command started) keeps it open, so once the process has exited the runner waits at most `eofGrace`
+/// for end-of-file and then answers with what arrived.
 public struct ProcessCommandRunner: CommandRunner {
     public static let maxOutput = 64 * 1024
+    /// How long to wait for the pipe's end-of-file once the process has exited.
+    public static let eofGrace: TimeInterval = 0.5
+    static let killDelay: TimeInterval = 2
 
     public struct LaunchError: Error, RedactionSafeError {
         public let description: String
@@ -53,46 +62,119 @@ public struct ProcessCommandRunner: CommandRunner {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
-        let box = OutputBox()
-        pipe.fileHandleForReading.readabilityHandler = { h in box.append(h.availableData) }
+        let run = Run(process: process, reader: pipe.fileHandleForReading)
+        pipe.fileHandleForReading.readabilityHandler = { h in
+            let d = h.availableData
+            if d.isEmpty { run.reachedEOF() } else { run.append(d) }
+        }
 
-        return try await withCheckedThrowingContinuation { cont in
-            process.terminationHandler = { p in
-                pipe.fileHandleForReading.readabilityHandler = nil
-                box.append((try? pipe.fileHandleForReading.readToEnd()) ?? Data())
-                cont.resume(returning: CommandResult(status: p.terminationStatus, output: box.text, timedOut: box.timedOut))
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<CommandResult, Error>) in
+                run.setContinuation(cont)
+                process.terminationHandler = { p in
+                    run.exited(status: p.terminationStatus)
+                    DispatchQueue.global().asyncAfter(deadline: .now() + Self.eofGrace) { run.finish() }
+                }
+                do { try process.run() } catch {
+                    let ns = error as NSError
+                    run.fail(LaunchError(description: "could not run \(executable): \(ns.domain) \(ns.code)"))
+                    return
+                }
+                run.launched()
+                DispatchQueue.global().asyncAfter(deadline: .now() + max(0.1, timeout)) { run.stop(timedOut: true) }
             }
-            do { try process.run() } catch {
-                pipe.fileHandleForReading.readabilityHandler = nil
-                let ns = error as NSError
-                cont.resume(throwing: LaunchError(description: "could not run \(executable): \(ns.domain) \(ns.code)"))
-                return
-            }
-            let pid = process.processIdentifier
-            DispatchQueue.global().asyncAfter(deadline: .now() + max(0.1, timeout)) {
-                guard process.isRunning else { return }
-                box.markTimedOut()
-                process.terminate()
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if process.isRunning { kill(pid, SIGKILL) } }
-            }
+        } onCancel: {
+            run.stop(timedOut: false)
         }
     }
 
-    private final class OutputBox: @unchecked Sendable {
+    /// One run's shared state: output tail, exit, EOF, and the continuation (resumed exactly once).
+    private final class Run: @unchecked Sendable {
         private let lock = NSLock()
+        private let process: Process
+        private let reader: FileHandle
         private var data = Data()
-        private var _timedOut = false
+        private var status: Int32?
+        private var eof = false
+        private var isLaunched = false
+        private var timedOut = false
+        private var cancelled = false
+        private var done = false
+        private var continuation: CheckedContinuation<CommandResult, Error>?
+
+        init(process: Process, reader: FileHandle) { self.process = process; self.reader = reader }
+
+        func setContinuation(_ c: CheckedContinuation<CommandResult, Error>) { lock.withLock { continuation = c } }
 
         func append(_ d: Data) {
-            guard !d.isEmpty else { return }
             lock.withLock {
                 data.append(d)
                 if data.count > ProcessCommandRunner.maxOutput { data = data.suffix(ProcessCommandRunner.maxOutput) }
             }
         }
 
-        func markTimedOut() { lock.withLock { _timedOut = true } }
-        var timedOut: Bool { lock.withLock { _timedOut } }
-        var text: String { lock.withLock { String(decoding: data, as: UTF8.self) } }
+        func reachedEOF() {
+            reader.readabilityHandler = nil
+            let ready = lock.withLock { () -> Bool in eof = true; return status != nil }
+            if ready { finish() }
+        }
+
+        func exited(status s: Int32) {
+            let ready = lock.withLock { () -> Bool in status = s; return eof }
+            if ready { finish() }
+        }
+
+        /// The process is running: a cancellation that came before the launch stops it now.
+        func launched() {
+            let stopNow = lock.withLock { () -> Bool in isLaunched = true; return cancelled }
+            if stopNow { terminate() }
+        }
+
+        /// Timeout (`timedOut`) or task cancellation: SIGTERM, then SIGKILL after `killDelay`. No-op once the
+        /// process has exited.
+        func stop(timedOut t: Bool) {
+            let running = lock.withLock { () -> Bool in
+                guard !done, status == nil else { return false }
+                if t { timedOut = true } else { cancelled = true }
+                return isLaunched
+            }
+            if running { terminate() }
+        }
+
+        private func terminate() {
+            let process = self.process
+            guard process.isRunning else { return }
+            let pid = process.processIdentifier
+            process.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + ProcessCommandRunner.killDelay) {
+                if process.isRunning { kill(pid, SIGKILL) }
+            }
+        }
+
+        func fail(_ error: Error) {
+            let c = lock.withLock { () -> CheckedContinuation<CommandResult, Error>? in
+                guard !done else { return nil }
+                done = true
+                defer { continuation = nil }
+                return continuation
+            }
+            reader.readabilityHandler = nil
+            c?.resume(throwing: error)
+        }
+
+        /// Resumes once: after exit and EOF, or `eofGrace` after exit when something still holds the pipe.
+        func finish() {
+            let outcome = lock.withLock { () -> (CheckedContinuation<CommandResult, Error>, Result<CommandResult, Error>)? in
+                guard !done, let status, let continuation else { return nil }
+                done = true
+                self.continuation = nil
+                if cancelled { return (continuation, .failure(CancellationError())) }
+                let result = CommandResult(status: status, output: String(decoding: data, as: UTF8.self), timedOut: timedOut)
+                return (continuation, .success(result))
+            }
+            guard let (c, result) = outcome else { return }
+            reader.readabilityHandler = nil
+            c.resume(with: result)
+        }
     }
 }
