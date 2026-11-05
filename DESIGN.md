@@ -550,11 +550,28 @@ toolbar. Minimum window 820 × 520.
   rename it "… (old)", Return = Open New Room) or Disband it (a danger `meta` line, `button-danger` "Disband and
   Open New Room" with no Return shortcut). No Cancel once the room exists. Long names and errors stop at a few
   lines (full text in the tooltip) so both steps fit the 520 pt window minimum.
-- **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Choose Image… / Remove, Title
-  (placeholder: the name the bot shows now) and Description, and an Advanced disclosure. With Advanced open the
-  sheet is the main window's height less 80 pt (440 pt at the 520 pt minimum): the title stays on top, the
-  fields scroll, and Cancel / Save stay pinned at the bottom. Each field's failure is a danger `meta` line under
-  that field.
+- **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Change Avatar… / Remove, Title
+  (placeholder: the name the bot shows now) and Description, and an Advanced disclosure. With Advanced or the
+  avatar picker open the sheet is the main window's height less 80 pt (440 pt at the 520 pt minimum): the title
+  stays on top, the fields scroll, and Cancel / Save stay pinned at the bottom. Each field's failure is a danger
+  `meta` line under that field.
+  **New Bot** is that same scrolling sheet from the start (title "New Bot", a muted one-line explanation): avatar
+  preview + Change Avatar…, Name (a muted "Profile name: @slug" line under it, or the problem in danger),
+  Title, Description, a "Say hello when its Bot Chat opens" checkbox, then Advanced (Clone from, the shared model
+  picker, a 120 pt SOUL editor in SF Mono, the share-keys and skip-skills checkboxes with `caption` hints). The
+  footer shows the running step beside a small spinner; Create Bot is primary. A create with something to report
+  swaps the form for the result (Created @name, warnings in danger `meta`) with Done, Set Up Model… and Open Bot
+  Chat (primary).
+  **Avatar picker** (New Bot and Edit): a segmented Shape / Upload / Generate / Pet control. Shape is one row of
+  36 pt tiles (the eight Desktop shapes drawn with their face, then "Aa" for Monogram; the staged one on
+  `selected` with a `ring` border), one row of 20 pt colour circles (the first, with a text glyph, follows the
+  name), and Randomize. Faces are drawn like Hermes Desktop's static face (body, two eyes and catchlights). Pet
+  is a search field over a 150 pt scrolling grid of 40 pt pixel-art thumbnails (6 across, names in `caption`)
+  with Show More. Generate shows a spinner while checking, then a two-line description field and Generate.
+  **Find Skills** (Advanced → Skills, a link button in the section header) and **MCP servers** (each server row:
+  checkbox, name · kind · sign-in state, then Test / API Key… / Sign In link buttons; the busy step or the last
+  result in `caption` under it; the key form is a variable field and a `SecureField`; Add Server… opens an inline
+  form on `surface`) stay inside the same scrolling body.
   Duplicate shows the running step, then the result with Open (primary). Delete names the profile folder in
   SF Mono, says "This cannot be undone." in danger, and its Delete Bot button is `button-danger` with no Return
   shortcut.

@@ -58,10 +58,19 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                               parsed from `launchctl print`: running / loaded-not-running / not loaded)
   BotProfileAPI.swift         profiles.describe/configure/set_asset/get_asset/create + model.options, typed
   SoulProtocol.swift          Desktop's "Messaging other agents" SOUL section (soul.ts), verbatim
-  ProfileAvatar.swift         avatar upload: ≤15 MB, PNG/JPEG by magic bytes, 256 px centred square PNG
+  ProfileAvatar.swift         avatar upload: ≤15 MB, PNG/JPEG by magic bytes, 256 px centred square PNG (generated
+                              images: any format ImageIO reads)
   ProfileCLI.swift            `hermes profile delete <name> --yes` (never default) and `config unset model`
                               (Inherit), trusted hermes, no shell, clean env
   BotDuplicate.swift          Duplicate: <name>-2… name, profiles.create {clone_from}, copy look and avatar
+  BotCreate.swift             A7 New Bot: Desktop's slugifyProfileName / displayName / composeSoul, the exact
+                              profiles.create payload, setup.runtime_check {profile}
+  BotLook.swift               A10 Desktop avatar vocabulary: shapes, swatches, profileColor, the static face
+                              (sampleFaceRing + eyes) as a 160 px PNG, ui_meta look patches, CAS save with removals
+  AvatarSources.swift         A10 image.generate (probe, Desktop's prompts, data URL only) and pet.gallery/pet.thumb
+  SkillsHub.swift             A13 skills.manage search / install (profile-scoped)
+  MCPServers.swift            A14 mcp.servers.list/add/set_api_key/test and the OAuth flow (start → loopback
+                              check → browser → poll → cancel on failure)
   SetupCheck.swift            E2 setup.runtime_check (read-only) → ready / noModel / unknown; retries the
                               gateway's "probe in progress" error (5097), anything unclear is `.unknown`
   DesktopGroupArchive.swift   E4/D17 parser for Hermes Desktop's ui_meta["hermes-bots-groups"] projection
@@ -97,11 +106,15 @@ Sources/HermesBotApp/       SwiftUI app:
                               hidden section), BotRowMenu
   BotMetaModel.swift          Pin / Hide per bot: optimistic, saved with BotMetaSync (HermesGatewayKit
                               BotUIMeta.swift: ui_meta["hermes-bots"] read-patch-write with CAS, like Desktop)
-  BotEditor/                  A8/A9/A11/A12 bot management: BotProfileService (protocol; live = gateway + CLI,
+  BotEditor/                  A7-A14 bot management: BotProfileService (protocol; live = gateway + CLI,
                               fake in tests), BotEditorModel + BotEditorView + BotAdvancedSection (Edit sheet:
-                              changed fields only, per-field errors, expensive-model confirm), BotLifecycleModels/
-                              Views (Duplicate progress, Delete confirmation), AppModel+BotManagement (BotSheet,
-                              roster refresh, forgetting a deleted bot)
+                              changed fields only, per-field errors, expensive-model confirm), BotModelPicker
+                              (Desktop's ModelPicker rules, shared by Edit and New Bot), BotCreateModel/View +
+                              AppModel+BotCreate (A7 New Bot: steps, warnings, readiness, intro once the Bot Chat
+                              is ready; File menu command), BotAvatarPicker (A10 Shape/Upload/Generate/Pet and the
+                              preview tile), BotCapabilityModels/Views (A13 Find Skills, A14 MCP list/add/key/
+                              test/OAuth), BotLifecycleModels/Views (Duplicate progress, Delete confirmation),
+                              AppModel+BotManagement (BotSheet, roster refresh, forgetting a deleted bot)
   Notifications/              D1/D2: NotificationPolicy (when to notify, content, routes, Dock badge count,
                               @user grammar), RoomAttention (+ RoomAttentionWatcher: fed by RoomDigestHub's
                               passes and the open room's poller; it does not poll), NotificationCoordinator
