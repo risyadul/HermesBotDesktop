@@ -5,6 +5,7 @@
 ## How it was verified
 
 - [ ] `swift build` and `swift test` pass locally
+- [ ] UI change: `HERMES_BOT_APP_WINDOW_TESTS=1 swift test` passes locally (opens windows)
 - [ ] Tried it in the running app (describe how)
 
 ## Screenshots (UI changes)

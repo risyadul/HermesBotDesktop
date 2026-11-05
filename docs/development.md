@@ -51,7 +51,8 @@ Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, Group
 Tests/HermesBotAppTests/    app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
-                            create-room sheet vs the motion gate (real window, needs a GUI session)
+                            create-room sheet vs the motion gate; real-window suites are opt-in
+                            (WindowTestGate: HERMES_BOT_APP_WINDOW_TESTS=1)
 scripts/run-app-evidence.sh  scripted app run with a watchdog
 scripts/sigint-regression.sh Ctrl+C cleanup check against a fake backend (scripts/fixtures/)
 ```
@@ -64,7 +65,8 @@ Look, tokens and motion: [DESIGN.md](../DESIGN.md), mirrored in `Sources/HermesB
 
 ```
 swift build
-swift test                                                         # no live backend needed
+swift test                                                         # headless, no live backend needed
+HERMES_BOT_APP_WINDOW_TESTS=1 swift test                           # also the real-window suites (before UI changes)
 .build/debug/HermesBotApp                                          # attach-first, else spawn
 .build/debug/bot-chat-harness evidence/<name> [profile] [prompt]   # exit 0 = ≥2 deltas + complete
 .build/debug/bot-chat-harness --delete <profile> <stored_session_id>   # remove a leftover test session

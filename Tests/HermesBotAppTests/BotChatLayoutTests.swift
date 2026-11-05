@@ -38,6 +38,7 @@ final class BotChatLayoutTests: XCTestCase {
     private func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
 
     private func check(size: NSSize, description: String?, inspector: Bool, file: StaticString = #filePath, line: UInt = #line) throws {
+        try WindowTestGate.requireWindows()
         guard NSScreen.main != nil else { throw XCTSkip("no window server session") }
         let key = "hba.botInspector"
         let saved = UserDefaults.standard.object(forKey: key)
