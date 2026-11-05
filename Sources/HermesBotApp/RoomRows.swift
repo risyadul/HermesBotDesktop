@@ -135,8 +135,8 @@ struct UserBubble: View {
     var mentionHandles: Set<String> = []
     /// Files sent with the message (Group Chat `RoomAttachments`), under its text.
     var attachments: [MediaRef] = []
-    /// Which attachments may be checked on appear (`MediaAttachmentList.autoResolve`).
-    var autoResolve: (MediaRef) -> Bool = { _ in true }
+    /// The room the message was sent in: its attachments are that room's copies (`RoomAttachmentList`).
+    var roomId = ""
 
     var body: some View {
         HStack {
@@ -151,7 +151,7 @@ struct UserBubble: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if !attachments.isEmpty {
-                    MediaAttachmentList(refs: attachments, autoResolve: autoResolve)
+                    RoomAttachmentList(refs: attachments, roomId: roomId)
                         .padding(.top, text.isEmpty ? 0 : DS.Space.s2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

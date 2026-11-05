@@ -16,6 +16,7 @@ struct RoomView: View {
     /// The room's Activity panel model (nil without a backend: the panel then shows turn status only).
     var activity: RoomActivityModel? = nil
     @ObservedObject private var avatars = AvatarStore.shared
+    @ObservedObject private var pictures = RoomPictureStore.shared
     @StateObject private var memory: RoomMotionMemory
     @State private var confirmDisband = false
     @State private var showRename = false
@@ -53,6 +54,11 @@ struct RoomView: View {
     private var memberStates: [String: RoomPresentation.MemberState] {
         RoomPresentation.memberStates(room: model.room, timeline: model.timeline, driver: model.driver)
     }
+    /// C1.8: "N of M available" (bots that still exist and whose last turn did not fail).
+    private var availability: RoomAvailability {
+        let bots = AppModel.shared.bots
+        return RoomAvailability(room: model.room, bots: bots.isEmpty ? nil : Set(bots.map(\.name)), states: memberStates)
+    }
 
     var body: some View {
         let rows = self.rows
@@ -86,7 +92,7 @@ struct RoomView: View {
         .onChange(of: model.focusRequest) { _, r in if r?.thread == RoomThreads.main { composerFocused = true } }
         .onDisappear { paste.remove() }
         .navigationTitle(model.room.name)
-        .navigationSubtitle("\(model.room.members.count) bots")
+        .navigationSubtitle(availability.summary)
         .toolbar { toolbar }
         .inspector(isPresented: inspectorShown) {
             Group {
@@ -128,7 +134,12 @@ struct RoomView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            RoomAvatarStack(identities: model.room.members.map { identity($0.memberId) })
+            let availability = availability
+            RoomAvatar(roomId: model.room.roomId, identities: model.room.members.map { identity($0.memberId) })
+                .help("\(availability.summary)\n\(availability.detail)")
+                .accessibilityElement()
+                .accessibilityLabel("\(model.room.name), \(availability.summary)")
+                .accessibilityHint(availability.detail)
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { model.stop() } label: { Label("Stop", systemImage: "stop.circle") }
@@ -144,6 +155,11 @@ struct RoomView: View {
                     showMembers = true
                 }
                     .disabled(model.lastSync == nil)
+                Divider()
+                // C1.8: local only (Application Support), never sent to Hermes.
+                Button("Choose Picture…") { pickRoomPicture(for: model) }
+                Button("Remove Picture") { pictures.removePicture(room: model.room.roomId) }
+                    .disabled(!pictures.hasPicture(room: model.room.roomId))
                 Divider()
                 Button("Disband Room…", role: .destructive) { confirmDisband = true }
             } label: { Label("Room", systemImage: "ellipsis.circle") }
@@ -248,10 +264,8 @@ struct RoomView: View {
         switch row.kind {
         case .user(let text):
             let parts = RoomAttachments.split(text)
-            let roomId = model.room.roomId
             UserBubble(text: parts.text, time: row.time, mentionHandles: Set(model.room.members.map(\.handle)),
-                       attachments: RoomAttachments.mediaRefs(parts.paths),
-                       autoResolve: { RoomAttachmentStore.contains($0.path, room: roomId) })
+                       attachments: RoomAttachments.mediaRefs(parts.paths), roomId: model.room.roomId)
                 .messageActions(messageActions(row, memberId: nil, inThreadPane: inThreadPane), alignment: .topTrailing)
         case .member(let memberId, let author, let text):
             MemberMessage(identity: identity(memberId, title: author), author: author, time: row.time) {
