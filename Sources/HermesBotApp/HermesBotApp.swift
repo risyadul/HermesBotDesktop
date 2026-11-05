@@ -275,6 +275,7 @@ struct SettingsForm: View {
                     .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            NotificationsSection()
             BackgroundServeSection(model: background)
             GatewaySection(model: dispatcher)
         }

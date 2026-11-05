@@ -56,6 +56,50 @@ private struct SettingsFootnote: View {
     }
 }
 
+// MARK: - Notifications (D1, D15)
+
+/// The "Notifications" switch (`NotificationPolicy.enabledKey`, on by default). Off: nothing is posted; the
+/// Dock badge still counts what waits on the user.
+struct NotificationsSection: View {
+    @AppStorage private var enabled: Bool
+    /// This process can post notifications (the packaged .app, not a `swift run` executable).
+    let available: Bool
+
+    init(store: UserDefaults = .standard,
+         available: Bool = UserNotificationPoster.availability(bundleURL: Bundle.main.bundleURL,
+                                                               environment: ProcessInfo.processInfo.environment)) {
+        _enabled = Self.setting(store)
+        self.available = available
+    }
+
+    /// The stored setting, shared with `NotificationPolicy.isEnabled`.
+    static func setting(_ store: UserDefaults) -> AppStorage<Bool> {
+        AppStorage(wrappedValue: NotificationPolicy.enabledByDefault, NotificationPolicy.enabledKey, store: store)
+    }
+
+    static let footnote: LocalizedStringKey = """
+        Approvals, questions, @user mentions in group chats and finished replies, while the app is in the \
+        background. Only the packaged HermesBot.app posts notifications. The Dock badge counts what waits on \
+        you either way.
+        """
+    static let unavailableNote = "This copy runs outside HermesBot.app (for example `swift run`), so it cannot post notifications."
+
+    var body: some View {
+        Section {
+            Toggle("Show notifications", isOn: $enabled)
+            if !available {
+                Label(Self.unavailableNote, systemImage: "info.circle")
+                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            SettingsFootnote(text: Self.footnote)
+        }
+    }
+}
+
 // MARK: - Background (E1)
 
 struct BackgroundServeSection: View {

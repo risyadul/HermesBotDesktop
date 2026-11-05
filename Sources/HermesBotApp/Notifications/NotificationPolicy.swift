@@ -17,12 +17,12 @@ enum AttentionEvent: Equatable {
 }
 
 enum NotificationPolicy {
-    /// `@AppStorage` key of the "Notifications" setting (default on). The Settings toggle itself is not
-    /// built yet; `defaults write io.github.risyadul.hermesbot notificationsEnabled -bool false` turns them off.
+    /// `@AppStorage` key of Settings › Notifications › "Show notifications" (`NotificationsSection`).
     static let enabledKey = "notificationsEnabled"
+    static let enabledByDefault = true
 
     static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: enabledKey) as? Bool ?? true
+        defaults.object(forKey: enabledKey) as? Bool ?? enabledByDefault
     }
 
     /// Only while the app is not frontmost, only when enabled. A bot hidden from the roster never notifies
