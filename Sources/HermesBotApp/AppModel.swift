@@ -133,6 +133,7 @@ final class AppModel: ObservableObject {
 #endif
             self?.notifications.turnEvent(type, chat)
             self?.botActivity.turnEvent(type, bot: chat.bot.name, lines: chat.lines)  // A6
+            ReadAloudController.shared.turnEvent(type, lines: chat.lines)  // B17: read finished replies aloud (setting)
         }
         notifications.track(c)
         chats[bot.name] = c

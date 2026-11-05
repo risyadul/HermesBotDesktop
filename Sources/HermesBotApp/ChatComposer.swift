@@ -18,6 +18,8 @@ struct ChatComposer: View {
     @FocusState private var focused: Bool
     @State private var menu = SlashMenuState()
     @State private var paste = AttachmentPasteMonitor()
+    /// B17: the mic button's dictation (Voice/Dictation.swift).
+    @StateObject private var dictation = DictationController()
     @Environment(\.motionEnabled) private var motion
 
     private var menuItems: [SlashCommand] {
@@ -75,6 +77,7 @@ struct ChatComposer: View {
 
     private var field: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
+            DictationErrorBanner(dictation: dictation)  // B17
             if !chat.pending.isEmpty {
                 AttachmentChips(items: chat.pending) { chat.removeAttachment($0) }
             }
@@ -98,6 +101,8 @@ struct ChatComposer: View {
                         return .handled
                     }
                     .accessibilityLabel("Message \(chat.bot.title)")
+                DictationButton(dictation: dictation, text: $chat.draft)  // B17
+                    .disabled(!chat.isReady)
                 if chat.busy {
                     IconButton(symbol: "stop.circle", label: "Stop the reply") { chat.stop() }
                 }
@@ -227,6 +232,8 @@ struct ChatComposer: View {
     /// Return / Send. With the slash menu open, Return accepts the highlight first.
     private func send() {
         if menu.returnAccepts(chat.draft, catalog: chat.catalog) { _ = acceptMenu(); return }
+        dictation.stop()  // B17: sending ends dictation and stops a reply being read aloud
+        ReadAloudController.shared.stop()
         chat.primaryAction()
     }
 

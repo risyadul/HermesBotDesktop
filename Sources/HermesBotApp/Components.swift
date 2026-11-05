@@ -252,9 +252,12 @@ struct ComposerBox: View {
     /// Attachment chips above the field.
     var attachments: [PendingAttachment] = []
     var onRemoveAttachment: (UUID) -> Void = { _ in }
+    /// B17: a mic button before Send that dictates into the draft; nil hides it.
+    var dictation: DictationController? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
+            if let dictation { DictationErrorBanner(dictation: dictation) }
             if !attachments.isEmpty {
                 AttachmentChips(items: attachments, onRemove: onRemoveAttachment)
             }
@@ -277,6 +280,7 @@ struct ComposerBox: View {
                 .focused(focus)
                 .onSubmit(onSend)
                 .onKeyPress(.tab) { onTab?() == true ? .handled : .ignored }
+            if let dictation { DictationButton(dictation: dictation, text: $draft) }
             Button("Send", action: onSend)
                 .buttonStyle(DSButtonStyle(kind: .primary))
                 .disabled(!canSend)

@@ -26,6 +26,8 @@ struct RoomView: View {
     @State private var dismissedNote: String?
     @FocusState private var composerFocused: Bool
     @State private var paste = AttachmentPasteMonitor()
+    /// B17: the composer's mic button (Voice/Dictation.swift).
+    @StateObject private var dictation = DictationController()
     @State private var dropTargeted = false
     /// This view as one of the room's viewers (D9: the room can show in two windows).
     @State private var viewer = PaneViewer()
@@ -358,7 +360,8 @@ struct RoomView: View {
                         onTab: { MentionSuggestions.acceptFirst(&mainDraft.wrappedValue, members: model.room.members) },
                         onAttach: attachAction,
                         attachments: model.pending,
-                        onRemoveAttachment: { model.removeAttachment($0) })
+                        onRemoveAttachment: { model.removeAttachment($0) },
+                        dictation: model.composer.isOpen ? dictation : nil)
                 .overlay(alignment: .topLeading) {
                     MentionSuggestions(draft: mainDraft, members: model.room.members, identity: { identity($0.memberId, title: $0.title) })
                         .alignmentGuide(.top) { $0[.bottom] + DS.Space.s1 }
@@ -403,6 +406,7 @@ struct RoomView: View {
 
     /// The model clears the draft only when it accepted it (a closing/disbanded room keeps it).
     private func send() {
+        dictation.stop()  // B17
         model.submit(thread: RoomThreads.main)
     }
 

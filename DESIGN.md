@@ -572,9 +572,10 @@ toolbar. Minimum window 820 × 520.
   SF Mono, says "This cannot be undone." in danger, and its Delete Bot button is `button-danger` with no Return
   shortcut.
 - **Settings window:** 420 pt wide and as tall as its content, so every section (General, Notifications,
-  Background, Kanban dispatcher) is on screen without scrolling; it follows rows that come and go.
+  Voice, Background, Kanban dispatcher) is on screen without scrolling; it follows rows that come and go.
   Notifications is one switch, "Show notifications", with a footnote on what notifies and that only the
-  packaged app can post them (a `swift run` build also says so in a muted info line).
+  packaged app can post them (a `swift run` build also says so in a muted info line). Voice is one switch,
+  "Read replies aloud automatically" (off), with a footnote on the system voice, what is skipped and dictation.
 - **Empty states** are centred in the pane, never pinned to the composer by a bottom-anchored scroll.
 - **Window resize:** the detail pane flexes; bubbles and messages wrap within their max widths; the
   ribbon scrolls horizontally instead of wrapping; nothing clips at the 820 pt minimum. The sidebar
@@ -743,7 +744,14 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `message-actions` (Bot Chat): hovering a message shows when it was sent (caption, muted: "3:27 PM",
   "Yesterday, 3:27 PM", "Sep 28, 3:27 PM"; the full date is the tooltip) and Copy (and Copy full response for a
   reply in several parts) at its top trailing corner on a `window` plate with a hairline; the same actions are
-  in its context menu. A reply is timed from its completion.
+  in its context menu. A reply is timed from its completion. A finished reply with words to say adds Read
+  aloud (`speaker.wave.2`; Shift-click reads the whole turn), which becomes Stop reading (`stop.circle`) while
+  that reply is spoken; the context menu adds Read Aloud, Read Turn Aloud (a reply in several parts) and Stop
+  Reading.
+- `dictation` (B17): a mic icon button between the text and Send in both composers. While listening it is
+  `mic.fill` in the pressed state and pulses (motion on). Words stream in at the caret. A problem shows as a
+  danger `meta` line inside the composer box above the field (`mic.slash`, the reason, Open System Settings as
+  `button-secondary` when a privacy pane fixes it, and a Dismiss icon button).
 - `turn-duration` (Bot Chat): under the last reply text of a turn watched from its start, a `timer` symbol and
   the duration ("12s", "2:05") in caption, muted. Not shown for history or a turn joined mid-way.
 - `mention-suggestions` (Bot Chat): typing `@` lists the other bots (avatar 22, title, the `@tag` that will be

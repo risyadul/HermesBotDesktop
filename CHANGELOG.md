@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Voice (B17), with the macOS engines (not Hermes's TTS/STT backends):
+  - **Dictation:** a mic button in the Bot Chat and Group Chat composers streams speech into the message at the
+    caret (Speech framework, on this Mac when the language supports it). Stops after about 2 s of silence, on a
+    second click or on Send. Microphone and speech recognition access are asked on first use; a refusal, an
+    unsupported language or a `swift run` build is explained in the composer, with a System Settings link where
+    one helps. `HermesBot.app` now declares `NSMicrophoneUsageDescription` and
+    `NSSpeechRecognitionUsageDescription`.
+  - **Read Aloud** on finished Bot Chat replies (hover button and context menu; Shift-click reads the whole
+    turn), in the system voice. Code blocks, attachments, tool and Thought rows are skipped; Esc, sending a
+    message or starting dictation stops it. **Settings → Voice → Read replies aloud automatically** (off by
+    default) speaks new replies when they finish.
 - Group Chat rooms can be pinned and reordered in the sidebar (C1.4): right-click a room for **Pin to Top** /
   **Unpin**, **Move Up** and **Move Down**, or drag it onto another room. Pinned rooms come first. Kept on this
   Mac only (UserDefaults), never sent to Hermes.

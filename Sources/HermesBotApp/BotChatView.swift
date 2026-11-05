@@ -209,7 +209,7 @@ struct BotChatView: View {
             let bot = chat.bot
             view.messageCopyActions(line, fullResponse: full[line.id], onCreateTask: {
                 AppModel.shared.composeTask(from: .botChat(text: line.text, fromUser: line.role == .user, bot: bot.name, botTitle: bot.title))
-            })
+            }, readAloud: ReadAloudItem.reply(line, lines: { [chat] in chat.lines }))  // B17
         } else {
             view
         }

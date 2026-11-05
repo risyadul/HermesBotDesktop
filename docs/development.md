@@ -134,6 +134,16 @@ Sources/HermesBotApp/       SwiftUI app:
                               under XCTest), AppModel+Notifications (click and Approve/Deny routing),
                               NotificationMutes (D15: muted bots/rooms in UserDefaults `hba.mutedNotifications`;
                               no banner, the Dock badge still counts them)
+  Voice/                      B17: SpeechText (what Read Aloud says: markdown flattened, code blocks, MEDIA tags,
+                              Thought and tool rows left out), ReadAloud (SpeechSynthesizing protocol,
+                              ReadAloudController: one voice app-wide, Esc watcher while speaking, auto-read on
+                              `message.complete` behind `hba.readRepliesAloud`), SystemSpeechSynthesizer
+                              (AVSpeechSynthesizer, system voice), Dictation (SpeechRecognizing protocol,
+                              DictationController: lazy permissions, partials at the caret, silence stop,
+                              DictationInsertion, DictationError), SystemSpeechRecognizer (SFSpeechRecognizer +
+                              AVAudioEngine, on-device when supported; needs the Info.plist usage strings, so a
+                              `swift run` build reports "outside the app"), VoiceViews (mic button, error banner,
+                              Read Aloud button/menu items, Settings › Voice)
   AppCommands.swift           D5/D9/D10/D13 menus: Go (⌘K, ⇧⌘F, ⌘1…9, Open in New Window), File → room
                               templates; SidebarItemMenu (Open in New Window, Save as Template…, Mute) for rows
   QuickSwitch.swift           pure: SidebarShortcuts (⌘1…9 = rooms then bots in sidebar order), FuzzyMatch,
@@ -325,6 +335,11 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
   throwaway UserDefaults suite; `ChatDraftStore.app` is nil under XCTest.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
+- Voice (B17) never touches the microphone, the recognizer or the speakers in tests: `DictationTests` drive
+  `DictationController` with a scripted `SpeechRecognizing` fake and `ReadAloudTests` use a recording
+  `SpeechSynthesizing` fake and a hand-fired Esc monitor; `ReadAloudController.shared` is silent under XCTest.
+  The real engines need `HermesBot.app` (`scripts/package-app.sh` writes `NSMicrophoneUsageDescription` and
+  `NSSpeechRecognitionUsageDescription`); try them by hand there.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
   pruning. The hidden member sessions are cleaned without restarting anything:
   `group-chat-harness cleanup <evidence-dir> @<room-manifest.jsonl>` disbands, then re-discovers the rooms'

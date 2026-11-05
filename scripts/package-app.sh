@@ -47,6 +47,9 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <!-- B17 Voice: dictation (Speech framework + microphone); asked on the first use of the mic button. -->
+  <key>NSMicrophoneUsageDescription</key><string>Hermes Bot listens only while you dictate a message with the mic button.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Hermes Bot turns your speech into message text when you dictate with the mic button, on this Mac when your language supports it.</string>
 </dict>
 </plist>
 PLIST
