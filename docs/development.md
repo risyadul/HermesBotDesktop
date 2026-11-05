@@ -79,6 +79,10 @@ Sources/SpikeHarness/       CLI: the M0 groups.* round trip (isolated home): Rou
 Sources/GroupChatHarness/   CLI: Group Chat scenarios (multi/stop/retry/approve/cleanup/audit)
 Sources/HermesBotApp/       SwiftUI app:
   HermesBotApp.swift          @main App, AppDelegate (signals, quit cleanup with deadline), RootView, Settings
+  Updates/                    E3 update check: AppVersion (semver order), UpdatePolicy (GitHubRelease from
+                              `releases/latest`, release-page allowlist, daily schedule, what is shown when),
+                              UpdateChecker (fetch, hourly tick, NSAlert with notes + Download = open the page),
+                              UpdateViews (app menu Check for Updates…, Settings → Updates)
   AppModel.swift              connection (ConnectFlow), bots, rooms, backend loss, shutdown
   ChatModel.swift             one Bot Chat 1:1 (open/seed/send gate, wraps ChatTranscript)
   ChatModel+Slash.swift       slash command execution and directives
@@ -233,7 +237,10 @@ Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatMo
                             create-room sheet vs the motion gate; macOS integration (PaneWindowTests,
                             QuickSwitchTests, QuickLookTests, RoomTemplateMuteTests); real-window suites are opt-in
                             (WindowTestGate: HERMES_BOT_APP_WINDOW_TESTS=1; PaneWindowLiveTests hosts one room in
-                            two windows, local opt-in only)
+                            two windows, local opt-in only); E3: UpdateCheckTests (fixture JSON, fake fetch, never
+                            the real GitHub API), PackageScriptTests (`bash -n` and `--dry-run` of package-app.sh)
+scripts/package-app.sh       release .app + zip: --universal (lipo), --dry-run, Developer ID + notarization by env
+scripts/HermesBot.entitlements  hardened-runtime entitlements for a Developer ID signature (no sandbox)
 scripts/run-app-evidence.sh  scripted app run with a watchdog
 scripts/sigint-regression.sh Ctrl+C cleanup check against a fake backend (scripts/fixtures/)
 ```
@@ -254,6 +261,73 @@ HERMES_BOT_APP_WINDOW_TESTS=1 swift test                           # also the re
 .build/debug/spike-harness evidence/<name>                         # M0 groups.* round trip
 .build/debug/group-chat-harness <scenario> evidence/<name> [args]  # scenarios in its header comment
 ```
+
+### Intel (x86_64)
+
+Release builds are universal (arm64 + x86_64). CI runs `swift build` + `swift test` on GitHub's Intel image
+(`macos-15-intel`, job `build-and-test-intel`). On an Apple silicon Mac with Rosetta 2, cross-build the tests
+for x86_64 and run the bundle with the universal `xctest` under Rosetta:
+
+```
+arch -x86_64 /usr/bin/true || softwareupdate --install-rosetta --agree-to-license   # Rosetta present?
+swift build --build-tests --arch x86_64 --scratch-path .build/x86_64-rosetta
+arch -x86_64 "$(xcrun -f xctest)" .build/x86_64-rosetta/x86_64-apple-macosx/debug/HermesBotAppPackageTests.xctest
+```
+
+`arch -x86_64 swift test` does **not** do this with Xcode 26: its `swift-build` is arm64-only, so it quietly
+builds arm64. `swift test --arch x86_64` builds the right bundle but its arm64-only test helper cannot load it.
+The `xctest` route runs the XCTest suites only; the Swift Testing tests (`@Test`, HermesGatewayKit) run as
+x86_64 on the Intel CI job. Last local run (2026-11-06, Xcode 26 / Swift 6.3.3): 1171 XCTest tests, 37 skipped
+(window tests), 0 failures.
+
+## Release process
+
+1. Update `CHANGELOG.md` (move Unreleased under the new version) and merge to `main`.
+2. Create and push a tag `vMAJOR.MINOR.PATCH` (for example `v0.2.0`). Tags must be numeric: the version becomes
+   `CFBundleShortVersionString`, which the in-app update check compares with the latest release.
+3. `.github/workflows/release.yml` runs `scripts/package-app.sh <version> --universal` on `macos-15`, writes
+   `SHA256SUMS.txt` and publishes `HermesBot-<version>-macos-universal.zip` as a GitHub Release with generated
+   notes. Installed apps see it at their next daily check (Hermes Bot → Check for Updates… at once).
+
+Locally, `scripts/package-app.sh 0.2.0 --universal --dry-run` prints what a run would do; a real run prints
+`lipo -info` and `codesign -dv` of the result.
+
+### Signing and notarization
+
+`package-app.sh` decides from its environment:
+
+| `DEVELOPER_ID_APPLICATION` | `NOTARY_PROFILE` | Result |
+|---|---|---|
+| unset | unset | ad-hoc signature (`codesign -s -`), not notarized: users confirm the first launch |
+| set | unset | Developer ID signature, hardened runtime, `scripts/HermesBot.entitlements`; not notarized |
+| set | set | the above, then `xcrun notarytool submit --wait` (fails unless `Accepted`), `stapler staple`, `spctl` check |
+| unset | set | error |
+
+`NOTARY_KEYCHAIN` names the keychain holding the profile when it is not in the search list. Locally, once:
+`xcrun notarytool store-credentials hermesbot-notary --apple-id <id> --team-id <TEAMID>` (asks for an
+app-specific password), then `DEVELOPER_ID_APPLICATION="Developer ID Application: Name (TEAMID)"
+NOTARY_PROFILE=hermesbot-notary scripts/package-app.sh 0.2.0 --universal`.
+
+Entitlements (no App Sandbox: the app runs `hermes` and reads `~/.hermes`): `network.client` and
+`device.audio-input` (the hardened runtime blocks the microphone without it; needed for dictation). No
+hardened-runtime exceptions (JIT, unsigned memory, library validation).
+
+The release workflow signs and notarizes when these **repository secrets** exist (Settings → Secrets and
+variables → Actions); without them it publishes an ad-hoc signed release, as before:
+
+| Secret | Value |
+|---|---|
+| `MACOS_DEVELOPER_ID_P12_BASE64` | the "Developer ID Application" certificate and its private key exported as .p12, base64 (`base64 -i cert.p12`) |
+| `MACOS_DEVELOPER_ID_P12_PASSWORD` | the .p12 export password |
+| `MACOS_DEVELOPER_ID_APPLICATION` | the identity name, e.g. `Developer ID Application: Name (TEAMID)` |
+| `NOTARY_API_KEY_P8_BASE64` | an App Store Connect API key (.p8, role Developer), base64 |
+| `NOTARY_API_KEY_ID` | that key's ID |
+| `NOTARY_API_ISSUER_ID` | the issuer ID (App Store Connect → Users and Access → Integrations) |
+
+The three certificate secrets alone give a signed, not notarized release (the workflow warns). The workflow
+imports the certificate into a throwaway keychain, stores the notary profile there, and deletes it at the end.
+**Not yet exercised:** this project has no Developer ID yet, so the signed and notarized paths have only been
+checked with `--dry-run` and by review; the first real run needs the maintainer's Apple Developer account.
 
 ## Test-only environment variables
 
@@ -323,6 +397,8 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
 - Bot Chat @mentions (B1) are tested with `FakeChatLink` and an injected roster: tests check the note on the
   submitted text and that nothing else is sent; no prompt reaches a real bot. Drafts (B12) are tested in a
   throwaway UserDefaults suite; `ChatDraftStore.app` is nil under XCTest.
+- Update checks never reach GitHub in tests: `UpdateChecker` takes an injected fetch (UpdateCheckTests answers
+  with a fixture), and the schedule only starts from the app delegate. Package script tests use `--dry-run` only.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend

@@ -10,7 +10,7 @@ permissions:
 jobs:
   package:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -19,20 +19,62 @@ jobs:
           persist-credentials: false
       - name: Toolchain
         run: swift --version
-      - name: Package app
+      # Developer ID signing and notarization (E3) run only when the repository secrets are set
+      # (docs/development.md, "Release process"). Without them the release is ad-hoc signed, as before.
+      - name: Signing setup
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_API_ISSUER_ID }}
+        run: |
+          if [ -z "$CERT_P12_BASE64" ] || [ -z "$CERT_PASSWORD" ] || [ -z "$IDENTITY" ]; then
+            echo "::notice::No Developer ID secrets: this release is ad-hoc signed and not notarized."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/release-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          umask 077
+          printf '%s' "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "RELEASE_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "DEVELOPER_ID_APPLICATION=$IDENTITY" >> "$GITHUB_ENV"
+          if [ -z "$NOTARY_KEY_P8_BASE64" ] || [ -z "$NOTARY_KEY_ID" ] || [ -z "$NOTARY_ISSUER_ID" ]; then
+            echo "::warning::Developer ID secrets are set but the notary API key is not: this release is signed, not notarized."
+            exit 0
+          fi
+          printf '%s' "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool store-credentials hermesbot-notary --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --keychain "$keychain"
+          rm -f "$RUNNER_TEMP/notary.p8"
+          echo "NOTARY_PROFILE=hermesbot-notary" >> "$GITHUB_ENV"
+          echo "NOTARY_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      - name: Package app (universal)
         env:
           TAG: ${{ github.ref_name }}
-        run: ./scripts/package-app.sh "${TAG#v}"
+        run: ./scripts/package-app.sh "${TAG#v}" --universal
+      - name: Remove signing keychain
+        if: always()
+        run: |
+          if [ -n "${RELEASE_KEYCHAIN:-}" ]; then security delete-keychain "$RELEASE_KEYCHAIN" || true; fi
       - name: Checksum
         run: |
           cd dist
-          shasum -a 256 HermesBot-*-macos-arm64.zip > SHA256SUMS.txt
+          shasum -a 256 HermesBot-*-macos-universal.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-files
           path: |
-            dist/HermesBot-*-macos-arm64.zip
+            dist/HermesBot-*-macos-universal.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -53,5 +95,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/HermesBot-*-macos-arm64.zip dist/SHA256SUMS.txt \
+          gh release create "$TAG" dist/HermesBot-*-macos-universal.zip dist/SHA256SUMS.txt \
             --title "$TAG" --generate-notes --verify-tag

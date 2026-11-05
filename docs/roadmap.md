@@ -151,7 +151,18 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 Not needed to use the app yourself, but required before announcing a public release.
 
 - [x] **E2** First-run onboarding: Hermes missing, no model configured, only one bot (M)
-- [ ] **E3** Distribution: Developer ID notarization, auto-update, Intel testing (M)
+- [ ] **E3** Distribution: Developer ID notarization, auto-update, Intel testing (M). Open until a notarized
+      release ships: real signing and notarization need the maintainer's Developer ID (certificate + notary key as
+      repository secrets, docs/development.md "Release process").
+  - [x] Universal (arm64 + x86_64) release build: `package-app.sh --universal`, checked with `lipo`
+  - [x] Signing and notarization pipeline: Developer ID + hardened runtime + entitlements, `notarytool` and
+        stapling in `package-app.sh`, wired to optional secrets in the release workflow (ad-hoc fallback)
+  - [ ] First Developer ID-signed, notarized release (maintainer: Apple Developer account, secrets)
+  - [x] Updates: Check for Updates… + daily check against GitHub Releases, release notes, Download opens the
+        release page (no automatic install, no third-party updater)
+  - [x] Intel testing: CI job on `macos-15-intel`; the XCTest suites pass as x86_64 under Rosetta locally
+        (docs/development.md, "Intel (x86_64)")
+  - [ ] Launch the universal app on a real Intel Mac
 
 ## Backlog
 
