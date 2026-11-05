@@ -15,8 +15,6 @@ extension DS {
         static let descriptionHeight: CGFloat = 96
         static let commentLines = 1...5
         static let titleLines = 3
-        /// How often the dispatcher chip re-reads the gateway record while a board is on screen.
-        static let dispatcherRefresh: TimeInterval = 10
     }
 }
 
@@ -53,15 +51,9 @@ struct KanbanBoardView: View {
                 .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showInspector) { _, shown in storedInspector = shown }
-        .onAppear { model.start() }
-        .onDisappear { model.stop() }
-        .task {
-            // The dispatcher record is a local file check: cheap enough to re-read while the board is visible.
-            while !Task.isCancelled {
-                await hub.dispatcher.refresh()
-                try? await Task.sleep(nanoseconds: UInt64(DS.Kanban.dispatcherRefresh * 1_000_000_000))
-            }
-        }
+        // Polling (board and dispatcher record) pauses while no app window is on screen (KanbanHub.setActive).
+        .onAppear { model.start(); hub.watchDispatcher(true) }
+        .onDisappear { model.stop(); hub.watchDispatcher(false) }
         .confirmationDialog("Archive “\(archiveCandidate?.title ?? "")”?",
                             isPresented: Binding(get: { archiveCandidate != nil }, set: { if !$0 { archiveCandidate = nil } })) {
             Button("Archive", role: .destructive) {
@@ -74,6 +66,11 @@ struct KanbanBoardView: View {
                                onCreate: { draft, column in await model.create(draft, column: column) },
                                onClose: { showNewTask = false })
         }
+    }
+
+    /// Where "Go to Another Board" leads: the first other listed board, or nil when there is none.
+    static func otherBoard(_ rows: [KanbanSidebarRow], current: String) -> String? {
+        rows.first { $0.slug != current }?.slug
     }
 
     private var subtitle: String {
@@ -158,6 +155,13 @@ struct KanbanBoardView: View {
             EmptyStateView(symbol: "rectangle.split.3x1", title: "Kanban is off in Hermes",
                            message: "Turn on the kanban plugin in Hermes to see this board here.") {
                 Button("Try Again") { model.stop(); model.start() }.buttonStyle(DSButtonStyle(kind: .secondary))
+            }
+        case .gone:
+            EmptyStateView(symbol: "rectangle.slash", title: KanbanBoardModel.goneMessage,
+                           message: "It is no longer on Hermes' board list. Its cards cannot be changed from here.") {
+                if let next = Self.otherBoard(hub.rows, current: model.slug) {
+                    Button("Go to Another Board") { onSelectBoard(next) }.buttonStyle(DSButtonStyle(kind: .primary))
+                }
             }
         case .failed(let message):
             EmptyStateView(symbol: "exclamationmark.triangle", title: "Can't load this board", message: message) {

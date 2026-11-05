@@ -125,4 +125,44 @@ final class PluginRESTTests: XCTestCase {
         XCTAssertEqual(PluginREST.segment("t_1"), "t_1")
         XCTAssertEqual(PluginREST.segment("a/b c?"), "a%2Fb%20c%3F")
     }
+    // MARK: response size cap and query encoding
+
+    func testOversizedJSONResponseIsRefusedWhileStreaming() async {
+        let big = Data(repeating: UInt8(ascii: " "), count: PluginREST.maxResponseBytes + 1)
+        let port = StubURLProtocol.serve { _ in .init(data: big) }
+        let f = await failure { _ = try await PluginStub.rest(port: port, plugin: "kanban").get("/boards") }
+        XCTAssertEqual(f, .refused("response too large"))
+    }
+
+    func testOversizedContentLengthIsRefusedBeforeReading() async {
+        let port = StubURLProtocol.serve { _ in .init(json: "{}", headers: ["Content-Length": "\(PluginREST.maxResponseBytes + 1)"]) }
+        let f = await failure { _ = try await PluginStub.rest(port: port, plugin: "kanban").get("/boards") }
+        XCTAssertEqual(f, .refused("response too large"))
+    }
+
+    func testOversizedErrorBodyIsRefusedToo() async {
+        let big = Data(repeating: UInt8(ascii: "x"), count: PluginREST.maxResponseBytes + 1)
+        let port = StubURLProtocol.serve { _ in .init(status: 500, data: big) }
+        let f = await failure { _ = try await PluginStub.rest(port: port, plugin: "kanban").get("/boards") }
+        XCTAssertEqual(f, .refused("response too large"))
+    }
+
+    func testResponseAtTheCapIsAccepted() async throws {
+        var json = Data("{\"a\":1}".utf8)
+        json.append(Data(repeating: UInt8(ascii: " "), count: PluginREST.maxResponseBytes - json.count))
+        let body = json
+        let port = StubURLProtocol.serve { _ in .init(data: body) }
+        let r = try await PluginStub.rest(port: port, plugin: "kanban").get("/boards")
+        XCTAssertEqual(r["a"]?.intValue, 1)
+    }
+
+    func testPlusInQueryValuesIsPercentEncoded() async throws {
+        let port = StubURLProtocol.serve { _ in .init(json: "{}") }
+        _ = try await PluginStub.rest(port: port, plugin: "kanban").get("/boards", query: [.init(name: "q", value: "c++ a+b c")])
+        let seen = try XCTUnwrap(StubURLProtocol.requests(port: port).first)
+        let raw = try XCTUnwrap(URLComponents(url: seen.url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+        XCTAssertFalse(raw.contains("+"), raw)
+        XCTAssertEqual(raw, "q=c%2B%2B%20a%2Bb%20c")
+        XCTAssertEqual(PluginStub.query(seen)["q"], "c++ a+b c", "decodes back to the literal value")
+    }
 }

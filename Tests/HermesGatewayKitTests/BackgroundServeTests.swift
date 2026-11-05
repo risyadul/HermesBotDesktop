@@ -22,12 +22,22 @@ final class FakeCommandRunner: CommandRunner, @unchecked Sendable {
     }
 }
 
-/// Mutable "is the job loaded" flag shared with a fake launchctl.
+/// Mutable "is the job loaded / running" flags shared with a fake launchctl.
 final class LaunchdState: @unchecked Sendable {
     private let lock = NSLock()
     private var _loaded: Bool
+    private var _running = true
     init(loaded: Bool) { _loaded = loaded }
     var loaded: Bool { get { lock.withLock { _loaded } } set { lock.withLock { _loaded = newValue } } }
+    /// While loaded: does `launchctl print` report `state = running`?
+    var running: Bool { get { lock.withLock { _running } } set { lock.withLock { _running = newValue } } }
+
+    /// What `launchctl print` would say (trimmed shape of the real output).
+    var printOutput: String {
+        running
+            ? "gui/501/io.github.risyadul.hermesbot.serve = {\n\tactive count = 1\n\tstate = running\n\tpid = 4242\n\tendpoints = {\n\t\tstate = waiting\n\t}\n}\n"
+            : "gui/501/io.github.risyadul.hermesbot.serve = {\n\tactive count = 0\n\tstate = not running\n\tlast exit code = 1\n}\n"
+    }
 }
 
 enum TempFS {
@@ -63,8 +73,9 @@ final class BackgroundServeTests: XCTestCase {
             let verb = args.first ?? ""
             if verb == failing { return CommandResult(status: 5, output: "Bootstrap failed: 5: Input/output error") }
             switch verb {
-            case "print": return CommandResult(status: state.loaded ? 0 : 113, output: "")
-            case "bootstrap": state.loaded = true
+            case "print": return CommandResult(status: state.loaded ? 0 : 113, output: state.loaded ? state.printOutput : "")
+            case "bootstrap": state.loaded = true; state.running = true
+            case "kickstart": state.running = true
             case "bootout": state.loaded = false
             default: break
             }
@@ -194,5 +205,97 @@ final class BackgroundServeTests: XCTestCase {
         try BackgroundServe.plistData(hermes: "/bin/sh", hermesHome: "/h", logFile: "/l", home: "/u").write(to: real)
         try FileManager.default.createSymbolicLink(at: serve.plistURL, withDestinationURL: real)
         guard case .unreadable = await serve.status() else { return XCTFail("a symlinked plist must not be followed") }
+    }
+    // MARK: launchctl print parsing, start, log permissions, confirmed path
+
+    func testParseJobReadsTopLevelStateAndPid() {
+        XCTAssertEqual(BackgroundServe.parseJob("x = {\n\tstate = running\n\tpid = 77\n\tendpoints = {\n\t\tstate = waiting\n\t}\n}"),
+                       .running(pid: 77))
+        XCTAssertEqual(BackgroundServe.parseJob("x = {\n\tendpoints = {\n\t\tstate = running\n\t}\n\tstate = not running\n}"),
+                       .loadedNotRunning, "a nested state never wins over the job's own")
+        XCTAssertEqual(BackgroundServe.parseJob("x = {\n\tstate = spawn scheduled\n}"), .loadedNotRunning)
+        XCTAssertEqual(BackgroundServe.parseJob("x = {\n\tpid = 12\n}"), .running(pid: 12), "a pid alone means it runs")
+        XCTAssertEqual(BackgroundServe.parseJob(""), .loadedNotRunning, "exit 0 alone is not running")
+        XCTAssertEqual(BackgroundServe.parseJob("\tstate = running\n"), .running(pid: nil))
+    }
+
+    func testLoadedButNotRunningIsItsOwnStatusAndStartKickstarts() async throws {
+        let (serve, runner, state, hermes) = try make()
+        try await serve.install()
+        let pid = await serve.jobPID()
+        XCTAssertEqual(pid, 4242)
+        state.running = false
+        let st = await serve.status()
+        XCTAssertEqual(st, .loadedNotRunning(executable: TempFS.real(hermes)))
+        let noPid = await serve.jobPID()
+        XCTAssertNil(noPid)
+        try await serve.start()
+        XCTAssertEqual(runner.calls.last?.arguments, ["kickstart", "gui/501/io.github.risyadul.hermesbot.serve"])
+        let after = await serve.status()
+        XCTAssertEqual(after, .loaded(executable: TempFS.real(hermes)))
+    }
+
+    func testStartBootstrapsTheWrittenPlistWithoutANewLookup() async throws {
+        let (serve, runner, state, hermes) = try make()
+        try await serve.install()
+        state.loaded = false
+        try FileManager.default.removeItem(at: hermes)  // a new lookup would fail: start must not do one
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/sh"), to: hermes)
+        try await serve.start()
+        XCTAssertEqual(runner.calls.last?.arguments, ["bootstrap", "gui/501", serve.plistURL.path])
+        let n = runner.calls.count
+        try await serve.start()  // running: nothing to do
+        XCTAssertEqual(runner.calls.count, n + 1, "only the print")
+    }
+
+    func testStartRefusesWithoutAPlist() async throws {
+        let (serve, runner, _, _) = try make()
+        do { try await serve.start(); XCTFail("expected refusal") } catch {}
+        XCTAssertTrue(runner.calls.isEmpty)
+    }
+
+    func testInstallWithoutBootstrapOnlyWritesThePlist() async throws {
+        let (serve, runner, state, hermes) = try make()
+        try await serve.install(bootstrap: false)
+        XCTAssertEqual(runner.calls.map { $0.arguments.first ?? "" }, ["print"])
+        XCTAssertFalse(state.loaded)
+        let st = await serve.status()
+        XCTAssertEqual(st, .installedNotLoaded(executable: TempFS.real(hermes)))
+    }
+
+    func testInstallRefusesWhenTheConfirmedPathDiffers() async throws {
+        let (serve, runner, _, hermes) = try make()
+        do { try await serve.install(expecting: "/somewhere/else/hermes"); XCTFail("expected refusal") } catch {
+            guard case .hermes(let m)? = error as? BackgroundServe.Failure else { return XCTFail("\(error)") }
+            XCTAssertTrue(m.contains("not the one you confirmed"), m)
+        }
+        XCTAssertTrue(runner.calls.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: serve.plistURL.path))
+        try await serve.install(expecting: TempFS.real(hermes))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: serve.plistURL.path))
+    }
+
+    func testResolveHermesSaysWhenTheEnvironmentChoseIt() throws {
+        let (serve, _, _, hermes) = try make()
+        XCTAssertEqual(try serve.resolveHermes(), .init(path: TempFS.real(hermes), fromEnvironment: true))
+        let (home, _) = try TempFS.home()
+        cleanup.append(home)
+        let searched = BackgroundServe(home: home, uid: 501, environment: ["PATH": hermes.deletingLastPathComponent().path],
+                                       runner: FakeCommandRunner())
+        XCTAssertEqual(try searched.resolveHermes(), .init(path: TempFS.real(hermes), fromEnvironment: false))
+    }
+
+    func testLogDirAndFileAreOwnerOnly() async throws {
+        let (serve, _, _, _) = try make()
+        let logDir = serve.logFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+        chmod(logDir.path, 0o755)  // a pre-existing, too-open dir
+        try await serve.install()
+        var st = stat()
+        XCTAssertEqual(stat(logDir.path, &st), 0)
+        XCTAssertEqual(st.st_mode & 0o777, 0o700)
+        XCTAssertEqual(lstat(serve.logFile.path, &st), 0, "log pre-created")
+        XCTAssertEqual(st.st_mode & 0o777, 0o600)
+        XCTAssertEqual(st.st_mode & S_IFMT, S_IFREG)
     }
 }

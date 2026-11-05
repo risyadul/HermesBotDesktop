@@ -181,7 +181,9 @@ extension KanbanTask {
 
 @MainActor
 final class KanbanBoardModel: ObservableObject, Identifiable {
-    enum LoadState: Equatable { case loading, ready, unavailable, failed(String) }
+    /// `gone`: the board was deleted or archived while open (the server answers 404 "board … does not exist"
+    /// / "… is archived"): polling stops for good and every action is refused.
+    enum LoadState: Equatable { case loading, ready, unavailable, gone, failed(String) }
 
     enum Mutation: Equatable {
         case move(String)
@@ -246,6 +248,10 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
 
     /// Bumped by `start` and `stop`: answers of an older loop are dropped.
     private(set) var generation = 0
+    /// The view wants polling (`start` … `stop`); kept while suspended, so `setSuspended(false)` resumes.
+    private(set) var wantsPolling = false
+    /// No app window on screen (KanbanHub.setActive): no loop runs.
+    private(set) var isSuspended = false
     private(set) var pollCount = 0
     private(set) var droppedStale = 0
     private(set) var failures = 0
@@ -284,7 +290,8 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     // MARK: polling
 
     func start() {
-        guard loop == nil else { return }
+        wantsPolling = true
+        guard loop == nil, !isSuspended, state != .gone else { return }
         generation += 1
         let gen = generation, sleep = self.sleep
         loop = Task { [weak self] in
@@ -297,9 +304,42 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     }
 
     func stop() {
+        wantsPolling = false
+        endLoop()
+    }
+
+    private func endLoop() {
         generation += 1
         loop?.cancel()
         loop = nil
+    }
+
+    /// Suspended: the loop stops but `wantsPolling` is kept; resumed: it starts again (fetching at once).
+    func setSuspended(_ suspended: Bool) {
+        guard suspended != isSuspended else { return }
+        isSuspended = suspended
+        if suspended {
+            if loop != nil { endLoop() }
+        } else if wantsPolling {
+            start()
+        }
+    }
+
+    static let goneMessage = "This board was deleted or archived."
+
+    /// The 404 the kanban plugin answers for a board that no longer exists or was archived
+    /// (`_resolve_board`, plugins/kanban/dashboard/plugin_api.py).
+    static func isBoardGone(_ error: Error) -> Bool {
+        guard case PluginREST.Failure.http(404, let detail) = error, detail.hasPrefix("board ") else { return false }
+        return detail.hasSuffix(" does not exist") || detail.hasSuffix(" is archived")
+    }
+
+    /// Stops polling for good; pending overlays and sync errors go (the view shows the gone state).
+    private func markGone() {
+        state = .gone
+        pending = []
+        syncError = nil
+        endLoop()
     }
 
     /// One fetch for the loop of `gen`; returns the wait before the next one, or nil to end the loop.
@@ -313,6 +353,8 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         case .unavailable:
             if gen == generation { loop = nil }  // the plugin is off: no retry loop, `start` begins anew
             return nil
+        case .gone:
+            return nil
         }
     }
 
@@ -320,7 +362,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         min(maxBackoff, interval * pow(2, Double(max(0, failures))))
     }
 
-    enum FetchOutcome { case applied, stale, dropped, failed, unavailable }
+    enum FetchOutcome { case applied, stale, dropped, failed, unavailable, gone }
 
     /// Fetches the board now (also used right after an action). Applies the answer only if it is still the
     /// newest one for the current generation and no action finished while it was in flight.
@@ -353,6 +395,10 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
             if case PluginREST.Failure.pluginUnavailable = error {
                 state = .unavailable
                 return .unavailable
+            }
+            if Self.isBoardGone(error) {
+                markGone()
+                return .gone
             }
             failures += 1
             let text = Self.describe(error)
@@ -414,6 +460,10 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
 
     private func perform(_ taskId: String, _ mutation: Mutation, what: String,
                          _ call: @escaping @Sendable (any KanbanService, String) async throws -> KanbanTask?) async -> Bool {
+        guard state != .gone else {
+            error = "\(what) failed: \(Self.goneMessage)"
+            return false
+        }
         nextSeq += 1
         let p = Pending(seq: nextSeq, taskId: taskId, mutation: mutation)
         pending.append(p)
@@ -425,10 +475,11 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
             // Keep the change on screen until the next poll confirms it.
             if let updated { serverLanes = Self.place(updated, in: serverLanes) } else { serverLanes = Self.overlay(serverLanes, [p]) }
             if selectedTaskId == taskId { Task { await loadDetail() } }
-            Task { await refresh() }
+            refreshIfPolling()
             return true
         } catch {
             pending.removeAll { $0.seq == p.seq }  // rollback: the server board shows again
+            if Self.isBoardGone(error) { markGone() }
             self.error = "\(what) failed: \(Self.describe(error))"
             return false
         }
@@ -437,16 +488,24 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     /// `POST /tasks`. Returns an error text, or nil on success (the card is on the board at once; the
     /// server's warning, if any, becomes `notice`).
     func create(_ draft: KanbanTaskDraft, column: String?) async -> String? {
+        guard state != .gone else { return Self.goneMessage }
         do {
             let r = try await api.createTask(draft, board: slug, column: column)
             actionsDone += 1
             if let t = r.task { serverLanes = Self.place(t, in: serverLanes) }
             notice = r.warning
-            Task { await refresh() }
+            refreshIfPolling()
             return nil
         } catch {
+            if Self.isBoardGone(error) { markGone() }
             return Self.describe(error)
         }
+    }
+
+    /// After an action: fetch the board now, unless the view stopped polling (then nothing is shown and the
+    /// next `start` fetches anyway).
+    private func refreshIfPolling() {
+        if isPolling { Task { await refresh() } }
     }
 
     // MARK: details (K2)
@@ -531,7 +590,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         } catch {
             self.error = "The note was posted, but the requeue failed: \(Self.describe(error))"
         }
-        Task { await refresh() }
+        refreshIfPolling()
         await loadDetail()
         return true
     }
@@ -649,6 +708,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     /// blocking parents), else the redacted description.
     static func describe(_ error: Error) -> String {
         switch error {
+        case _ where isBoardGone(error): return goneMessage
         case PluginREST.Failure.http(_, let detail) where !detail.isEmpty: return detail
         case PluginREST.Failure.pluginUnavailable: return "Kanban is off in Hermes."
         case PluginREST.Failure.unauthorized: return "Hermes refused the session token."

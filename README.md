@@ -157,9 +157,20 @@ worker log, and create, move, assign, prioritize, comment on and archive cards.
   it up in its current turn within a few seconds. **Requeue with note** posts the note and restarts the task
   from scratch with it.
 
+- **Boards that go away:** if a board is deleted or archived while you have it open, it says so, stops
+  refreshing and refuses changes; **Go to Another Board** opens one that still exists. It also leaves the
+  sidebar at the next board list refresh.
+- **Long texts:** descriptions, summaries, results and comments longer than 64,000 characters show their
+  first 64,000 characters with a note.
+- **Refreshing:** the open board, the board list and the dispatcher status refresh only while an app window is
+  on screen; they pause while the app is hidden or its windows are minimised or covered, and catch up when
+  you come back.
+- If the sidebar says **Boards unavailable on this connection**, the connected Hermes gave the app no REST
+  access, which Kanban needs.
+
 Cards are worked on by the Kanban dispatcher, which runs inside `hermes gateway`, not inside this app. The
-board header shows whether it is running. If it is installed but stopped, **Start** runs `hermes gateway
-start`; if it is not installed, run `hermes gateway install` once.
+board header and **Settings → Kanban dispatcher** show the same status. If it is installed but stopped,
+**Start** runs `hermes gateway start`; if it is not installed, run `hermes gateway install` once.
 
 ## Keeping Hermes running
 
@@ -169,13 +180,21 @@ LaunchAgent (`~/Library/LaunchAgents/io.github.risyadul.hermesbot.serve.plist`) 
 login and restarts it if it crashes; the app then attaches to it. It is off by default. Its log is
 `~/Library/Logs/HermesBotApp/background-serve.log`.
 
-- Turning it on while the app runs its own backend takes effect at the next launch; the live connection is
-  left alone.
-- Turning it off unloads and deletes the LaunchAgent, which stops that Hermes. If the app was attached to it,
-  the window shows the lost connection; Try Again starts the app's own backend.
-- If the status shows **Installed but not running**, **Start** loads it again. If it shows **Hermes not
-  found** (for example after moving or reinstalling Hermes), **Reinstall** rewrites it with the current
-  `hermes` path.
+- Turning it on asks first and shows the `hermes` executable launchd will run. If that path comes from
+  `HERMES_BOT_APP_HERMES_BIN` rather than the usual search, the question says so; it keeps running after the
+  app quits, so make sure you trust it.
+- If the app is running its own backend at that moment, you choose: **Switch Now** stops the app's backend
+  (a Group Chat round in progress stops), starts the background Hermes and reconnects to it; **At Next
+  Launch** only installs the LaunchAgent, and the background Hermes starts the next time you open the app (or
+  at login). Two backends never run side by side.
+- Turning it off unloads and deletes the LaunchAgent, which stops that Hermes. If the app is connected to it,
+  it asks first (the connection drops and a Group Chat round in progress stops), then reconnects, starting its
+  own backend if no other Hermes is running.
+- **Installed but not running** (launchd does not have it) and **Loaded but not running** (launchd has it, but
+  Hermes exited or is waiting after a crash; see the log): **Start** starts the installed agent as it is. If
+  it shows **Hermes not found** (for example after moving or reinstalling Hermes), **Reinstall** rewrites it
+  with the current `hermes` path, after the same question as turning it on.
+- The log folder is readable by you only (0700) and the log file is created 0600.
 
 ## Configuration
 

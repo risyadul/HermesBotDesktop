@@ -39,6 +39,7 @@ struct HermesBotApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalSources: [DispatchSourceSignal] = []
+    private var visibilityObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setvbuf(stdout, nil, _IOLBF, 0)
@@ -62,6 +63,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             src.setEventHandler { NSApp.terminate(nil) }
             src.resume()
             signalSources.append(src)
+        }
+        // Kanban polling pauses while no window is on screen (hidden app, minimised or covered windows).
+        let names: [Notification.Name] = [
+            NSApplication.didHideNotification, NSApplication.didUnhideNotification,
+            NSApplication.didChangeOcclusionStateNotification, NSWindow.didChangeOcclusionStateNotification,
+            NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
+        ]
+        for name in names {
+            visibilityObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { AppModel.shared.updateVisibility() }
+            })
         }
     }
 
@@ -129,7 +141,7 @@ struct RootView: View {
         }
         .frame(minWidth: DS.Size.windowMinWidth, minHeight: DS.Size.windowMinHeight)
         .tint(DS.Palette.primary)
-        .task { await model.connect() }
+        .task { await model.connectAtLaunch() }
         .task(id: model.bots.map(\.name)) { AvatarStore.shared.load(bots: model.bots, backend: model.backend) }
         // Not `.sheet`: its slide and dimmer fade ignore the motion gate (MotionSheet.swift).
         .motionSheet(isPresented: $model.showCreateRoom, motion: motion) {
@@ -192,7 +204,6 @@ struct SettingsView: View {
     @AppStorage(DS.Motion.settingKey) private var motion = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var background = BackgroundServeSettingsModel()
-    @StateObject private var gateway = GatewaySettingsModel()
     var body: some View {
         Form {
             Section("General") {
@@ -204,7 +215,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             BackgroundServeSection(model: background)
-            GatewaySection(model: gateway)
+            GatewaySection(model: AppModel.shared.kanban.dispatcher)
         }
         .formStyle(.grouped)
         .tint(DS.Palette.primary)

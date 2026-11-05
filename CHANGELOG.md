@@ -63,6 +63,19 @@ All notable changes to this project are documented here. The format follows
 - GitHub Actions CI (build and test on macOS), pull request template, Code of Conduct and this changelog.
 
 ### Changed
+- Settings → Keep Hermes running in the background asks before turning on and names the `hermes` it will run
+  (with a warning when `HERMES_BOT_APP_HERMES_BIN` chose it). While the app runs its own backend it offers
+  **Switch Now** (stop it, start the background Hermes, reconnect) or **At Next Launch** (install only; the next
+  launch starts it), so two backends never run at once. Turning it off while connected to it asks first and
+  reconnects afterwards. A job launchd has loaded but that is not running now shows **Loaded but not
+  running** with **Start**, instead of "Running".
+- The board header's dispatcher chip and Settings → Kanban dispatcher share one status, so they always agree.
+- Kanban refreshing (open board, board list, dispatcher status) pauses while no app window is on screen and
+  resumes when one is.
+- A board deleted or archived while open says so, stops refreshing, refuses changes and offers **Go to Another
+  Board**; it leaves the sidebar (and the selection) at the next board list refresh.
+- The sidebar says **Boards unavailable on this connection** instead of "Not loaded yet" when the backend
+  gives no REST access.
 - When the backend connection drops, the app shows a failure with Try Again instead of staying in a dead
   state; Try Again reconnects.
 - Quit cleanup finishes within about 5 seconds, then the app exits. Bot Chat sessions opened during quit are
@@ -82,6 +95,12 @@ All notable changes to this project are documented here. The format follows
   names.
 
 ### Security
+- Plugin REST answers (Kanban, Bot Activity) are read as a stream and refused once larger than 8 MB (downloads:
+  their own cap), so a misbehaving route cannot make the app buffer without bound. Card texts longer than
+  64,000 characters are truncated before markdown rendering.
+- `+` in plugin REST query values is sent as `%2B`, so the server does not read it as a space.
+- The background Hermes log folder is set to 0700 and its log file created 0600.
+- The background Hermes install refuses when the `hermes` found differs from the one you confirmed.
 - The app only connects to backends on loopback (127.0.0.0/8, ::1, localhost); other hosts are rejected.
 - Refuses a `hermes` binary that is group/world-writable or owned by someone other than you or root.
 - Rendezvous lock directory must not be group/world-writable and is read without following symlinks; the
@@ -95,6 +114,10 @@ All notable changes to this project are documented here. The format follows
 - Archives, OpenDocument and KML/KMZ files sent by bots are revealed in Finder instead of opened.
 
 ### Fixed
+- Running `launchctl` or `hermes gateway start` no longer hangs when a process they start keeps the output
+  pipe open, and stops the command when the caller gives up.
+- A card action no longer fetches the board again after the board view has closed.
+- A dispatcher Start or status check still in flight across a reconnect no longer overwrites the new state.
 - Crash when stopping a backend the app started while it was still logging.
 - A malformed `session.create` response can no longer produce an empty session id.
 - A Bot Chat that fails while opening closes and deletes the half-created session.

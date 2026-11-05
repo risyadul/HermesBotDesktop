@@ -102,7 +102,7 @@ final class KanbanPresentationTests: XCTestCase {
         let api = FakeKanbanService()
         api.with { $0.boards = [FakeKanbanService.summary("main"), FakeKanbanService.summary("gone", archived: true)] }
         let hub = KanbanHub(sleep: { _ in try await Task.sleep(nanoseconds: 3_600_000_000_000) })
-        hub.connect(api: api, gateway: nil)
+        hub.connect(api: api)
         try await waitUntil { hub.availability == .available }
         XCTAssertEqual(hub.rows.map(\.slug), ["main"])
         XCTAssertNotNil(hub.model(for: "main"))
@@ -131,12 +131,18 @@ final class KanbanPresentationTests: XCTestCase {
         XCTAssertNil(hub.model(for: "main"), "no models without a connection")
     }
 
-    func testHubWithoutRESTAccessStaysUnknown() async throws {
+    func testHubWithoutRESTAccessSaysSo() async throws {
         let hub = KanbanHub()
-        hub.connect(api: nil, gateway: nil)
+        hub.connect(api: nil)
         try await Task.sleep(nanoseconds: 20_000_000)
-        XCTAssertEqual(hub.availability, .unknown)
+        XCTAssertEqual(hub.availability, .noAccess)
+        XCTAssertFalse(hub.isPolling)
         XCTAssertNil(hub.model(for: "main"))
+        XCTAssertEqual(KanbanHub.sidebarPlaceholder(connected: true, availability: .noAccess, rows: 0),
+                       "Boards unavailable on this connection")
+        XCTAssertTrue(KanbanHub.sidebarPlaceholderHelp(.noAccess).contains("REST access"))
+        hub.disconnect()
+        XCTAssertEqual(hub.availability, .unknown)
     }
 
     // MARK: dispatcher chip (K8)
@@ -158,22 +164,20 @@ final class KanbanPresentationTests: XCTestCase {
         XCTAssertTrue(DispatcherChip.explanation.contains("hermes gateway"))
     }
 
-    func testDispatcherModelReportsNotInstalledAndStartRefusesWithoutRunningAnything() async throws {
+    func testDispatcherModelReportsNotInstalledAndNeverStartsIt() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("hba-kanban-\(UUID().uuidString)")
         let locks = home.appendingPathComponent("locks")
         try FileManager.default.createDirectory(at: locks, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: home) }
-        let model = DispatcherStatusModel()
-        model.attach(GatewayStatus(lockDir: locks, home: home, environment: [:]))
+        let model = DispatcherStatusModel(control: GatewayStatus(lockDir: locks, home: home, environment: [:]))
         await model.refresh()
         XCTAssertEqual(model.state, .notInstalled)
+        XCTAssertFalse(model.canStart)
         await model.start()
-        XCTAssertTrue(model.startFailed)
-        XCTAssertTrue(model.startResult?.contains(GatewayStatus.installCommand) ?? false, model.startResult ?? "")
+        XCTAssertNil(model.startResult, "not installed: Start does nothing (the UI shows the install command)")
         XCTAssertFalse(model.starting)
-        model.attach(nil)
-        XCTAssertNil(model.state)
-        XCTAssertNil(model.startResult)
+        model.reset()
+        XCTAssertEqual(model.state, .notInstalled)
     }
 
     private func waitUntil(_ timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line,

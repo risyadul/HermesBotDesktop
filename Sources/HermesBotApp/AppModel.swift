@@ -37,6 +37,24 @@ final class AppModel: ObservableObject {
     var evidence = EvidenceState()
 #endif
 
+    init() {
+        // A board deleted or archived elsewhere leaves the selection (its pane would show a dead board).
+        kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
+    }
+
+    func boardsListed(_ listed: Set<String>) {
+        if case .board(let slug)? = selection, !listed.contains(slug) {
+            selection = nil
+            log("board \(slug) is gone → selection cleared")
+        }
+    }
+
+    /// App windows on or off screen (AppDelegate): Kanban polling pauses while none shows.
+    func updateVisibility() {
+        let windows = NSApp.windows.map { ($0.isVisible, $0.isMiniaturized, $0.occlusionState.contains(.visible)) }
+        kanban.setActive(KanbanHub.onScreen(appHidden: NSApp.isHidden, windows: windows))
+    }
+
     func log(_ s: String) {
         print("[app \(String(format: "%7.3f", Date().timeIntervalSince(started)))] \(s)")
     }
@@ -63,15 +81,59 @@ final class AppModel: ObservableObject {
     /// Also the Try Again action. A failed attempt keeps no connection (`ConnectFlow`), and a lost
     /// connection is dropped (`backendLost`), so calling this again after `.failed` really reconnects;
     /// while an attempt runs, once connected, or while quitting, it is a no-op.
-    func connect() async {
+    ///
+    /// `waitForAttach` > 0: for that long, only attach (retrying discovery) before a spawn is considered — a
+    /// background Hermes that was just started needs a moment to publish its rendezvous record.
+    func connect(waitForAttach: TimeInterval = 0) async {
         guard !shuttingDown, connectTask == nil, backend == nil else { return }
-        let task = Task { await self.attemptConnect() }
+        let task = Task { await self.attemptConnect(waitForAttach: waitForAttach) }
         connectTask = task
         await task.value
         if connectTask == task { connectTask = nil }
     }
 
-    private func attemptConnect() async {
+    /// How long to wait for a just-started background Hermes (Settings → Background) to appear.
+    static let backgroundAttachWait: TimeInterval = 20
+
+    /// First connect of the app: an "At Next Launch" background Hermes is started first, then attached to.
+    func connectAtLaunch() async {
+        let started = await BackgroundServeSettingsModel.startPendingAtLaunch(control: BackgroundServe())
+        if started { log("background Hermes started (chosen for this launch): waiting for it to publish itself") }
+        await connect(waitForAttach: started ? Self.backgroundAttachWait : 0)
+    }
+
+    /// Drops the current connection on purpose (Settings → Background changed the backend) and connects again.
+    func reconnect(reason: String, waitForAttach: TimeInterval = 0) async {
+        if let b = backend { backendLost(b, reason: reason) }
+        await connect(waitForAttach: waitForAttach)
+    }
+
+    /// Stops the app's own spawned backend (Settings → Background → Switch Now) and waits until it exited.
+    /// An attached backend is never stopped.
+    func stopOwnedBackend(reason: String) async {
+        guard let b = backend, b.owned != nil else { return }
+        backendLost(b, reason: reason)
+        await releasingLost?.value
+    }
+
+    /// `Backend.connect`, optionally attach-only (retried) for `waitForAttach` seconds first.
+    static func openBackend(waitForAttach: TimeInterval, log: @escaping @Sendable (String) -> Void) async throws -> Backend {
+        var options = Backend.Options.fromEnvironment()
+        if waitForAttach > 0, !options.forceSpawn {
+            options.allowSpawn = false
+            let deadline = Date().addingTimeInterval(waitForAttach)
+            while true {
+                do { return try await Backend.connect(options, log: log) } catch Backend.Failure.noBackend {
+                    guard Date() < deadline else { break }
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                }
+            }
+            options = .fromEnvironment()
+        }
+        return try await Backend.connect(options, log: log)
+    }
+
+    private func attemptConnect(waitForAttach: TimeInterval) async {
         phase = .connecting
         if let lost = releasingLost {
             await lost.value
@@ -80,7 +142,10 @@ final class AppModel: ObservableObject {
         AvatarStore.shared.reset()  // retry avatars that failed on the previous connection
         do {
             let b = try await ConnectFlow.open(
-                connect: { try await Backend.connect(log: { line in Task { @MainActor in AppModel.shared.log(line) } }) },
+                connect: {
+                    try await Self.openBackend(waitForAttach: waitForAttach,
+                                               log: { line in Task { @MainActor in AppModel.shared.log(line) } })
+                },
                 load: { b in
                     self.backend = b
                     self.disconnectToken = b.onDisconnect { [weak self] reason in
@@ -108,7 +173,7 @@ final class AppModel: ObservableObject {
             if groupsAvailable { await loadRooms() }
             guard backend === b else { return }
             phase = .connected
-            kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) }, gateway: GatewayStatus())
+            kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) })
 #if DEBUG
             autochat()
             autoroom()

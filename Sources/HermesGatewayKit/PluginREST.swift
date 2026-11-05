@@ -112,6 +112,9 @@ public struct PluginREST: Sendable {
 
     /// Size cap for a raw upload or a download when the route names none.
     public static let defaultMaxBytes = 50 * 1024 * 1024
+    /// Cap for a JSON (or error) answer: larger ones are refused (`.refused("response too large")`) as they
+    /// arrive, by Content-Length first, so a misbehaving route cannot make the app buffer without bound.
+    public static let maxResponseBytes = 8 * 1024 * 1024
 
     /// One file as a single-part `multipart/form-data` body (FastAPI `UploadFile`), plus plain text fields.
     /// Mirrors Desktop's `multipartBody` (apps/desktop/electron/main.ts): field `file`, the filename with
@@ -150,7 +153,7 @@ public struct PluginREST: Sendable {
     }
 
     /// `GET` for a file: the 2xx body as bytes (`Accept: */*`). Refused when the answer is over `maxBytes`
-    /// (its Content-Length or what arrived); the bytes are never handed on then.
+    /// (its Content-Length, or as soon as more arrived); the bytes are never handed on then.
     public func download(_ path: String, query: [URLQueryItem] = [], maxBytes: Int = PluginREST.defaultMaxBytes) async throws -> Data {
         try await sendRaw(.get, path, query: query, body: nil, accept: "*/*", maxBytes: maxBytes)
     }
@@ -164,17 +167,31 @@ public struct PluginREST: Sendable {
             req.httpBody = raw.data
         }
         let session = URLSession(configuration: makeConfiguration(), delegate: HostRendezvous.RefuseRedirects(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        let data: Data, response: URLResponse
-        do { (data, response) = try await session.data(for: req) } catch {
+        defer { session.invalidateAndCancel() }
+        // Streamed, so an oversized answer is refused while it arrives instead of after it was buffered whole.
+        let cap = maxBytes ?? Self.maxResponseBytes
+        let tooLarge = maxBytes.map { Failure.refused("download is larger than \(Self.sizeText($0))") }
+            ?? Failure.refused("response too large")
+        let data: Data, http: HTTPURLResponse
+        do {
+            let (bytes, response) = try await session.bytes(for: req)
+            guard let r = response as? HTTPURLResponse else { throw Failure.transport("not an HTTP response") }
+            http = r
+            if r.expectedContentLength > Int64(cap) { throw tooLarge }
+            var buffer = Data()
+            if r.expectedContentLength > 0 { buffer.reserveCapacity(Int(r.expectedContentLength)) }
+            for try await byte in bytes {
+                guard buffer.count < cap else { throw tooLarge }
+                buffer.append(byte)
+            }
+            data = buffer
+        } catch let f as Failure {
+            throw f
+        } catch {
             if error is CancellationError || (error as? URLError)?.code == .cancelled, Task.isCancelled { throw CancellationError() }
             throw Failure.transport(Redaction.describe(error, secrets: [access.token]))
         }
-        guard let http = response as? HTTPURLResponse else { throw Failure.transport("not an HTTP response") }
         if let failure = Self.failure(status: http.statusCode, body: data, plugin: plugin, secrets: [access.token]) { throw failure }
-        if let maxBytes, data.count > maxBytes || http.expectedContentLength > Int64(maxBytes) {
-            throw Failure.refused("download is larger than \(Self.sizeText(maxBytes))")
-        }
         return data
     }
 
@@ -193,6 +210,8 @@ public struct PluginREST: Sendable {
         guard var c = URLComponents(url: access.base, resolvingAgainstBaseURL: false) else { throw Failure.refused("bad base url") }
         c.percentEncodedPath = "/api/plugins/\(plugin)\(path)"
         c.queryItems = query.isEmpty ? nil : query
+        // URLComponents leaves `+` literal, and form decoding on the server reads it as a space.
+        c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let url = c.url else { throw Failure.refused("bad url") }
         var req = URLRequest(url: url, timeoutInterval: timeout)
         req.httpMethod = method.rawValue

@@ -27,6 +27,21 @@ struct KanbanComposerCopy: Equatable {
     }
 }
 
+/// Card text rendered as markdown in the inspector is capped: a huge description, summary, result or comment
+/// (the server does not bound them) would otherwise be parsed and laid out whole on the main thread.
+enum KanbanMarkdown {
+    static let maxCharacters = 64_000
+    static let truncationNote = "_Truncated: only the first 64,000 characters are shown._"
+
+    /// `text` unchanged when short enough, else its first `maxCharacters` characters plus a note.
+    static func capped(_ text: String) -> String {
+        guard text.count > maxCharacters else { return text }
+        return String(text.prefix(maxCharacters)) + "\n\n" + truncationNote
+    }
+
+    static func blocks(_ text: String) -> [MarkdownBlock] { MarkdownBlock.parse(capped(text)) }
+}
+
 struct KanbanTaskInspector: View {
     @ObservedObject var model: KanbanBoardModel
     let onArchive: (KanbanTask) -> Void
@@ -46,16 +61,16 @@ struct KanbanTaskInspector: View {
                     if let error = task.lastFailureError { section("Last failure") { text(error, color: DS.Palette.danger) } }
                     section("Description") {
                         if let body = (model.detail?.task.body ?? task.body), !body.isEmpty {
-                            MarkdownView(blocks: MarkdownBlock.parse(body)).tint(DS.Palette.link).textSelection(.enabled)
+                            MarkdownView(blocks: KanbanMarkdown.blocks(body)).tint(DS.Palette.link).textSelection(.enabled)
                         } else {
                             text("No description", color: DS.Palette.muted)
                         }
                     }
                     if let summary = model.detail?.task.latestSummary ?? task.latestSummary {
-                        section("Latest summary") { MarkdownView(blocks: MarkdownBlock.parse(summary)).tint(DS.Palette.link).textSelection(.enabled) }
+                        section("Latest summary") { MarkdownView(blocks: KanbanMarkdown.blocks(summary)).tint(DS.Palette.link).textSelection(.enabled) }
                     }
                     if let result = model.detail?.task.result ?? task.result {
-                        section("Result") { MarkdownView(blocks: MarkdownBlock.parse(result)).tint(DS.Palette.link).textSelection(.enabled) }
+                        section("Result") { MarkdownView(blocks: KanbanMarkdown.blocks(result)).tint(DS.Palette.link).textSelection(.enabled) }
                     }
                     if let detail = model.detail { dependencies(detail) }
                     attachmentsSection
@@ -171,7 +186,7 @@ struct KanbanTaskInspector: View {
                             Text(c.author.isEmpty ? "Someone" : c.author).font(DS.Typeface.metaStrong).foregroundStyle(DS.Palette.ink)
                             if let at = c.createdAt { Text(Self.date(at)).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted) }
                         }
-                        MarkdownView(blocks: MarkdownBlock.parse(c.body)).tint(DS.Palette.link).textSelection(.enabled)
+                        MarkdownView(blocks: KanbanMarkdown.blocks(c.body)).tint(DS.Palette.link).textSelection(.enabled)
                     }
                 }
                 composer(KanbanComposerCopy(running: model.selectedIsRunning))
