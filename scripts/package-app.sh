@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a release HermesBot.app, sign it and zip it into dist/.
+# Build a release Herald.app, sign it and zip it into dist/.
 #
 # Usage: scripts/package-app.sh [version] [--universal] [--dry-run]
 #   version      1.2.3 (default: the latest git tag, else 0.0.0)
@@ -56,7 +56,7 @@ if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
 fi
 scratch="${HERMES_BOT_SCRATCH_PATH:-.build}"
 dist="dist"
-app="$dist/HermesBot.app"
+app="$dist/Herald.app"
 entitlements="scripts/HermesBot.entitlements"
 if [[ "$universal" == 1 ]]; then
   arches="arm64 x86_64"
@@ -65,7 +65,7 @@ else
   arches="$(uname -m)"
   flavor="$arches"
 fi
-zip="$dist/HermesBot-$version-macos-$flavor.zip"
+zip="$dist/Herald-$version-macos-$flavor.zip"
 
 # App Intents (D7, Shortcuts actions): Shortcuts finds them through Metadata.appintents, which Xcode generates at
 # build time and SwiftPM does not. So the compiler also writes the intents' constant values
@@ -165,7 +165,7 @@ sign_app() {
 }
 
 notarize_app() {
-  local submission="$dist/HermesBot-$version-notarize.zip" out status id
+  local submission="$dist/Herald-$version-notarize.zip" out status id
   local args=(--keychain-profile "$NOTARY_PROFILE" --wait --output-format json)
   [[ -z "${NOTARY_KEYCHAIN:-}" ]] || args+=(--keychain "$NOTARY_KEYCHAIN")
   ditto -c -k --keepParent "$app" "$submission"
@@ -228,8 +228,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>io.github.risyadul.hermesbot</string>
-  <key>CFBundleName</key><string>Hermes Bot</string>
-  <key>CFBundleDisplayName</key><string>Hermes Bot</string>
+  <key>CFBundleName</key><string>Herald</string>
+  <key>CFBundleDisplayName</key><string>Herald</string>
   <key>CFBundleExecutable</key><string>HermesBotApp</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
@@ -238,16 +238,16 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <!-- B17 Voice: dictation (Speech framework + microphone); asked on the first use of the mic button. -->
-  <key>NSMicrophoneUsageDescription</key><string>Hermes Bot listens only while you dictate a message with the mic button.</string>
-  <key>NSSpeechRecognitionUsageDescription</key><string>Hermes Bot turns your speech into message text when you dictate with the mic button, on this Mac when your language supports it.</string>
-  <!-- D6: Services → Send to Hermes Bot (selected text, Finder files). HermesServicesProvider.sendToHermesBot
+  <key>NSMicrophoneUsageDescription</key><string>Herald listens only while you dictate a message with the mic button.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Herald turns your speech into message text when you dictate with the mic button, on this Mac when your language supports it.</string>
+  <!-- D6: Services → Send to Herald (selected text, Finder files). HermesServicesProvider.sendToHermesBot
        opens a chooser; nothing is sent until the user presses Send there. -->
   <key>NSServices</key>
   <array>
     <dict>
-      <key>NSMenuItem</key><dict><key>default</key><string>Send to Hermes Bot</string></dict>
+      <key>NSMenuItem</key><dict><key>default</key><string>Send to Herald</string></dict>
       <key>NSMessage</key><string>sendToHermesBot</string>
-      <key>NSPortName</key><string>Hermes Bot</string>
+      <key>NSPortName</key><string>Herald</string>
       <key>NSSendTypes</key>
       <array>
         <string>NSStringPboardType</string>

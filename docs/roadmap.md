@@ -1,6 +1,6 @@
 # Roadmap
 
-Planned work for Hermes Bot for macOS, compared against the Hermes desktop app's Bots, Bot Chat, Group Chat and
+Planned work for Herald for macOS, compared against the Hermes desktop app's Bots, Bot Chat, Group Chat and
 Kanban features, plus ideas that are specific to a native Mac app. Items are tracked here as a checklist; tick an
 item when it ships and note it in [CHANGELOG.md](../CHANGELOG.md).
 

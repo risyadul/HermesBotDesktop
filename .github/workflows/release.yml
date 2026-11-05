@@ -68,13 +68,13 @@ jobs:
       - name: Checksum
         run: |
           cd dist
-          shasum -a 256 HermesBot-*-macos-universal.zip > SHA256SUMS.txt
+          shasum -a 256 Herald-*-macos-universal.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-files
           path: |
-            dist/HermesBot-*-macos-universal.zip
+            dist/Herald-*-macos-universal.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -95,5 +95,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/HermesBot-*-macos-universal.zip dist/SHA256SUMS.txt \
+          gh release create "$TAG" dist/Herald-*-macos-universal.zip dist/SHA256SUMS.txt \
             --title "$TAG" --generate-notes --verify-tag

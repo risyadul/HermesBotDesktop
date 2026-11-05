@@ -20,9 +20,9 @@ enum DictationError: Error, Equatable {
     var message: String {
         switch self {
         case .microphoneDenied:
-            return "Dictation needs the microphone. Allow Hermes Bot in System Settings › Privacy & Security › Microphone."
+            return "Dictation needs the microphone. Allow Herald in System Settings › Privacy & Security › Microphone."
         case .speechDenied:
-            return "Dictation needs speech recognition. Allow Hermes Bot in System Settings › Privacy & Security › Speech Recognition."
+            return "Dictation needs speech recognition. Allow Herald in System Settings › Privacy & Security › Speech Recognition."
         case .restricted:
             return "Speech recognition or the microphone is restricted on this Mac."
         case .unsupportedLanguage(let language):
@@ -32,7 +32,7 @@ enum DictationError: Error, Equatable {
         case .noMicrophone:
             return "No microphone is available. Connect one, or pick an input in System Settings › Sound."
         case .outsideApp:
-            return "Dictation works in the packaged HermesBot.app only (this copy runs outside it, for example `swift run`)."
+            return "Dictation works in the packaged Herald.app only (this copy runs outside it, for example `swift run`)."
         case .failed(let reason):
             return "Dictation stopped: \(reason)"
         }

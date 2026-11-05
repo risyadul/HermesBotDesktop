@@ -56,7 +56,7 @@ struct OnboardingView: View {
         case .hermesMissing(_, let problem?):
             return "\(Onboarding.overrideVariable) can't be used: \(problem)."
         case .hermesMissing:
-            return "Hermes Bot works with Hermes Agent on this Mac, and no hermes program was found."
+            return "Herald works with Hermes Agent on this Mac, and no hermes program was found."
         case .noModel(let provider, _, let reason):
             let why = reason ?? provider.map { "No usable credentials found for \($0)." } ?? "No provider is set up."
             return "Hermes is running but can't reply yet. \(why)"

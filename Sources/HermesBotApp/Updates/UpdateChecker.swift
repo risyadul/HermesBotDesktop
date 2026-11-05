@@ -125,17 +125,17 @@ enum UpdateAlert {
         switch prompt.result {
         case .available(let release):
             let version = release.version?.description ?? release.tag
-            return Content(title: "Hermes Bot \(version) is available",
+            return Content(title: "Herald \(version) is available",
                            message: "\(running) Download opens the release page in your browser; nothing is installed automatically.",
                            notes: release.notes.isEmpty ? nil : release.notes, downloadURL: release.pageURL)
         case .upToDate(let release):
             let version = release.version?.description ?? release.tag
-            return Content(title: "Hermes Bot is up to date",
+            return Content(title: "Herald is up to date",
                            message: "Version \(prompt.currentVersion ?? version) is the latest release.",
                            notes: nil, downloadURL: nil)
         case .noRelease:
             return Content(title: "No release published yet",
-                           message: "There is no Hermes Bot release on GitHub to update to.", notes: nil, downloadURL: nil)
+                           message: "There is no Herald release on GitHub to update to.", notes: nil, downloadURL: nil)
         case .failed(let reason):
             return Content(title: "Couldn't check for updates", message: reason, notes: nil, downloadURL: nil)
         }

@@ -198,7 +198,7 @@ struct MenuBarLabel: View {
             Image(systemName: badge.badge == nil ? "bubble.left.and.bubble.right" : "bubble.left.and.bubble.right.fill")
             if let count = badge.badge { Text(count) }
         }
-        .accessibilityLabel(badge.badge.map { "Hermes Bot, \($0) waiting on you" } ?? "Hermes Bot")
+        .accessibilityLabel(badge.badge.map { "Herald, \($0) waiting on you" } ?? "Herald")
     }
 }
 
@@ -234,7 +234,7 @@ struct MenuBarContent: View {
 
     private func header(_ status: MenuBarStatus) -> some View {
         HStack {
-            Text("Hermes Bot").font(DS.Typeface.bodyStrong)
+            Text("Herald").font(DS.Typeface.bodyStrong)
             Spacer()
             switch app.phase {
             case .connecting: Text("Connecting…").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
@@ -299,7 +299,7 @@ struct MenuBarContent: View {
 
     private var footer: some View {
         HStack {
-            Button("Open Hermes Bot") { MainWindowOpener.show() }
+            Button("Open Herald") { MainWindowOpener.show() }
             Spacer()
             Button("Quick Ask") { QuickAskPanelController.shared.show() }
                 .help("Ask a bot from anywhere (\(MacIntegration.shared.hotKey.shortcut.display))")

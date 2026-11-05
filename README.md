@@ -1,27 +1,29 @@
-# Hermes Bot for macOS
+# Herald
 
-A lightweight native macOS (SwiftUI) client for [Hermes Agent](https://github.com/NousResearch/hermes-agent),
-focused on three things: **Bots**, **Bot Chat** (1:1, streaming) and **Group Chat** (2–6 bots in one room).
+**Herald — a lightweight native Mac app for [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s group
+chats, bot chats and Kanban.** Built in SwiftUI, it covers **Bots**, **Bot Chat** (1:1, streaming), **Group Chat**
+(2–6 bots in one room) and Hermes' **Kanban** boards.
 
 It is a thin client: all agent logic runs in the Hermes backend (`hermes serve`). The app talks to it over
 the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 
-> **Independent project.** Not affiliated with or endorsed by Nous Research. "Hermes" refers to the
-> Hermes Agent backend this app connects to.
+> **Independent project.** Herald is an independent, community-built client. It is not an official Hermes or
+> Nous Research app, and is not affiliated with or endorsed by Nous Research. "Hermes" refers to the Hermes
+> Agent backend this app connects to.
 
 **Status: early / pre-release.** Build from source, or download a universal (Apple silicon + Intel) zip from
 [GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases); releases are ad-hoc signed (not
 notarized) until the maintainer's Developer ID is set up. See [Download / packaging](#download--packaging).
 
 <p align="center">
-  <img src="docs/screenshots/screenshot-dark.png" alt="Hermes Bot macOS Group Chat (Dark Mode)" width="700">
+  <img src="docs/screenshots/screenshot-dark.png" alt="Herald macOS Group Chat (Dark Mode)" width="700">
   <br>
   <em>Native app with demo/mock data (Group Chat in Dark Mode)</em>
 </p>
 <details>
 <summary>View Light Mode screenshot</summary>
 <p align="center">
-  <img src="docs/screenshots/screenshot-light.png" alt="Hermes Bot macOS Group Chat (Light Mode)" width="700">
+  <img src="docs/screenshots/screenshot-light.png" alt="Herald macOS Group Chat (Light Mode)" width="700">
   <br>
   <em>Native app with demo/mock data (Group Chat in Light Mode)</em>
 </p>
@@ -98,7 +100,7 @@ otherwise, it happens only when you act.
 
 **Messages sent for you**
 
-- The menu bar's quick send, **Quick Ask**, the **Send to Hermes Bot** service and the **Shortcuts** actions
+- The menu bar's quick send, **Quick Ask**, the **Send to Herald** service and the **Shortcuts** actions
   send real messages to a bot's Bot Chat (or, for the service and **Send to Group Chat**, to a room). They send
   only when you press Send or run the shortcut ([Mac integration](#mac-integration)).
 
@@ -182,7 +184,7 @@ have **not been tested** with this app yet.
   caret with macOS speech recognition, on this Mac when your language supports it. It stops after about two
   seconds of silence, when you click it again, or when you send. The first use asks for microphone and speech
   recognition access; if you said no, the composer explains and links to System Settings. Dictation needs the
-  packaged `HermesBot.app`. **Read Aloud** (hover a finished reply, or right-click it) speaks it in the system
+  packaged `Herald.app`. **Read Aloud** (hover a finished reply, or right-click it) speaks it in the system
   voice; Shift-click reads the whole turn. Code blocks, tool activity and Thought rows are skipped; Esc or sending
   a message stops it. **Settings → Voice → Read replies aloud automatically** (off by default) speaks each new
   Bot Chat reply when it finishes. Hermes's own TTS/STT backends are not used.
@@ -378,12 +380,12 @@ through the running Hermes backend.
   bot or room posts no notifications at all, approvals included, but its requests still count in the Dock badge
   and still show in the sidebar, because they still wait on you. Mutes are kept on this Mac.
 - Turn notifications off in **Settings → Notifications → Show notifications** (on by default; it is the
-  `notificationsEnabled` user default). Notifications need the packaged `HermesBot.app`; a bare `swift run`
+  `notificationsEnabled` user default). Notifications need the packaged `Herald.app`; a bare `swift run`
   binary shows the Dock badge only.
 
 ## Updates
 
-- **Hermes Bot → Check for Updates…** asks GitHub for the latest release and shows its notes. **Download** opens
+- **Herald → Check for Updates…** asks GitHub for the latest release and shows its notes. **Download** opens
   the release page in your browser; the app never downloads or installs anything itself. Replace the app with the
   new one from the zip (quit it first).
 - Once a day the app checks by itself and shows a new release once (not again every day). Turn this off in
@@ -409,15 +411,15 @@ through the running Hermes backend.
   **Settings → Mac Integration** (click the shortcut, then press the new keys; it needs ⌘, ⌃ or ⌥). It uses the
   system hot key API, so no Accessibility permission is asked for; if another app already holds the keys,
   Settings says so.
-- **Services → Send to Hermes Bot:** select text in any app (or files in Finder), then the app menu → Services →
-  **Send to Hermes Bot**. A small window opens with the text: pick a bot or a group chat, edit, then **Send**, or
+- **Services → Send to Herald:** select text in any app (or files in Finder), then the app menu → Services →
+  **Send to Herald**. A small window opens with the text: pick a bot or a group chat, edit, then **Send**, or
   **Open in Composer** to put the text (and the files, as attachments) into that chat's composer and send from
-  there. Nothing is sent until you press a button. Needs the packaged `HermesBot.app`; macOS may only list the
+  there. Nothing is sent until you press a button. Needs the packaged `Herald.app`; macOS may only list the
   service after the app was launched once (or after logging out and in).
 - **Shortcuts:** the **Ask Bot** action sends a message to a bot's Bot Chat and returns its reply as text (it
   gives up after the timeout, 120 s by default; the reply then continues in the Bot Chat). **Send to Group Chat**
-  posts a message to a room. Both run through the app: **Hermes Bot must be running and connected** (Shortcuts
-  launches it if needed and the action waits up to 20 s for the connection). Needs the packaged `HermesBot.app`.
+  posts a message to a room. Both run through the app: **Herald must be running and connected** (Shortcuts
+  launches it if needed and the action waits up to 20 s for the connection). Needs the packaged `Herald.app`.
 - **Summarize since I left:** in a group chat, the **Summarize** toolbar button collects the messages that came
   in since you last had the room open (up to the newest 80) and asks a bot of your choice (a room member by
   default) for a short summary, in that bot's Bot Chat. The summary streams into the sheet; **Open Bot Chat**
@@ -618,30 +620,30 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
   confirm the chat it shows an error instead of starting a new one; press Try Again.
 - **"Running in another Hermes app":** another backend process holds that bot's chat. Use it in that app.
 - **PDF attachment fails:** PDFs are rendered with `pdftoppm` on the backend machine; install it (poppler).
-- **"HermesBot.app can't be opened" / "Apple could not verify…" on first launch:** the release is ad-hoc signed,
+- **"Herald.app can't be opened" / "Apple could not verify…" on first launch:** the release is ad-hoc signed,
   not notarized. Right-click the app → **Open** (macOS 15: System Settings → Privacy & Security → **Open
-  Anyway**), or run `xattr -dr com.apple.quarantine HermesBot.app`. A notarized release will not need this.
+  Anyway**), or run `xattr -dr com.apple.quarantine Herald.app`. A notarized release will not need this.
 - **"Couldn't check for updates":** the message says why. "limit for unauthenticated requests" means GitHub's
   hourly limit for your network address was used up (shared networks hit it sooner); try again later or open the
   [Releases page](https://github.com/risyadul/HermesBotDesktop/releases) yourself.
-- **Is my copy Intel or Apple silicon?** `lipo -archs /Applications/HermesBot.app/Contents/MacOS/HermesBotApp`
+- **Is my copy Intel or Apple silicon?** `lipo -archs /Applications/Herald.app/Contents/MacOS/HermesBotApp`
   prints `x86_64 arm64` for the universal release.
 
 ## Download / packaging
 
-Tagged releases attach `HermesBot-<version>-macos-universal.zip` (one app for Apple silicon and Intel) and
+Tagged releases attach `Herald-<version>-macos-universal.zip` (one app for Apple silicon and Intel) and
 `SHA256SUMS.txt` on [GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases). To build the same
 bundle yourself:
 
 ```sh
-scripts/package-app.sh 0.2.0 --universal   # dist/HermesBot.app + dist/HermesBot-0.2.0-macos-universal.zip
+scripts/package-app.sh 0.2.0 --universal   # dist/Herald.app + dist/Herald-0.2.0-macos-universal.zip
 scripts/package-app.sh 0.2.0               # this Mac's architecture only: ...-macos-arm64.zip or -x86_64.zip
 scripts/package-app.sh 0.2.0 --universal --dry-run   # print the plan (architectures, signing) and stop
 scripts/package-app.sh --help
 ```
 
 Without a Developer ID the app is **ad-hoc signed, not notarized**. On first launch macOS will refuse it:
-right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine HermesBot.app`. With
+right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine Herald.app`. With
 `DEVELOPER_ID_APPLICATION` (and `NOTARY_PROFILE` for notarization) set, the script signs with the hardened
 runtime and notarizes and staples the app; see [docs/development.md](docs/development.md#release-process).
 Packages have only been checked to build, sign and lint; launching them on a clean machine is untested.

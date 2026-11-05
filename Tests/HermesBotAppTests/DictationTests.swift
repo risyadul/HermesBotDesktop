@@ -178,7 +178,7 @@ final class DictationTests: XCTestCase {
         XCTAssertFalse(SystemSpeechRecognizer.bundleDeclaresUsage(["NSMicrophoneUsageDescription": "x"]))
         XCTAssertTrue(SystemSpeechRecognizer.bundleDeclaresUsage(["NSMicrophoneUsageDescription": "x",
                                                                   "NSSpeechRecognitionUsageDescription": "y"]))
-        XCTAssertTrue(DictationError.outsideApp.message.contains("HermesBot.app"))
+        XCTAssertTrue(DictationError.outsideApp.message.contains("Herald.app"))
     }
 
     func testRecognizerErrorsMap() {

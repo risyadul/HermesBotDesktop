@@ -118,7 +118,7 @@ All notable changes to this project are documented here. The format follows
 - **Menu bar extra:** every bot and group chat with its state, the waiting count and a quick send. While it is on,
   closing the last window keeps the app running. See [Mac integration](README.md#mac-integration).
 - **Quick Ask (⌃⌥⌘Space):** a floating panel from any app; configurable, no Accessibility permission needed.
-- **Services → Send to Hermes Bot** for selected text and Finder files: sends only on Send, or fills a composer.
+- **Services → Send to Herald** for selected text and Finder files: sends only on Send, or fills a composer.
 - **Shortcuts:** Ask Bot (returns the reply) and Send to Group Chat; the app must be running and connected.
 - **Summarize since I left** in group chats: a chosen bot summarizes what's new, in its Bot Chat. Nothing is
   posted into the room.
@@ -137,7 +137,7 @@ All notable changes to this project are documented here. The format follows
   the search.
 - **Check for Updates…** and a daily check (on by default) against GitHub Releases. Download opens the release
   page; nothing is installed. See [Updates](README.md#updates).
-- **Universal releases:** `HermesBot-<version>-macos-universal.zip` (was `-macos-arm64.zip`);
+- **Universal releases:** `Herald-<version>-macos-universal.zip` (was `HermesBot-<version>-macos-arm64.zip`);
   `scripts/package-app.sh` gains `--universal`, `--dry-run` and `--help`.
 - Developer ID signing and notarization when configured; ad-hoc signed otherwise (no Developer ID yet).
 - Release workflow for `v*` tags, CI on macOS (Apple silicon and Intel), PR template, Code of Conduct, this changelog.
@@ -166,6 +166,9 @@ Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes
 - Quick sends (menu bar, Quick Ask, Services, Shortcuts) are real messages; the update check calls the GitHub API.
 
 ### Changed
+- **The app is now called Herald** (was Hermes Bot): window titles, menus, Services, Shortcuts and
+  `dist/Herald.app` / `Herald-<version>-macos-<arch>.zip`. The bundle id is unchanged
+  (`io.github.risyadul.hermesbot`), so settings, permissions and the login item carry over.
 - Bot Chats are no longer deleted when you quit; quitting only disconnects. Quit cleanup ends within about 5 s.
 - Background Hermes asks first, names the `hermes` it will run, and offers **Switch Now** or **At Next Launch**;
   two backends never run at once. A stopped job shows **Loaded but not running** with Start.

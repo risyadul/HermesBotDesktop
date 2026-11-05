@@ -48,6 +48,6 @@ final class NotificationsSettingTests: XCTestCase {
 
     func testOutsideTheAppBundleTheSectionSaysWhy() {
         XCTAssertFalse(UserNotificationPoster.availability(bundleURL: URL(fileURLWithPath: "/tmp/.build/debug"), environment: [:]))
-        XCTAssertTrue(NotificationsSection.unavailableNote.contains("HermesBot.app"))
+        XCTAssertTrue(NotificationsSection.unavailableNote.contains("Herald.app"))
     }
 }

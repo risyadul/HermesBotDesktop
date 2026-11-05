@@ -1251,7 +1251,7 @@ or `//…`.
 | `/stop` | `session.interrupt` | same |
 | `/help`, `/commands` | shows the catalog | same |
 | `/title` | unavailable: "The Bot Chat keeps its name" | unavailable |
-| Desktop-owned actions and pickers: `/branch /fork /yolo /reasoning /wake /handoff /profile /skin /browser /journey /btw /bg /background /pet /hatch /generate-pet /model /resume /sessions /switch /save /status /learning /memory-graph`, Ink-only `/density /details /logs /mouse /pets` | unavailable: "/x is not available in Hermes Bot." | same |
+| Desktop-owned actions and pickers: `/branch /fork /yolo /reasoning /wake /handoff /profile /skin /browser /journey /btw /bg /background /pet /hatch /generate-pet /model /resume /sessions /switch /save /status /learning /memory-graph`, Ink-only `/density /details /logs /mouse /pets` | unavailable: "/x is not available in Herald." | same |
 | anything else | `slash.exec` path | same |
 
 ### 11.4 `session.compress` [src + test]

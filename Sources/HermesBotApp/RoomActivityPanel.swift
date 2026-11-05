@@ -271,7 +271,7 @@ struct EnableActivitySheet: View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             Text("Turn on activity tracking?").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
             VStack(alignment: .leading, spacing: DS.Space.s2) {
-                text("To show what each bot in a group chat is doing (tool calls, reasoning, errors), Hermes Bot installs the open-source Bot Activity plugin into Hermes and turns it on for every bot, including bots where it was turned off.")
+                text("To show what each bot in a group chat is doing (tool calls, reasoning, errors), Herald installs the open-source Bot Activity plugin into Hermes and turns it on for every bot, including bots where it was turned off.")
                 Link(destination: Self.sourceURL) {
                     Text("github.com/risyadul/hermes-bot-activity").font(DS.Typeface.body).underline()
                 }

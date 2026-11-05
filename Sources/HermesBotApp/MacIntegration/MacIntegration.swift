@@ -75,7 +75,7 @@ struct MacIntegrationSection: View {
         } footer: {
             Text("""
                 The menu bar shows what each bot and group chat is doing and sends a quick message. The shortcut \
-                opens Quick Ask from any app. Services → Send to Hermes Bot and the Shortcuts actions work while \
+                opens Quick Ask from any app. Services → Send to Herald and the Shortcuts actions work while \
                 the app runs.
                 """)
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)

@@ -34,8 +34,8 @@ final class UpdateCheckTests: XCTestCase {
           "prerelease": \(prerelease),
           "created_at": "2026-11-01T10:00:00Z",
           "published_at": "2026-11-01T10:05:00Z",
-          "assets": [{"name": "HermesBot-0.3.0-macos-universal.zip", "size": 4194304, "content_type": "application/zip",
-                      "browser_download_url": "https://github.com/risyadul/HermesBotDesktop/releases/download/\(tag)/HermesBot-0.3.0-macos-universal.zip"}],
+          "assets": [{"name": "Herald-0.3.0-macos-universal.zip", "size": 4194304, "content_type": "application/zip",
+                      "browser_download_url": "https://github.com/risyadul/HermesBotDesktop/releases/download/\(tag)/Herald-0.3.0-macos-universal.zip"}],
           "tarball_url": "https://api.github.com/repos/risyadul/HermesBotDesktop/tarball/\(tag)",
           "zipball_url": "https://api.github.com/repos/risyadul/HermesBotDesktop/zipball/\(tag)",
           "body": "\(body)"
@@ -291,7 +291,7 @@ final class UpdateCheckTests: XCTestCase {
     func testAlertContent() throws {
         let release = try GitHubRelease.decode(Self.releaseJSON())
         let available = UpdateAlert.content(for: .init(result: .available(release), currentVersion: "0.2.0"))
-        XCTAssertEqual(available.title, "Hermes Bot 0.3.0 is available")
+        XCTAssertEqual(available.title, "Herald 0.3.0 is available")
         XCTAssertTrue(available.message.hasPrefix("You have version 0.2.0."))
         XCTAssertTrue(available.message.contains("nothing is installed automatically"))
         XCTAssertEqual(available.downloadURL, release.pageURL)
@@ -301,7 +301,7 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertTrue(dev.message.contains("no version number"))
 
         let upToDate = UpdateAlert.content(for: .init(result: .upToDate(release), currentVersion: "0.3.0"))
-        XCTAssertEqual(upToDate.title, "Hermes Bot is up to date")
+        XCTAssertEqual(upToDate.title, "Herald is up to date")
         XCTAssertNil(upToDate.downloadURL)
 
         let failed = UpdateAlert.content(for: .init(result: .failed("This Mac is offline."), currentVersion: "0.3.0"))

@@ -79,10 +79,10 @@ struct NotificationsSection: View {
 
     static let footnote: LocalizedStringKey = """
         Approvals, questions, @user mentions in group chats and finished replies, while the app is in the \
-        background. Only the packaged HermesBot.app posts notifications. The Dock badge counts what waits on \
+        background. Only the packaged Herald.app posts notifications. The Dock badge counts what waits on \
         you either way.
         """
-    static let unavailableNote = "This copy runs outside HermesBot.app (for example `swift run`), so it cannot post notifications."
+    static let unavailableNote = "This copy runs outside Herald.app (for example `swift run`), so it cannot post notifications."
 
     var body: some View {
         Section {

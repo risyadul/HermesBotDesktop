@@ -56,7 +56,7 @@ final class PackageScriptTests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.err)
         XCTAssertTrue(r.out.contains("version: 0.2.0\n"), r.out)
         XCTAssertTrue(r.out.contains("architectures: arm64 x86_64\n"), r.out)
-        XCTAssertTrue(r.out.contains("zip: dist/HermesBot-0.2.0-macos-universal.zip\n"), r.out)
+        XCTAssertTrue(r.out.contains("zip: dist/Herald-0.2.0-macos-universal.zip\n"), r.out)
         XCTAssertTrue(r.out.contains("signing: ad-hoc"), r.out)
         XCTAssertTrue(r.out.contains("notarization: skipped"), r.out)
     }
@@ -65,7 +65,7 @@ final class PackageScriptTests: XCTestCase {
         let r = try run(["--dry-run", "--universal", "v1.4"])
         XCTAssertEqual(r.status, 0, r.err)
         XCTAssertTrue(r.out.contains("version: 1.4\n"), r.out)
-        XCTAssertTrue(r.out.contains("zip: dist/HermesBot-1.4-macos-universal.zip\n"), r.out)
+        XCTAssertTrue(r.out.contains("zip: dist/Herald-1.4-macos-universal.zip\n"), r.out)
     }
 
     func testWithoutUniversalOnlyTheHostArchitecture() throws {
@@ -77,7 +77,7 @@ final class PackageScriptTests: XCTestCase {
         let host = "x86_64"
         #endif
         XCTAssertTrue(r.out.contains("architectures: \(host)\n"), r.out)
-        XCTAssertTrue(r.out.contains("zip: dist/HermesBot-0.2.0-macos-\(host).zip\n"), r.out)
+        XCTAssertTrue(r.out.contains("zip: dist/Herald-0.2.0-macos-\(host).zip\n"), r.out)
     }
 
     func testDeveloperIDAndNotaryProfilePlanNotarization() throws {

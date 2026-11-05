@@ -153,10 +153,10 @@ struct DetachedPaneView: View {
                            message: "This window shows its chat once the app is connected.") {
                 ProgressView().controlSize(.small)
             }
-            .navigationTitle("Hermes Bot")
+            .navigationTitle("Herald")
         case .gone(let message):
             EmptyStateView(symbol: "questionmark.bubble", title: "Not available", message: message) { EmptyView() }
-                .navigationTitle("Hermes Bot")
+                .navigationTitle("Herald")
         }
     }
 }

@@ -198,7 +198,7 @@ public enum SlashInvocation: Sendable, Equatable {
         case "title":
             return canonical ? .unavailable("The Bot Chat keeps its name; /title is not available here.")
                 : .unavailable("/title is not available here.")
-        case _ where clientOnly.contains(name): return .unavailable("/\(name) is not available in Hermes Bot.")
+        case _ where clientOnly.contains(name): return .unavailable("/\(name) is not available in Herald.")
         default: return .exec(name: name, arg: arg)
         }
     }

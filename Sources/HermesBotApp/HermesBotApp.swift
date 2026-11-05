@@ -25,7 +25,7 @@ struct HermesBotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage(DS.Motion.settingKey) private var motion = true
     var body: some Scene {
-        WindowGroup("Hermes Bot", id: Self.mainSceneId) {
+        WindowGroup("Herald", id: Self.mainSceneId) {
             RootView(model: AppModel.shared).modifier(MotionGate()).capturesMainWindowOpener()
                 // Every link surface in the window (not only message bodies) opens web pages only.
                 .environment(\.openURL, OpenURLAction { url in MessageBody.opensLink(url) ? .systemAction : .discarded })
@@ -45,7 +45,7 @@ struct HermesBotApp: App {
                 AppCommands(model: AppModel.shared)  // D5, D9, D10, D13 (AppCommands.swift)
             }
         // D9: a Bot Chat or a room in its own window, on the same models (PaneWindows.swift).
-        WindowGroup("Hermes Bot", id: DetachedPane.sceneId, for: SidebarItem.self) { $item in
+        WindowGroup("Herald", id: DetachedPane.sceneId, for: SidebarItem.self) { $item in
             DetachedPaneView(model: AppModel.shared, item: item).modifier(MotionGate())
                 .environment(\.openURL, OpenURLAction { url in MessageBody.opensLink(url) ? .systemAction : .discarded })
         }

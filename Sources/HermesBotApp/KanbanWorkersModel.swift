@@ -43,7 +43,7 @@ final class KanbanWorkersModel: ObservableObject {
     }
 
     static let interval: TimeInterval = 5
-    static let terminateReason = "Terminated from Hermes Bot"
+    static let terminateReason = "Terminated from Herald"
 
     let slug: String
     let api: any KanbanService

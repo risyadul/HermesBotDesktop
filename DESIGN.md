@@ -1,6 +1,6 @@
 ---
 version: alpha
-name: Hermes Bot
+name: Herald
 description: Native macOS conversation desk for one engineer running a team of Hermes bots. Graphite chrome, colour belongs to the bots.
 colors:
   primary: "#1D1D1F"
@@ -381,7 +381,7 @@ components:
 
 ## Overview
 
-Hermes Bot is a native macOS desk for one engineer who runs a small team of Hermes bots: 1:1 Bot Chat
+Herald is a native macOS desk for one engineer who runs a small team of Hermes bots: 1:1 Bot Chat
 and multi-bot Group Chat over a local `hermes serve` backend. It is an operate surface, read for long
 stretches, so the chrome stays quiet and Mac-native while the bots carry the colour.
 
@@ -829,13 +829,13 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   Bot", then "N waiting on you" in attention or "Nothing waiting" muted), Bots and Group Chats as plain rows
   (status dot: attention = needs you, breathing graphite = working, hairline = idle; title in body; state in
   meta), needs-you rows first; then Quick send (bot menu, rounded text field, Send) with one meta note under it;
-  then link buttons (Open Hermes Bot, Quick Ask, Quit).
+  then link buttons (Open Herald, Quick Ask, Quit).
 - `quick-ask-panel` (D4): a 560 pt floating panel, `window` fill (no second material), hidden title bar, moved by
   its background. One row: bot menu, then a borderless field in `title-pane` ("Ask a bot…", up to 4 lines).
   The reply follows under a hairline: spinner + "<bot> is thinking…", breathing dot + "<bot> is replying",
   then the bot's title in `meta-strong` and the text (body, selectable, scrolls past 260 pt); failures in
   danger. "Open in Bot Chat" is `button-secondary`. Esc hides it.
-- `send-chooser` (D6, Services): a 460 pt floating window: `title-pane` "Send to Hermes Bot", a To menu (Bots,
+- `send-chooser` (D6, Services): a 460 pt floating window: `title-pane` "Send to Herald", a To menu (Bots,
   Group Chats sections), the editable text (hairline box, control radius), files as meta rows with a remove
   button and the note that they go to the composer, then Cancel · Open in Composer · Send (default).
 - `catch-up-sheet` (D12): the room toolbar's Summarize button (`text.badge.star`, disabled while nothing is

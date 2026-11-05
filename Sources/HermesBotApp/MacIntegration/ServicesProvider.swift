@@ -2,7 +2,7 @@ import AppKit
 import HermesGatewayKit
 import SwiftUI
 
-// D6: macOS Services → "Send to Hermes Bot" for selected text and Finder files. The service (declared as
+// D6: macOS Services → "Send to Herald" for selected text and Finder files. The service (declared as
 // NSServices in Info.plist by scripts/package-app.sh, served by `NSApp.servicesProvider`) never sends: it
 // opens a small chooser, prefilled, where the user picks a bot or a group chat and then either sends the text
 // or puts text and files into that chat's composer.
@@ -175,7 +175,7 @@ struct SendChooserView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s3) {
-            Text("Send to Hermes Bot").font(DS.Typeface.titlePane)
+            Text("Send to Herald").font(DS.Typeface.titlePane)
             Picker("To", selection: $model.target) {
                 Section("Bots") {
                     ForEach(model.bots) { bot in Text(bot.title).tag(Optional(QuickSendTarget.bot(bot.name))) }
@@ -213,7 +213,7 @@ struct SendChooserView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if model.bots.isEmpty {
-                Text("Hermes Bot is not connected yet.").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                Text("Herald is not connected yet.").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
             }
             HStack {
                 Button("Cancel", action: onClose).keyboardShortcut(.cancelAction)

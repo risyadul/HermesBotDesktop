@@ -346,8 +346,8 @@ x86_64 on the Intel CI job. Last local run (2026-11-06, Xcode 26 / Swift 6.3.3):
 2. Create and push a tag `vMAJOR.MINOR.PATCH` (for example `v0.2.0`). Tags must be numeric: the version becomes
    `CFBundleShortVersionString`, which the in-app update check compares with the latest release.
 3. `.github/workflows/release.yml` runs `scripts/package-app.sh <version> --universal` on `macos-15`, writes
-   `SHA256SUMS.txt` and publishes `HermesBot-<version>-macos-universal.zip` as a GitHub Release with generated
-   notes. Installed apps see it at their next daily check (Hermes Bot → Check for Updates… at once).
+   `SHA256SUMS.txt` and publishes `Herald-<version>-macos-universal.zip` as a GitHub Release with generated
+   notes. Installed apps see it at their next daily check (Herald → Check for Updates… at once).
 
 Locally, `scripts/package-app.sh 0.2.0 --universal --dry-run` prints what a run would do; a real run prints
 `lipo -info` and `codesign -dv` of the result.
@@ -393,11 +393,11 @@ checked with `--dry-run` and by review; the first real run needs the maintainer'
 `scripts/package-app.sh` builds the release binary with `-emit-const-values` (plus a
 `-const-gather-protocols-file` listing the App Intents protocols), then runs Xcode's
 `appintentsmetadataprocessor` on `HermesBotApp.swiftconstvalues` to write
-`HermesBot.app/Contents/Resources/Metadata.appintents`: SwiftPM does not do this itself, and without it
+`Herald.app/Contents/Resources/Metadata.appintents`: SwiftPM does not do this itself, and without it
 Shortcuts does not list the Ask Bot / Send to Group Chat actions. Without Xcode (Command Line Tools only) the
 step is skipped with a warning. `Info.plist` declares the `NSServices` entry (`NSMessage` `sendToHermesBot`,
-text and file send types). Check: `plutil -lint dist/HermesBot.app/Contents/Info.plist` and
-`ls dist/HermesBot.app/Contents/Resources/Metadata.appintents`. Services and App Intents only work from the
+text and file send types). Check: `plutil -lint dist/Herald.app/Contents/Info.plist` and
+`ls dist/Herald.app/Contents/Resources/Metadata.appintents`. Services and App Intents only work from the
 packaged app (a `swift run` binary has no bundle).
 
 ## Test-only environment variables
@@ -427,7 +427,7 @@ a release build ignores them. `LOCK_DIR` and `FORCE_SPAWN` work in every build.
   `~/Library/Logs/HermesBotApp/serve.log`) gets `HERMES_PARENT_PID`. It is stopped with SIGTERM on quit. If
   the app crashes, the backend exits through its parent-death watchdog.
 - Closing the last window quits only while the menu bar extra is off; with it shown (the default) the app
-  keeps running (status item, notifications, Quick Ask) and the Dock icon or "Open Hermes Bot" reopens the
+  keeps running (status item, notifications, Quick Ask) and the Dock icon or "Open Herald" reopens the
   main window (`WindowLifecyclePolicy`, AppDelegate.swift).
 - Quit (⌘Q, or the last window closed with the menu bar extra off), SIGTERM and SIGINT (Ctrl+C in the launching terminal) all run the same
   graceful cleanup, once; a repeated signal during cleanup is ignored. The spawned backend runs in its own
@@ -490,7 +490,7 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
 - Voice (B17) never touches the microphone, the recognizer or the speakers in tests: `DictationTests` drive
   `DictationController` with a scripted `SpeechRecognizing` fake and `ReadAloudTests` use a recording
   `SpeechSynthesizing` fake and a hand-fired Esc monitor; `ReadAloudController.shared` is silent under XCTest.
-  The real engines need `HermesBot.app` (`scripts/package-app.sh` writes `NSMicrophoneUsageDescription` and
+  The real engines need `Herald.app` (`scripts/package-app.sh` writes `NSMicrophoneUsageDescription` and
   `NSSpeechRecognitionUsageDescription`); try them by hand there.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
   pruning. The hidden member sessions are cleaned without restarting anything:

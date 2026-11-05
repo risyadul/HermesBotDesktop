@@ -140,9 +140,9 @@ final class NotificationPolicyTests: XCTestCase {
 
     @MainActor func testPosterIsUnavailableOutsideAnAppBundleAndUnderTests() {
         XCTAssertFalse(UserNotificationPoster.availability(bundleURL: URL(fileURLWithPath: "/tmp/debug"), environment: [:]))
-        XCTAssertFalse(UserNotificationPoster.availability(bundleURL: URL(fileURLWithPath: "/A/HermesBot.app"),
+        XCTAssertFalse(UserNotificationPoster.availability(bundleURL: URL(fileURLWithPath: "/A/Herald.app"),
                                                            environment: ["XCTestConfigurationFilePath": "/x"]))
-        XCTAssertTrue(UserNotificationPoster.availability(bundleURL: URL(fileURLWithPath: "/A/HermesBot.app"), environment: [:]))
+        XCTAssertTrue(UserNotificationPoster.availability(bundleURL: URL(fileURLWithPath: "/A/Herald.app"), environment: [:]))
         XCTAssertNil(UserNotificationPoster.makeIfAvailable(), "the test runner never gets a real poster")
     }
 }

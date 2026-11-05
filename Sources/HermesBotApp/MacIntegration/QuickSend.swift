@@ -35,7 +35,7 @@ enum QuickSendError: Error, Equatable, CustomStringConvertible, LocalizedError {
 
     var description: String {
         switch self {
-        case .notConnected: return "Hermes Bot is not connected to Hermes. Open the app and connect first."
+        case .notConnected: return "Herald is not connected to Hermes. Open the app and connect first."
         case .unknownBot(let name): return "There is no bot named \(name)."
         case .unknownRoom(let name): return "There is no group chat \(name)."
         case .empty: return "Type a message first."

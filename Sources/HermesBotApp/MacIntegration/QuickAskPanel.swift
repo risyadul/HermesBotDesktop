@@ -143,7 +143,7 @@ struct QuickAskView: View {
                 }
             }
             if model.bots.isEmpty {
-                Text("Hermes Bot is not connected. Open the app to connect.")
+                Text("Herald is not connected. Open the app to connect.")
                     .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
             }
         }

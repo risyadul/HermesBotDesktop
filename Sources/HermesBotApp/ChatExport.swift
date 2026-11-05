@@ -12,7 +12,7 @@ enum ChatExport {
     static func markdown(bot: Bot, lines: [ChatLine], exportedAt: Date, locale: Locale = .current) -> String {
         let stamp = { (d: Date) in d.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale)) }
         var out = ["# Bot Chat with \(scrub(bot.title))", "",
-                   "Exported from Hermes Bot on \(stamp(exportedAt)). Profile `\(scrub(bot.name))`."]
+                   "Exported from Herald on \(stamp(exportedAt)). Profile `\(scrub(bot.name))`."]
         for item in TranscriptItem.build(lines) {
             switch item {
             case .line(let line, let header):

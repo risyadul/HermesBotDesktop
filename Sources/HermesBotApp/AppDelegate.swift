@@ -154,7 +154,7 @@ enum WindowLifecyclePolicy {
     }
 }
 
-/// Opens the main window from places outside it (the Dock reopen, the menu bar extra's Open Hermes Bot) when
+/// Opens the main window from places outside it (the Dock reopen, the menu bar extra's Open Herald) when
 /// the last one was closed. SwiftUI's `openWindow` is only available in views: the menu bar label and the main
 /// window hand it over (`capturesMainWindowOpener`).
 @MainActor

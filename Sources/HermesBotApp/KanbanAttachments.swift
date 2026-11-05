@@ -162,7 +162,7 @@ enum KanbanAttachmentFiles {
     /// Marks a download as coming from elsewhere, so Gatekeeper asks before anything in it runs (best effort).
     private static func quarantine(_ file: URL) {
         var values = URLResourceValues()
-        values.quarantineProperties = ["LSQuarantineType": "LSQuarantineTypeOtherDownload", "LSQuarantineAgentName": "Hermes Bot"]
+        values.quarantineProperties = ["LSQuarantineType": "LSQuarantineTypeOtherDownload", "LSQuarantineAgentName": "Herald"]
         var url = file
         try? url.setResourceValues(values)
     }

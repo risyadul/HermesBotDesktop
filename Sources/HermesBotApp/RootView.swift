@@ -99,7 +99,7 @@ struct RootView: View {
                            onTryAgain: { Task { await model.connect() } },
                            onCheckAgain: { Task { await model.recheckSetup() } },
                            onOpenBot: { name in withTransaction(SidebarView.selectionTransaction) { model.selection = .bot(name) } })
-                .navigationTitle("Hermes Bot")
+                .navigationTitle("Herald")
         } else {
             placeholder
         }
@@ -112,13 +112,13 @@ struct RootView: View {
                            message: "Looking for a running Hermes backend first. A private hermes serve starts only if none is running.") {
                 ProgressView().controlSize(.small)
             }
-            .navigationTitle("Hermes Bot")
+            .navigationTitle("Herald")
         case .failed(let e):
             EmptyStateView(symbol: "exclamationmark.triangle", title: "Can't reach Hermes", message: e) {
                 Button("Try Again") { Task { await model.connect() } }
                     .buttonStyle(DSButtonStyle(kind: .primary))
             }
-            .navigationTitle("Hermes Bot")
+            .navigationTitle("Herald")
         case .connected:
             EmptyStateView(symbol: "bubble.left.and.bubble.right", title: "Pick a bot or a group chat",
                            message: model.bots.count >= 2 && model.groupsAvailable
@@ -129,7 +129,7 @@ struct RootView: View {
                         .buttonStyle(DSButtonStyle(kind: .secondary))
                 }
             }
-            .navigationTitle("Hermes Bot")
+            .navigationTitle("Herald")
         }
     }
 }
