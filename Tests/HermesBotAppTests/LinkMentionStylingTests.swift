@@ -48,6 +48,25 @@ final class LinkMentionStylingTests: XCTestCase {
         }
     }
 
+    /// Live UI test 2026-11-06 (round 2): `@user` in room messages was plain text while bot mentions were blue.
+    /// It is now `attention` (amber) and semibold, in bot markdown and the user's own bubbles; Bot Chat
+    /// (no handles) stays unstyled, and inline code or a longer handle is not a mention.
+    func testUserMentionIsAttentionColoured() {
+        guard case .paragraph(let p)? = MarkdownBlock.parse("@User which account, @orchestrator? not @username or `@user`").first else {
+            return XCTFail()
+        }
+        let styled = MarkdownView.styled(p, mentions: ["orchestrator"])
+        let amber = styled.runs.filter { $0.foregroundColor == DS.Palette.attention }.map { String(styled[$0.range].characters) }
+        XCTAssertEqual(amber, ["@User"])
+        XCTAssertTrue(runs(styled, "@User").allSatisfy { $0.font == DS.Typeface.bodyStrong })
+        XCTAssertTrue(runs(styled, "@orchestrator").allSatisfy { $0.foregroundColor == DS.Palette.link }, "bot mentions stay blue")
+        XCTAssertTrue(MarkdownView.styled(p).runs.allSatisfy { $0.foregroundColor == nil }, "Bot Chat: unstyled")
+
+        let bubble = UserBubble.mentions("@default ping @user", handles: ["default"])
+        XCTAssertTrue(runs(bubble, "@user").allSatisfy { $0.foregroundColor == DS.Palette.attention })
+        XCTAssertTrue(runs(bubble, "@default").allSatisfy { $0.foregroundColor == DS.Palette.link })
+    }
+
     func testLinkBlueKeepsTextContrast() {
         func lum(_ hex: UInt32) -> Double {
             func c(_ v: UInt32) -> Double { let x = Double(v) / 255; return x <= 0.03928 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4) }
