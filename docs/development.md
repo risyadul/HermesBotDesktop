@@ -25,11 +25,17 @@ The app was built in three steps; the contracts still use these names.
 ```
 Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend (attach-first /
                             spawn-if-absent + event routing), BotChat (Bot, BotChatSession),
-                            ChatTranscript (submit gate + turn settling), Redaction (token-safe errors),
+                            ChatTranscript (submit gate, turn settling, tool lines, history seeding), Redaction (token-safe errors),
                             ServeProcess (owned backend), GatewayClient (JSON-RPC/WS),
                             GroupsAPI (raw groups.* calls), GroupChat (typed groups.* views + calls),
                             RoomTimeline (log reducer, phases, send gate, poll policy, RoomSync),
                             RoomPoller (one generation-guarded poll loop per room), JSONValue
+  CanonicalBotChat.swift      the bot's one "Bot Chat": find -> resume, create only when absent, detach-only teardown
+  ChatAttachments.swift       image/pdf/file attach RPCs, client-side checks, prompt text
+  MediaTags.swift             MEDIA:<path> parsing + MediaSafety (deny rules for Open/Reveal)
+  ServerRequests.swift        server->client requests (approval, clarify, sudo, secret): frames, answers, cancel
+  SlashCommands.swift         commands.catalog (curated like Desktop) + invocation classification
+  ToolActivity.swift          tool.start/progress/complete payloads
 Sources/BotChatHarness/     CLI: attach/spawn → profiles.list → one streamed 1:1 turn → cleanup
 Sources/SpikeHarness/       CLI: the M0 groups.* round trip (isolated home): RoundTrip, GroupsAPI+Spike
                             (M0-only raw calls: profiles, create, disband, Member)
@@ -37,7 +43,16 @@ Sources/GroupChatHarness/   CLI: Group Chat scenarios (multi/stop/retry/approve/
 Sources/HermesBotApp/       SwiftUI app:
   HermesBotApp.swift          @main App, AppDelegate (signals, quit cleanup with deadline), RootView, Settings
   AppModel.swift              connection (ConnectFlow), bots, rooms, backend loss, shutdown
-  ChatModel.swift             one Bot Chat 1:1 (wraps ChatTranscript)
+  ChatModel.swift             one Bot Chat 1:1 (open/seed/send gate, wraps ChatTranscript)
+  ChatModel+Slash.swift       slash command execution and directives
+  ChatModel+Requests.swift    attachments staging and server request cards state
+  ChatSessionLink.swift       protocol ChatModel needs from a chat (BotChatSession in prod, fake in tests)
+  ChatComposer.swift          composer: paperclip, drop/paste, slash menu, Send/Stop
+  SlashCommandMenu.swift      slash menu keyboard model
+  AttachmentChips.swift       staged attachment chips, pasteboard file import
+  ToolActivityRow.swift       compact tool-call row
+  ServerRequestCards.swift    approval/clarify/secret cards; RequestCardModels.swift: their labels and answers
+  MediaViews.swift            MEDIA files: inline images, file chips, click-time safety check
   SidebarView.swift           Group Chats + Bots sidebar, row style, connection footer
   BotChatView.swift           Bot Chat pane (transcript, composer, streaming text)
   BotInspector.swift          bot details inspector, DefaultTag
@@ -48,7 +63,9 @@ Sources/HermesBotApp/       SwiftUI app:
   EvidenceDriver.swift        scripted runs + window snapshots, #if DEBUG only (see below)
 Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, GroupChat logic + groups.* wire
                             shapes, RoomPoller lifecycle + room availability
-Tests/HermesBotAppTests/    app regressions: Try Again reconnects after a failed load (ConnectFlow + real
+                            + parity suites: CanonicalBotChat, BotChatRebind (reclaim/session.info), ChatAttachment,
+                            ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand (ParityTestSupport: fakes)
+Tests/HermesBotAppTests/    ChatModel (with FakeChatLink), BotChatUIModel, MediaViews; app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate; real-window suites are opt-in
@@ -102,7 +119,9 @@ a release build ignores them. `LOCK_DIR` and `FORCE_SPAWN` work in every build.
   graceful cleanup, once; a repeated signal during cleanup is ignored. The spawned backend runs in its own
   process group (Foundation `Process`), so the terminal's Ctrl+C reaches only the app, which then uses the
   backend for cleanup and stops it with SIGTERM. SIGKILL skips cleanup.
-  Regression check: `scripts/sigint-regression.sh` (needs tmux and a GUI session; exit 0 = pass).
+  Regression check: `scripts/sigint-regression.sh` (needs tmux and a GUI session; exit 0 = pass). It runs the
+  canonical Bot Chat flow against a fake backend and asserts that Ctrl+C sends no `session.close` /
+  `session.delete` (the Bot Chat is only detached) and that the quit completes.
 - Session tokens are read from the 0600 rendezvous file (attach) or minted per start (spawn). They are never
   logged or written to repo/evidence files.
 
@@ -118,8 +137,8 @@ exit. The app itself does not use this home.
 
 Live tests run against a real `~/.hermes`, so they must clean up after themselves.
 
-- Bot Chat test sessions are titled `hba-…` and deleted after each run. The app never changes profile or bot
-  config.
+- Bot Chat test sessions made by the harness are titled `hba-…` and deleted after each run (the app's own
+  canonical "Bot Chat" is never deleted). The app never changes profile or bot config.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
   pruning. The hidden member sessions are cleaned without restarting anything:
   `group-chat-harness cleanup <evidence-dir> @<room-manifest.jsonl>` disbands, then re-discovers the rooms'

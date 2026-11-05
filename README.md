@@ -31,9 +31,10 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 - **It uses your real Hermes install (`~/.hermes`).** If a Hermes backend is already running (for example the
   Hermes desktop app), this app attaches to it. Otherwise it starts its own `hermes serve` on `~/.hermes` and
   stops it when you quit. A backend it attached to is never stopped.
-- **Bot Chat sessions are deleted on quit (default).** 1:1 chats created by this app are closed and
-  deleted on a normal Quit. They may be kept if the connection to the backend was lost, or if quit cleanup
-  hit its 5-second deadline. To always keep them, launch with `HERMES_BOT_APP_KEEP_SESSIONS=1`.
+- **Bot Chat is the same chat Hermes Desktop uses for that bot.** Opening a bot continues its existing
+  history; the app never deletes it. Quitting only disconnects. If the app cannot confirm whether the chat
+  exists, it does not start a new one. If the chat is running in another Hermes app (error 4090), the app
+  says so; open it in that app.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
   hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
 - **It does not change your profiles or bot config.** Bots are your existing Hermes profiles.
@@ -91,12 +92,28 @@ have **not been tested** with this app yet.
 6. **Quit** with ⌘Q, by closing the window, or with Ctrl+C in the terminal you launched it from. All three
    run the same cleanup (see the data section above). Force-killing the app (`kill -9`) skips it.
 
+## Using Bot Chat
+
+- **Slash commands:** type `/` for the commands your bot offers (including skills); ↑/↓ move, Tab or Return
+  accepts, Esc closes. `/new`, `/reset` and `/clear` compact the conversation instead of resetting it;
+  `/compress` and `/stop` work. Commands that only make sense in Hermes Desktop or the terminal are not offered.
+- **Tool activity:** each tool a bot uses shows as a line that ends with its duration and result summary, or
+  is marked failed.
+- **Bots asking you things:** approval requests (once, for the session, always, or deny), clarifying questions
+  and password/secret prompts appear as cards above the composer. Requests the app cannot show are left for
+  other Hermes apps to answer.
+- **Attachments:** paperclip, drag and drop, or paste. Images (up to 25 MB), PDFs (up to 50 MB and 25 pages;
+  needs `pdftoppm` on the backend machine) and other files. Files over a limit are refused with a message.
+- **Files from bots:** images show inline and other files as chips (Bot Chat and Group Chat). A file opens
+  only when you click it, after a safety check that refuses credentials and system locations.
+- **Group Chat is text-only for your own messages:** the backend's group rooms accept only text, so you
+  cannot attach files there.
+
 ## Configuration
 
 | Variable | Effect |
 |---|---|
 | `HERMES_BOT_APP_HERMES_BIN=<path>` | `hermes` executable used when the app has to start a backend. Absolute path (or `~/…`); replaces the automatic search |
-| `HERMES_BOT_APP_KEEP_SESSIONS=1` | keep 1:1 chat sessions on quit |
 | `HERMES_BOT_APP_NO_SPAWN=1` | only attach to a running backend; never start one |
 | `HERMES_BOT_APP_APPEARANCE=light\|dark` | force appearance |
 
@@ -113,9 +130,11 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
 - **"Group Chat needs Hermes Agent v2026.9.14 or later":** the backend does not offer `groups.*`; update
   Hermes Agent. The "+" button stays disabled until then.
 - **Connection lost:** the app shows a failure screen; press Try Again to reconnect.
-- **My Bot Chat history is gone:** by design, 1:1 sessions are deleted on a normal quit unless
-  `HERMES_BOT_APP_KEEP_SESSIONS=1`. (After a lost connection or a quit that hit the 5-second deadline,
-  some may be left behind.)
+- **My Bot Chat history looks short or empty:** Bot Chat is the bot's one chat titled "Bot Chat" and is never
+  deleted by this app. `/new`, `/reset` and `/clear` compact it rather than reset it. If the app cannot find or
+  confirm the chat it shows an error instead of starting a new one; press Try Again.
+- **"Running in another Hermes app":** another backend process holds that bot's chat. Use it in that app.
+- **PDF attachment fails:** PDFs are rendered with `pdftoppm` on the backend machine; install it (poppler).
 
 ## Download / packaging
 
