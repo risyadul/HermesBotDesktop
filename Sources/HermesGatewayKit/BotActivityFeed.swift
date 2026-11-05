@@ -39,7 +39,7 @@ public struct BotActivityFeed: Sendable, Equatable {
     public mutating func apply(_ page: BotActivityPage, room: String? = nil) {
         for row in page.rows {
             if let room, row.roomId != room { continue }
-            if let old = byKey[row.key], old.rev > row.rev { continue }
+            if let old = byKey[row.key], old.rev >= row.rev { continue }
             byKey[row.key] = row
         }
         let receivedMax = page.rows.map(\.rev).max() ?? 0
@@ -58,22 +58,6 @@ public struct BotActivityFeed: Sendable, Equatable {
         if byKey.count > totalCapacity {
             let drop = byKey.values.sorted { ($0.updated, $0.rev) < ($1.updated, $1.rev) }.prefix(byKey.count - totalCapacity)
             for r in drop { byKey[r.key] = nil }
-        }
-    }
-
-    /// Rows grouped per room member (`member_id`, else `bot`, else "unknown"), each with its current phase
-    /// at `now` (epoch seconds; use the page's server `now` when available). Members with live work come
-    /// first, then the most recently active.
-    public func members(now: Double) -> [BotActivityMember] {
-        let groups = Dictionary(grouping: rows, by: { $0.memberId ?? $0.bot ?? "unknown" })
-        return groups.map { id, rows in
-            let (phase, current) = Self.phase(of: rows, now: now)
-            return BotActivityMember(id: id, bot: rows.last(where: { $0.bot != nil })?.bot, phase: phase, current: current,
-                                     lastActivity: rows.map(\.updated).max() ?? 0, rows: rows)
-        }
-        .sorted { a, b in
-            if (a.phase != .idle) != (b.phase != .idle) { return a.phase != .idle }
-            return (a.lastActivity, a.id) > (b.lastActivity, b.id)
         }
     }
 
@@ -101,20 +85,4 @@ public enum BotActivityPhase: String, Sendable, Equatable {
     /// Reasoning/message text arriving.
     case streaming
     case idle
-}
-
-/// One member's slice of the feed.
-public struct BotActivityMember: Sendable, Equatable, Identifiable {
-    /// `member_id`, else the bot (profile) name.
-    public let id: String
-    public let bot: String?
-    public let phase: BotActivityPhase
-    /// The row behind `phase` (nil when idle).
-    public let current: BotActivityRow?
-    public let lastActivity: Double
-    /// Chronological.
-    public let rows: [BotActivityRow]
-
-    /// The most recent `error` row, for an error badge.
-    public var lastError: BotActivityRow? { rows.last { $0.status == "error" } }
 }

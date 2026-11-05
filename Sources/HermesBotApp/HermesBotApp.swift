@@ -64,7 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             src.resume()
             signalSources.append(src)
         }
-        // Kanban polling pauses while no window is on screen (hidden app, minimised or covered windows).
+        // Kanban polling pauses while no main window is on screen (hidden app, minimised or covered windows;
+        // the Settings window does not count).
         let names: [Notification.Name] = [
             NSApplication.didHideNotification, NSApplication.didUnhideNotification,
             NSApplication.didChangeOcclusionStateNotification, NSWindow.didChangeOcclusionStateNotification,
@@ -141,6 +142,7 @@ struct RootView: View {
         }
         .frame(minWidth: DS.Size.windowMinWidth, minHeight: DS.Size.windowMinHeight)
         .tint(DS.Palette.primary)
+        .background(MainWindowMarker { model.markMainWindow($0) })
         .task { await model.connectAtLaunch() }
         .task(id: model.bots.map(\.name)) { AvatarStore.shared.load(bots: model.bots, backend: model.backend) }
         // Not `.sheet`: its slide and dimmer fade ignore the motion gate (MotionSheet.swift).
@@ -153,16 +155,21 @@ struct RootView: View {
 
     /// One pane at a time: the outgoing pane leaves in the same frame (the selection changes outside any
     /// animation, `SidebarView.selectionTransaction`) and the incoming one fades in on its own (`PaneArrival`).
+    /// A pane's identity includes its model instance, so a model replaced after a reconnect gets a fresh view
+    /// (its `onAppear` / `task` start the new model).
     @ViewBuilder private var detail: some View {
         if let name = model.selectedBot, let bot = model.bots.first(where: { $0.name == name }) {
-            BotChatView(chat: model.chat(for: bot)).paneArrival(motion: motion).id(name)
+            let chat = model.chat(for: bot)
+            BotChatView(chat: chat).paneArrival(motion: motion).id(PaneIdentity(name, chat))
         } else if case .room(let id)? = model.selection, let room = model.roomModel(id) {
-            RoomView(model: room, activity: model.activityModel(for: room)).paneArrival(motion: motion).id(id)
+            let activity = model.activityModel(for: room)
+            RoomView(model: room, activity: activity).paneArrival(motion: motion)
+                .id(PaneIdentity(id, room, activity))
         } else if case .board(let slug)? = model.selection, let board = model.kanban.model(for: slug) {
             KanbanBoardView(hub: model.kanban, model: board, onSelectBoard: { next in
                 withTransaction(SidebarView.selectionTransaction) { model.selection = .board(next) }
             })
-            .paneArrival(motion: motion).id(slug)
+            .paneArrival(motion: motion).id(PaneIdentity(slug, board))
         } else {
             placeholder
         }
@@ -193,6 +200,40 @@ struct RootView: View {
                 }
             }
             .navigationTitle("Hermes Bot")
+        }
+    }
+}
+
+/// A detail pane's view identity: what it shows (bot name, room id, board slug) and the model instances
+/// behind it.
+struct PaneIdentity: Hashable {
+    let key: String
+    let models: [ObjectIdentifier?]
+
+    init(_ key: String, _ models: AnyObject?...) {
+        self.key = key
+        self.models = models.map { $0.map(ObjectIdentifier.init) }
+    }
+}
+
+/// Reports the window hosting the main window's content, so visibility checks can tell it from Settings.
+private struct MainWindowMarker: NSViewRepresentable {
+    let onAttach: @MainActor (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> MarkerView {
+        let v = MarkerView()
+        v.onAttach = onAttach
+        return v
+    }
+
+    func updateNSView(_ view: MarkerView, context: Context) { view.onAttach = onAttach }
+
+    final class MarkerView: NSView {
+        var onAttach: (@MainActor (NSWindow) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { onAttach?(window) }
         }
     }
 }

@@ -46,7 +46,6 @@ struct KanbanTaskInspector: View {
     @ObservedObject var model: KanbanBoardModel
     let onArchive: (KanbanTask) -> Void
     @ObservedObject private var avatars = AvatarStore.shared
-    @State private var comment = ""
     @State private var sending = false
     @State private var deleteCandidate: KanbanAttachment?
     @State private var dropTargeted = false
@@ -83,7 +82,7 @@ struct KanbanTaskInspector: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .id(task.id)
-            .onChange(of: model.selectedTaskId) { _, _ in comment = ""; deleteCandidate = nil }  // a draft never moves to another card
+            .onChange(of: model.selectedTaskId) { _, _ in deleteCandidate = nil }
             .confirmationDialog("Delete “\(VisibleText.reveal(deleteCandidate?.filename ?? ""))”?",
                                 isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })) {
                 Button("Delete", role: .destructive) {
@@ -195,8 +194,10 @@ struct KanbanTaskInspector: View {
     }
 
     @ViewBuilder private func composer(_ copy: KanbanComposerCopy) -> some View {
-        let empty = sending || comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let field = TextField(copy.placeholder, text: $comment, axis: .vertical)
+        let empty = sending || model.commentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Kept per card in the model: a late send clears only its own card's draft.
+        let field = TextField(copy.placeholder, text: Binding(get: { model.commentDraft }, set: { model.commentDraft = $0 }),
+                              axis: .vertical)
             .lineLimit(DS.Kanban.commentLines)
             .textFieldStyle(.roundedBorder)
             .onSubmit(send)
@@ -232,21 +233,21 @@ struct KanbanTaskInspector: View {
     }
 
     private func send() {
-        let body = comment
+        let body = model.commentDraft
         guard !sending, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         sending = true
         Task {
-            if await model.addComment(body) { comment = "" }
+            _ = await model.addComment(body)
             sending = false
         }
     }
 
     private func requeue() {
-        let body = comment
+        let body = model.commentDraft
         guard !sending, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         sending = true
         Task {
-            if await model.requeueWithNote(body) { comment = "" }
+            _ = await model.requeueWithNote(body)
             sending = false
         }
     }

@@ -77,13 +77,50 @@ final class KanbanCardActionsTests: XCTestCase {
         XCTAssertEqual(m.detail?.comments.map(\.body), ["Use the other API"])
     }
 
+    func testCommentDraftsArePerCardAndALateSendClearsOnlyItsOwn() async {
+        let api = fake()
+        let m = await opened(api, "t_1")
+        m.commentDraft = "For the spec"
+        m.select("t_b")
+        XCTAssertEqual(m.commentDraft, "", "a draft never shows on another card")
+        m.commentDraft = "Unblock me"
+        m.select("t_1")
+        XCTAssertEqual(m.commentDraft, "For the spec", "each card keeps its own draft")
+
+        api.with { $0.holdNextComment = true }
+        let sending = Task { await m.addComment(m.commentDraft) }
+        let deadline = Date().addingTimeInterval(5)
+        while !api.isParked, Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertTrue(api.isParked)
+        m.select("t_b")  // another card opened while the send is in flight
+        m.commentDraft = "Unblock me, please"
+        api.release()
+        let ok = await sending.value
+        XCTAssertTrue(ok)
+        XCTAssertEqual(m.commentDraft, "Unblock me, please", "the late send left the open card's draft alone")
+        XCTAssertNil(m.commentDrafts["t_1"], "the sent card's draft was cleared")
+        XCTAssertEqual(api.with { $0.comments["t_1"]?.count }, 1, "posted to the card it was written on")
+    }
+
+    func testAFailedSendKeepsTheDraft() async {
+        let api = fake()
+        let m = await opened(api, "t_1")
+        m.commentDraft = "Keep me"
+        api.with { $0.commentError = PluginREST.Failure.http(status: 500, detail: "x") }
+        let ok = await m.addComment(m.commentDraft)
+        XCTAssertFalse(ok)
+        XCTAssertEqual(m.commentDraft, "Keep me")
+    }
+
     // MARK: - requeue with note
 
     func testRequeuePostsTheNoteThenReclaims() async throws {
         let api = fake()
         let m = await opened(api, "t_r")
-        let posted = await m.requeueWithNote("  Start over with plan B  ")
+        m.commentDraft = "  Start over with plan B  "
+        let posted = await m.requeueWithNote(m.commentDraft)
         XCTAssertTrue(posted)
+        XCTAssertEqual(m.commentDraft, "", "the posted note's draft goes")
         XCTAssertEqual(api.calls.filter { $0 == "comment" || $0 == "reclaim" }, ["comment", "reclaim"], "comment first, then reclaim")
         XCTAssertEqual(m.detail?.comments.map(\.body), ["Start over with plan B"])
         XCTAssertEqual(m.inspectorNote, KanbanBoardModel.requeuedNote)

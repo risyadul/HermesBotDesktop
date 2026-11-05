@@ -241,6 +241,8 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     @Published private(set) var opening: Set<Int> = []
     /// A short confirmation under the comment box (Requeue with note).
     @Published private(set) var inspectorNote: String?
+    /// Unsent comment box text per card id: a draft never shows on another card.
+    @Published private(set) var commentDrafts: [String: String] = [:]
 
     /// Where downloads are saved and how a checked one is shown; tests replace both.
     var attachmentRoot = KanbanAttachmentFiles.root
@@ -549,12 +551,28 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         }
     }
 
-    /// Adds a comment to the selected card, then reloads its details. False (draft kept) on failure.
+    /// The open card's comment box text.
+    var commentDraft: String {
+        get { selectedTaskId.flatMap { commentDrafts[$0] } ?? "" }
+        set {
+            guard let id = selectedTaskId else { return }
+            commentDrafts[id] = newValue.isEmpty ? nil : newValue
+        }
+    }
+
+    /// After `body` was posted to `taskId`: that card's draft goes, unless it was edited meanwhile.
+    private func clearDraft(_ taskId: String, sent body: String) {
+        if commentDrafts[taskId] == body { commentDrafts[taskId] = nil }
+    }
+
+    /// Adds a comment to the selected card, then reloads its details. False (draft kept) on failure; on
+    /// success the draft of that card (even if another is open by then) is cleared.
     func addComment(_ body: String) async -> Bool {
         let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let id = selectedTaskId, !text.isEmpty else { return false }
         do {
             try await api.addComment(taskId: id, body: text, board: slug, author: KanbanAPI.commentAuthor)
+            clearDraft(id, sent: body)
             error = nil
             await loadDetail()
             return true
@@ -582,6 +600,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
             self.error = "Requeue with note failed: \(Self.describe(error))"
             return false
         }
+        clearDraft(id, sent: body)
         do {
             try await api.reclaim(id, board: slug, reason: nil)
             error = nil

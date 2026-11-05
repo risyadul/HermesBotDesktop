@@ -6,7 +6,7 @@ import HermesGatewayKit
 // (DispatcherStatusModel.swift). AppModel owns one hub and calls `connect` / `disconnect`; nothing here but
 // the dispatcher outlives a connection.
 //
-// Polling pauses while no app window is on screen (`setActive`, fed by AppDelegate: app hidden, windows
+// Polling pauses while no main app window is on screen (`setActive`, fed by AppDelegate: app hidden, windows
 // minimised or fully covered) and resumes, with a fresh fetch, when one is again.
 
 /// One sidebar row: a non-archived board with its running / blocked counts.
@@ -96,10 +96,10 @@ final class KanbanHub: ObservableObject {
         }
     }
 
-    /// True while some app window shows on screen: the app is not hidden and a window is visible, not
-    /// minimised and not fully covered.
-    static func onScreen(appHidden: Bool, windows: [(visible: Bool, miniaturized: Bool, unoccluded: Bool)]) -> Bool {
-        !appHidden && windows.contains { $0.visible && !$0.miniaturized && $0.unoccluded }
+    /// True while a main app window shows on screen: the app is not hidden and a main window (not Settings)
+    /// is visible, not minimised and not fully covered.
+    static func onScreen(appHidden: Bool, windows: [(main: Bool, visible: Bool, miniaturized: Bool, unoccluded: Bool)]) -> Bool {
+        !appHidden && windows.contains { $0.main && $0.visible && !$0.miniaturized && $0.unoccluded }
     }
 
     func summary(_ slug: String) -> KanbanBoardSummary? { boards.first { $0.slug == slug } }

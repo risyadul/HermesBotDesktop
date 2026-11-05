@@ -67,7 +67,7 @@ Sources/HermesBotApp/       SwiftUI app:
   MediaViews.swift            MEDIA files: inline images, file chips, click-time safety check
   SidebarView.swift           Group Chats + Bots + Boards sidebar, row style, connection footer
   KanbanHub.swift             board list for the sidebar, per-board models (pruned when unlisted), polling paused
-                              while no window is on screen (setActive), dispatcher polling while a board shows
+                              while no main window is on screen (setActive), dispatcher polling while a board shows
   DispatcherStatusModel.swift the one dispatcher status model (board chip + Settings), generation-guarded (K8)
   BackgroundServeSettingsModel.swift  Settings → Background: confirmations (path, env override, Switch Now /
                               At Next Launch, turning off while attached); SettingsSections.swift: the views

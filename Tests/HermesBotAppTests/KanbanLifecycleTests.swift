@@ -143,13 +143,15 @@ final class KanbanLifecycleTests: XCTestCase {
     // MARK: pause while hidden (M5)
 
     func testOnScreenRule() {
-        XCTAssertTrue(KanbanHub.onScreen(appHidden: false, windows: [(true, false, true)]))
-        XCTAssertFalse(KanbanHub.onScreen(appHidden: true, windows: [(true, false, true)]), "app hidden")
-        XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: [(true, true, false)]), "minimised")
-        XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: [(true, false, false)]), "fully covered")
-        XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: [(false, false, true)]), "closed")
+        XCTAssertTrue(KanbanHub.onScreen(appHidden: false, windows: [(true, true, false, true)]))
+        XCTAssertFalse(KanbanHub.onScreen(appHidden: true, windows: [(true, true, false, true)]), "app hidden")
+        XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: [(true, true, true, false)]), "minimised")
+        XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: [(true, true, false, false)]), "fully covered")
+        XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: [(true, false, false, true)]), "closed")
         XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: []))
-        XCTAssertTrue(KanbanHub.onScreen(appHidden: false, windows: [(true, true, false), (true, false, true)]))
+        XCTAssertTrue(KanbanHub.onScreen(appHidden: false, windows: [(true, true, true, false), (true, true, false, true)]))
+        XCTAssertFalse(KanbanHub.onScreen(appHidden: false, windows: [(true, true, true, false), (false, true, false, true)]),
+                       "only Settings on screen (the main window minimised): paused")
     }
 
     func testInactiveHubPausesTheListBoardsAndDispatcherAndResumes() async throws {

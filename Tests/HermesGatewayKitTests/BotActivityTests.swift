@@ -82,6 +82,13 @@ final class BotActivityTests: XCTestCase {
         XCTAssertEqual(feed.rows.count, 2)
     }
 
+    func testAnEqualRevNeverOverwrites() {
+        var feed = BotActivityFeed()
+        feed.apply(page([row("a", rev: 3, status: "ok")], rev: 3, since: 0))
+        feed.apply(page([row("a", rev: 3, status: "running")], rev: 3, since: 0))  // a replay of the same rev
+        XCTAssertEqual(feed.rows.first { $0.key == "a" }?.status, "ok", "the copy already held stays")
+    }
+
     func testCursorFollowsServerRevUnlessPageWasCut() {
         var feed = BotActivityFeed()
         feed.apply(page([row("a", rev: 4)], rev: 50, since: 0, limit: 1))
@@ -119,34 +126,25 @@ final class BotActivityTests: XCTestCase {
 
     func testMemberPhasesUseThePluginFreshnessWindows() {
         let now = 10_000.0
-        var feed = BotActivityFeed()
-        feed.apply(page([
-            row("a1", rev: 1, ts: now - 100, member: "m-a", status: "ok"),
-            row("a2", rev: 2, ts: now - 60, member: "m-a", status: "running"),
-            row("b1", rev: 3, ts: now - 10, member: "m-b", bot: "bob", status: "streaming", kind: "reasoning"),
-            row("c1", rev: 4, ts: now - 40, member: "m-c", bot: "carol", status: "streaming", kind: "message"),
-            row("d1", rev: 5, ts: now - 1000, member: "m-d", bot: "dave", status: "running"),
-            row("e1", rev: 6, ts: now - 5, member: "m-e", bot: "erin", status: "waiting"),
-            row("e2", rev: 7, ts: now - 4, member: "m-e", bot: "erin", status: "error"),
-        ], rev: 7, since: 0))
-        let members = Dictionary(uniqueKeysWithValues: feed.members(now: now).map { ($0.id, $0) })
-        XCTAssertEqual(members["m-a"]?.phase, .running)
-        XCTAssertEqual(members["m-a"]?.current?.key, "a2")
-        XCTAssertEqual(members["m-b"]?.phase, .streaming)
-        XCTAssertEqual(members["m-c"]?.phase, .idle, "a stream quiet for > 30 s is done")
-        XCTAssertEqual(members["m-d"]?.phase, .idle, "running but stale (> 15 min) is abandoned")
-        XCTAssertEqual(members["m-e"]?.phase, .waiting)
-        XCTAssertEqual(members["m-e"]?.lastError?.key, "e2")
-        XCTAssertEqual(members["m-d"]?.bot, "dave")
-        let order = feed.members(now: now).map(\.id)
-        XCTAssertEqual(Array(order.prefix(3)), ["m-e", "m-b", "m-a"], "active first, then most recent")
-        XCTAssertEqual(Array(order.suffix(2)), ["m-c", "m-d"])
-    }
-
-    func testMembersFallBackToBotName() {
-        var feed = BotActivityFeed()
-        feed.apply(page([row("x", rev: 1, member: nil, bot: "alice"), row("y", rev: 2, member: nil, bot: nil)], rev: 2, since: 0))
-        XCTAssertEqual(Set(feed.members(now: 0).map(\.id)), ["alice", "unknown"])
+        func phase(_ rows: [BotActivityRow]) -> (BotActivityPhase, String?) {
+            let (p, current) = BotActivityFeed.phase(of: rows, now: now)
+            return (p, current?.key)
+        }
+        let a = phase([row("a1", rev: 1, ts: now - 100, member: "m-a", status: "ok"),
+                       row("a2", rev: 2, ts: now - 60, member: "m-a", status: "running")])
+        XCTAssertEqual(a.0, .running)
+        XCTAssertEqual(a.1, "a2")
+        XCTAssertEqual(phase([row("b1", rev: 3, ts: now - 10, member: "m-b", bot: "bob", status: "streaming", kind: "reasoning")]).0,
+                       .streaming)
+        XCTAssertEqual(phase([row("c1", rev: 4, ts: now - 40, member: "m-c", bot: "carol", status: "streaming", kind: "message")]).0,
+                       .idle, "a stream quiet for > 30 s is done")
+        XCTAssertEqual(phase([row("d1", rev: 5, ts: now - 1000, member: "m-d", bot: "dave", status: "running")]).0,
+                       .idle, "running but stale (> 15 min) is abandoned")
+        let e = phase([row("e0", rev: 5, ts: now - 6, member: "m-e", bot: "erin", status: "running"),
+                       row("e1", rev: 6, ts: now - 5, member: "m-e", bot: "erin", status: "waiting"),
+                       row("e2", rev: 7, ts: now - 4, member: "m-e", bot: "erin", status: "error")])
+        XCTAssertEqual(e.0, .waiting, "waiting wins over running")
+        XCTAssertEqual(e.1, "e1")
     }
 
     // MARK: - plugin install RPCs

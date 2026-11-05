@@ -52,26 +52,34 @@ private actor FakeInstaller: BotActivityInstaller {
     var state: BotActivityPluginManager.State = .notInstalled
     var failure: Error?
     private(set) var calls: [String] = []
-    private var holdInstall = false
+    private var holdNext = false
     private var gate: CheckedContinuation<Void, Never>?
 
     func set(_ s: BotActivityPluginManager.State) { state = s }
     func fail(_ e: Error?) { failure = e }
-    func hold() { holdInstall = true }
+    /// Parks the next `install` or `remove` until `release()`.
+    func hold() { holdNext = true }
     func release() { gate?.resume(); gate = nil }
     var parked: Bool { gate != nil }
+
+    private func parkIfHeld() async {
+        guard holdNext else { return }
+        holdNext = false
+        await withCheckedContinuation { gate = $0 }
+    }
 
     func pluginState() async throws -> BotActivityPluginManager.State { calls.append("state"); return state }
     func install(force: Bool) async throws {
         calls.append(force ? "install(force)" : "install")
-        if holdInstall {
-            holdInstall = false
-            await withCheckedContinuation { gate = $0 }
-        }
+        await parkIfHeld()
         if let failure { throw failure }
     }
     func turnOn() async throws { calls.append("turnOn"); if let failure { throw failure } }
-    func remove() async throws { calls.append("remove"); if let failure { throw failure } }
+    func remove() async throws {
+        calls.append("remove")
+        await parkIfHeld()
+        if let failure { throw failure }
+    }
 }
 
 /// Stands in for `hermes -p <bot> plugins enable|disable bot-activity`; never runs anything.
@@ -203,6 +211,32 @@ final class RoomActivityModelTests: XCTestCase {
         XCTAssertTrue(rooms.dropFirst().allSatisfy { $0 == "hba-r2" }, "each model asks only for its own room: \(rooms)")
     }
 
+    func testTryAgainRestartsTheLoopWithTheBackoffReset() async {
+        let source = FakeActivitySource()
+        let boom = PluginREST.Failure.http(status: 500, detail: "boom")
+        await source.script([.failure(boom), .failure(boom), .failure(boom)])
+        // A long interval: after a failure the loop would wait (at least) 20 s before polling again.
+        let m = RoomActivityModel(roomId: "hba-r1", members: members, source: source, installer: FakeInstaller(),
+                                  profiles: FakeProfiles(), gate: BotActivityActionGate(), interval: .seconds(10))
+        m.start()
+        await waitUntil("the first failure") { m.failures == 1 }
+        guard case .error = m.pluginState else { return XCTFail("expected .error, got \(m.pluginState)") }
+        let gen = m.generation
+        m.retry()
+        XCTAssertTrue(m.isPolling)
+        XCTAssertGreaterThan(m.generation, gen, "a fresh loop: the old one's answers are dropped")
+        await waitUntil("the retry's poll") { await source.callCount == 2 }
+        await waitUntil("its failure") { m.failures == 1 }
+        XCTAssertEqual(m.failures, 1, "the backoff restarted from zero, not counted twice")
+        m.retry()
+        await waitUntil("another poll") { await source.callCount == 3 }
+        m.stop()
+        let calls = await source.callCount
+        XCTAssertEqual(calls, 3, "one poll per Try Again, never a second loop beside the first")
+        m.retry()
+        XCTAssertFalse(m.isPolling, "the panel is closed: Try Again does not start polling")
+    }
+
     func testShutdownNeverRestarts() async {
         let m = make(FakeActivitySource())
         m.shutdown()
@@ -258,6 +292,26 @@ final class RoomActivityModelTests: XCTestCase {
         let m = make(source)
         await m.poll()
         XCTAssertEqual(m.pluginState, .ready)
+    }
+
+    func testFailedSetupCheckIsNotRetriedOnEveryPoll() async {
+        let source = FakeActivitySource()
+        await source.setSetup(.failure(PluginREST.Failure.http(status: 500, detail: "x")))
+        let m = make(source)
+        for _ in 0..<5 { await m.poll() }
+        let polls = await source.callCount
+        XCTAssertEqual(polls, 5)
+        var setupCalls = await source.setupCalls
+        XCTAssertEqual(setupCalls, 1, "a failed setup check waits \(RoomActivityModel.setupRetryDelay) before the next")
+        XCTAssertGreaterThanOrEqual(RoomActivityModel.setupRetryDelay, .seconds(60))
+        XCTAssertEqual(m.pluginState, .ready)
+
+        // An action checks again at once (its own GET /setup, then the follow-up poll's).
+        await source.setSetup(.success(BotActivitySetup(profiles: [], untracked: ["bob"], outdated: [], optedOut: [])))
+        await m.rollOut()
+        setupCalls = await source.setupCalls
+        XCTAssertEqual(setupCalls, 2, "the poll after the action re-checks setup")
+        XCTAssertEqual(m.pluginState, .needsRollOut(["bob"]))
     }
 
     // MARK: enable / turn off
@@ -485,25 +539,78 @@ final class RoomActivityModelTests: XCTestCase {
         XCTAssertNil(gate.action)
     }
 
-    func testTurnOffJoinedFromAnotherRoomShowsRemoving() async {
+    func testTurnOffFromAnotherRoomIsRefusedWhileEnableRuns() async {
+        let source = FakeActivitySource()
+        let installer = FakeInstaller()
+        let profiles = FakeProfiles()
+        let gate = BotActivityActionGate()
+        await source.setSetup(.success(BotActivitySetup(profiles: [profile("alice")], untracked: [], outdated: [], optedOut: [])))
+        await installer.hold()
+        let a = make(source, installer, profiles: profiles, gate: gate, room: "hba-r1")
+        let b = make(source, installer, profiles: profiles, gate: gate, room: "hba-r2")
+        await a.poll()
+        await b.poll()
+        let enabling = Task { await a.enable() }
+        await waitUntil("the install to start") { await installer.parked }
+        let refused = Task { await b.turnOff() }
+        // Refused at once, not joined (a join would wait for the parked install).
+        await waitUntil("the refusal") { b.actionError != nil }
+        XCTAssertEqual(b.actionError, BotActivityActionGate.busyMessage)
+        XCTAssertEqual(b.actionError, "Another activity action is running; try again when it finishes.")
+        XCTAssertEqual(b.pluginState, .ready, "room 2 neither shows the enable nor a removal")
+        XCTAssertEqual(gate.action, .enable)
+        await installer.release()
+        await enabling.value
+        await refused.value
+        let calls = await installer.calls
+        XCTAssertFalse(calls.contains("remove"), "the refused turn-off never ran")
+        let disabled = await profiles.calls
+        XCTAssertEqual(disabled, [], "no profile was turned off")
+        XCTAssertEqual(a.pluginState, .ready)
+    }
+
+    func testASecondRoomJoinsTheTurnOffInFlight() async {
         let source = FakeActivitySource()
         let installer = FakeInstaller()
         let gate = BotActivityActionGate()
+        await source.setSetup(.success(BotActivitySetup(profiles: [profile("alice")], untracked: [], outdated: [], optedOut: [])))
         await installer.hold()
         let a = make(source, installer, gate: gate, room: "hba-r1")
         let b = make(source, installer, gate: gate, room: "hba-r2")
         await a.poll()
         await b.poll()
-        let enabling = Task { await a.enable() }
-        await waitUntil("the install to start") { await installer.parked }
-        let joined = Task { await b.turnOff() }
-        await waitUntil("room 2 to join") { b.pluginState != .ready }
-        XCTAssertEqual(b.pluginState, .enabling, "it joins the action in flight (enable), not its own")
+        let first = Task { await a.turnOff() }
+        await waitUntil("the remove to start") { await installer.parked }
+        let second = Task { await b.turnOff() }
+        await waitUntil("room 2 to join") { b.pluginState == .removing }
         await installer.release()
-        await enabling.value
-        await joined.value
-        let v6 = await installer.calls
-        XCTAssertFalse(v6.contains("remove"), "the joined turn-off did not run")
+        await first.value
+        await second.value
+        let calls = await installer.calls
+        XCTAssertEqual(calls, ["remove"], "one removal for both rooms")
+        XCTAssertEqual(a.pluginState, .pluginMissing)
+        XCTAssertEqual(b.pluginState, .pluginMissing, "the joined room gets the same outcome")
+        XCTAssertNil(b.actionError)
+    }
+
+    func testGateRefusesADifferentActionWithoutRunningIt() async {
+        let gate = BotActivityActionGate()
+        var release: CheckedContinuation<Void, Never>?
+        let first = Task { await gate.run(.enable) { await withCheckedContinuation { release = $0 }; return .init() } }
+        await waitUntil("the enable to run") { release != nil }
+        var ran = false
+        var refused: BotActivityActionGate.Outcome?
+        Task { refused = await gate.run(.turnOff) { ran = true; return .init(removed: true) } }
+        await waitUntil("the refusal") { refused != nil }  // never waits for the enable's body
+        XCTAssertFalse(ran)
+        XCTAssertEqual(refused, .init(error: BotActivityActionGate.busyMessage))
+        let joined = Task { await gate.run(.enable) { ran = true; return .init(error: "not this one") } }
+        release?.resume()
+        let out = await first.value
+        let joinedOut = await joined.value
+        XCTAssertFalse(ran, "the joined enable awaited the first one's body")
+        XCTAssertEqual(joinedOut, out)
+        XCTAssertFalse(gate.isBusy)
     }
 
     // MARK: visibility
@@ -659,13 +766,16 @@ final class RoomActivityModelTests: XCTestCase {
         let approval = RoomApproval(memberId: "carol", taskId: "k9", executionGeneration: 1, requestId: "r1", choices: ["once", "deny"],
                                     command: "ls", description: nil)
         let driver = RoomDriverStatus(working: true, pendingActions: [.approval(approval)])
-        let statuses = ActivityPresentation.fallbackStatuses(room: room, timeline: timeline, driver: driver)
         let ribbon = RoomPresentation.memberStates(room: room, timeline: timeline, driver: driver)
+        let statuses = ActivityPresentation.fallbackStatuses(room: room, turns: ribbon)
         XCTAssertEqual(ribbon, ["alice": .replied, "m-bob": .failed, "carol": .needsApproval])
         XCTAssertEqual(statuses["alice"], ActivityStatus(label: "replied", symbol: "checkmark", tone: .done))
         XCTAssertEqual(statuses["m-bob"], ActivityStatus(label: "failed", symbol: "exclamationmark.triangle.fill", tone: .danger))
         XCTAssertEqual(statuses["carol"], ActivityStatus(label: "needs approval", symbol: "hand.raised.fill", tone: .attention))
         for (id, state) in ribbon { XCTAssertEqual(statuses[id]?.label, state.label, "the panel says what the ribbon says") }
+        let noTurns = ActivityPresentation.fallbackStatuses(room: room, turns: ["alice": .replied])
+        XCTAssertEqual(Set(noTurns.keys), ["alice", "m-bob", "carol"], "every member gets a chip")
+        XCTAssertEqual(noTurns["m-bob"], ActivityStatus(label: "idle", symbol: nil, tone: .quiet), "no turn state: idle")
     }
 
     private func roundFixture() throws -> (RoomSummary, (Int, String, String, JSONValue) -> RoomEvent) {

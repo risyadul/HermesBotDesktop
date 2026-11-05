@@ -49,9 +49,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// App windows on or off screen (AppDelegate): Kanban polling pauses while none shows.
+    /// Windows showing the main content (`RootView`); Settings and system windows are not among them.
+    private let mainWindows = NSHashTable<NSWindow>.weakObjects()
+
+    func markMainWindow(_ window: NSWindow) {
+        guard !mainWindows.contains(window) else { return }
+        mainWindows.add(window)
+        updateVisibility()
+    }
+
+    /// Main windows on or off screen (AppDelegate): Kanban polling pauses while none shows.
     func updateVisibility() {
-        let windows = NSApp.windows.map { ($0.isVisible, $0.isMiniaturized, $0.occlusionState.contains(.visible)) }
+        let windows = NSApp.windows.map {
+            (mainWindows.contains($0), $0.isVisible, $0.isMiniaturized, $0.occlusionState.contains(.visible))
+        }
         kanban.setActive(KanbanHub.onScreen(appHidden: NSApp.isHidden, windows: windows))
     }
 

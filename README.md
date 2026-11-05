@@ -136,7 +136,8 @@ of the plugin, turns it back on in any bot profile where it is disabled, and ena
 that is already installed but disabled is turned on only if Hermes's install record pins it to that same
 commit; otherwise the panel says the installed copy isn't the reviewed version and offers **Reinstall Pinned
 Version…**, which replaces it with the pinned commit. Enabling and turning off run once for the whole app: a
-second Group Chat that asks while one is running waits for it and shows the same progress.
+second Group Chat that asks for the same thing while it runs waits for it and shows the same progress; a
+different action is refused until the running one finishes (its buttons are disabled meanwhile).
 
 **Turn Off Activity Tracking…** in the panel's … menu disables the plugin in every bot profile
 (`hermes -p <bot> plugins disable bot-activity`), then removes the copy in Hermes's own plugins folder. The bots'

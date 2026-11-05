@@ -157,9 +157,10 @@ enum ActivityPresentation {
         }
     }
 
-    /// Fallback chips per member id, from the same turn states the ribbon shows (C1.3).
-    static func fallbackStatuses(room: RoomSummary, timeline: RoomTimeline, driver: RoomDriverStatus?) -> [String: ActivityStatus] {
-        RoomPresentation.memberStates(room: room, timeline: timeline, driver: driver).mapValues { status($0) }
+    /// Fallback chip of every member id, from the turn states the ribbon shows (`RoomPresentation.memberStates`,
+    /// passed in as `turns`); a member with no turn state is idle (C1.3).
+    static func fallbackStatuses(room: RoomSummary, turns: [String: RoomPresentation.MemberState]) -> [String: ActivityStatus] {
+        Dictionary(room.members.map { m in (m.memberId, status(turns[m.memberId] ?? .idle)) }, uniquingKeysWith: { a, _ in a })
     }
 
     /// What the member is doing now, e.g. "Ran git status" (the elapsed time is added live by the view).

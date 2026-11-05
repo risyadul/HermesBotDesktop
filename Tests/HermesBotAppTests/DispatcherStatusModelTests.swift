@@ -188,12 +188,16 @@ final class DispatcherStatusModelTests: XCTestCase {
         await waitUntil { await fake.isHeld }
         XCTAssertTrue(m.starting)
         m.reset()
-        XCTAssertFalse(m.starting)
+        XCTAssertTrue(m.starting, "`hermes gateway start` is still running: the reset keeps Start disabled")
+        XCTAssertFalse(m.canStart)
+        await m.start()  // a second Start meanwhile is refused
         await fake.release()
         await stale.value
         XCTAssertNil(m.error, "the old Start's failure is not shown after the reset")
         XCTAssertNil(m.startResult)
-        XCTAssertFalse(m.starting)
+        XCTAssertNil(m.output)
+        XCTAssertFalse(m.starting, "cleared when the old Start returned")
+        XCTAssertTrue(m.canStart)
         XCTAssertEqual(m.state, .installedNotRunning, "the state (a local fact) is kept")
         let calls = await fake.calls
         XCTAssertEqual(calls, ["state", "start"], "no state re-read for the dropped Start")

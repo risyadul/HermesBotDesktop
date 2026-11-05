@@ -70,8 +70,8 @@ All notable changes to this project are documented here. The format follows
   reconnects afterwards. A job launchd has loaded but that is not running now shows **Loaded but not
   running** with **Start**, instead of "Running".
 - The board header's dispatcher chip and Settings → Kanban dispatcher share one status, so they always agree.
-- Kanban refreshing (open board, board list, dispatcher status) pauses while no app window is on screen and
-  resumes when one is.
+- Kanban refreshing (open board, board list, dispatcher status) pauses while no main app window is on screen
+  (the Settings window does not count) and resumes when one is.
 - A board deleted or archived while open says so, stops refreshing, refuses changes and offers **Go to Another
   Board**; it leaves the sidebar (and the selection) at the next board list refresh.
 - The sidebar says **Boards unavailable on this connection** instead of "Not loaded yet" when the backend
@@ -117,7 +117,15 @@ All notable changes to this project are documented here. The format follows
 - Running `launchctl` or `hermes gateway start` no longer hangs when a process they start keeps the output
   pipe open, and stops the command when the caller gives up.
 - A card action no longer fetches the board again after the board view has closed.
-- A dispatcher Start or status check still in flight across a reconnect no longer overwrites the new state.
+- A dispatcher Start or status check still in flight across a reconnect no longer overwrites the new state, and
+  Start stays disabled until that start has finished.
+- Turning off activity tracking from one Group Chat while another is enabling it is refused instead of silently
+  joining the enable.
+- A failing Bot Activity setup check is retried after a minute instead of on every poll; Try Again restarts
+  polling with the backoff reset.
+- Toggling Background Hermes off twice quickly removes it once.
+- A Kanban comment draft stays with its card; a send finishing after switching cards no longer clears the
+  other card's draft.
 - Crash when stopping a backend the app started while it was still logging.
 - A malformed `session.create` response can no longer produce an empty session id.
 - A Bot Chat that fails while opening closes and deletes the half-created session.

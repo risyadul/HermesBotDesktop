@@ -46,8 +46,8 @@ extension BotActivityPluginManager: BotActivityInstaller {
 extension BotActivityProfileSwitch: BotActivityProfileToggle {}
 
 /// App-wide gate for the plugin actions (enable, roll-out, reinstall, turn off). They change Hermes for every
-/// room, so a request from a second room while one is in flight joins it (same progress, same outcome)
-/// instead of starting another.
+/// room, so the same request from a second room while one is in flight joins it (same progress, same outcome)
+/// instead of starting another; a different action is refused (`busyMessage`) until it finishes.
 @MainActor
 final class BotActivityActionGate: ObservableObject {
     enum Action: Equatable { case enable, rollOut, reinstall, turnOff }
@@ -64,6 +64,7 @@ final class BotActivityActionGate: ObservableObject {
     }
 
     static let shared = BotActivityActionGate()
+    static let busyMessage = "Another activity action is running; try again when it finishes."
 
     @Published private(set) var action: Action?
     @Published var stage: RoomActivityModel.EnableStage?
@@ -71,9 +72,13 @@ final class BotActivityActionGate: ObservableObject {
 
     var isBusy: Bool { task != nil }
 
-    /// Runs `body` unless an action is already in flight, in which case it awaits that one's outcome.
+    /// Runs `body` unless an action is already in flight: the same action is joined (its outcome awaited), a
+    /// different one is refused without running.
     func run(_ action: Action, _ body: @escaping @MainActor () async -> Outcome) async -> Outcome {
-        if let task { return await task.value }
+        if let task {
+            guard action == self.action else { return Outcome(error: Self.busyMessage) }
+            return await task.value
+        }
         self.action = action
         let t = Task { @MainActor [weak self] in
             let out = await body()
@@ -124,6 +129,8 @@ final class RoomActivityModel: ObservableObject {
 
     nonisolated static let pollInterval: Duration = .seconds(2)
     nonisolated static let maxBackoff: Duration = .seconds(30)
+    /// After a failed `GET /setup`, polls skip it this long (an action or a reload checks again sooner).
+    nonisolated static let setupRetryDelay: Duration = .seconds(60)
 
     let roomId: String
     @Published private(set) var members: [RoomMember]
@@ -146,9 +153,13 @@ final class RoomActivityModel: ObservableObject {
     private var clockSkew: Double = 0
     private var rollOutBots: [String] = []
     private var setupChecked = false
+    /// A failed setup check is not retried before this (nil: no failure pending).
+    private var setupRetryAt: ContinuousClock.Instant?
+    /// The setup check has failed since its last success: logged once per streak.
+    private var setupFailing = false
     /// Stable `ChatLine`s per row key: tool and Thought rows keep their identity (and disclosure) across polls.
     private var lines: [String: ChatLine] = [:]
-    private var failures = 0
+    private(set) var failures = 0
     private var loop: Task<Void, Never>?
     /// Bumped by every start/stop: a poll answered for an older generation is dropped.
     private(set) var generation = 0
@@ -213,6 +224,14 @@ final class RoomActivityModel: ObservableObject {
         }
     }
 
+    /// "Try Again": a fresh loop that polls now, with the backoff reset (never a second poll beside the loop).
+    func retry() {
+        failures = 0
+        guard wanted, visible, !shutDown else { return }
+        halt()
+        startLoop()
+    }
+
     /// Panel hidden, room switched or connection lost: no poll result of the current loop is applied.
     func stop() {
         wanted = false
@@ -243,7 +262,7 @@ final class RoomActivityModel: ObservableObject {
             feed.apply(page, room: roomId)
             loaded = true
             failures = 0
-            if !setupChecked { await checkSetup(gen) }
+            if !setupChecked, setupRetryAt.map({ ContinuousClock.now >= $0 }) ?? true { await checkSetup(gen) }
             guard gen == generation else { return interval }
             if !pluginState.isBusy { pluginState = rollOutBots.isEmpty ? .ready : .needsRollOut(rollOutBots) }
             rebuild()
@@ -269,23 +288,36 @@ final class RoomActivityModel: ObservableObject {
         return min(interval * factor, Self.maxBackoff)
     }
 
-    /// `GET /setup` once per load: which bots `rollOut()` would still change. A failure keeps the feed as is.
+    /// `GET /setup` once per load: which bots `rollOut()` would still change. A failure keeps the feed as is
+    /// and is not retried for `setupRetryDelay` (logged once per run of failures).
     private func checkSetup(_ gen: Int) async {
         do {
             let setup = try await source.setup()
             guard gen == generation else { return }
             rollOutBots = Array(Set(setup.untracked + setup.outdated)).sorted()
             setupChecked = true
+            setupRetryAt = nil
+            setupFailing = false
         } catch {
+            guard gen == generation else { return }
+            setupRetryAt = ContinuousClock.now + Self.setupRetryDelay
+            guard !setupFailing else { return }
+            setupFailing = true
             AppModel.shared.log("room \(roomId): bot-activity setup check failed: \(Redaction.describe(error))")
         }
+    }
+
+    /// The next poll checks `GET /setup` again, even within a failure's retry delay.
+    private func recheckSetup() {
+        setupChecked = false
+        setupRetryAt = nil
     }
 
     private func resetFeed() {
         feed = BotActivityFeed()
         lines = [:]
         loaded = false
-        setupChecked = false
+        recheckSetup()
         rollOutBots = []
         rebuild()
     }
@@ -389,13 +421,18 @@ final class RoomActivityModel: ObservableObject {
 
     func dismissActionError() { actionError = nil }
 
-    /// Runs `body` through the app-wide gate (or joins the action already in flight), then applies the outcome.
+    /// Runs `body` through the app-wide gate (or joins the same action already in flight), then applies the
+    /// outcome. Another action in flight refuses it with `BotActivityActionGate.busyMessage`.
     private func perform(_ action: BotActivityActionGate.Action,
                          _ body: @escaping @MainActor () async -> BotActivityActionGate.Outcome) async {
         guard !pluginState.isBusy else { return }
+        if let running = gate.action, running != action {
+            actionError = BotActivityActionGate.busyMessage
+            return
+        }
         let before = pluginState
         actionError = nil
-        pluginState = (gate.action ?? action) == .turnOff ? .removing : .enabling
+        pluginState = action == .turnOff ? .removing : .enabling
         let out = await gate.run(action, body)
         actionError = out.error
         if out.removed {
@@ -406,7 +443,7 @@ final class RoomActivityModel: ObservableObject {
             pluginState = .unpinnedCopy
         } else {
             pluginState = out.replaced ? .pluginMissing : before
-            setupChecked = false
+            recheckSetup()
             await poll()
         }
     }

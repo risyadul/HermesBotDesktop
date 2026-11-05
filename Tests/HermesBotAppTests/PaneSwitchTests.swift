@@ -14,6 +14,16 @@ final class PaneSwitchTests: XCTestCase {
         XCTAssertNil(t.animation)
     }
 
+    func testPaneIdentityChangesWithTheModelInstance() {
+        final class Model {}
+        let (a, b) = (Model(), Model())
+        XCTAssertEqual(PaneIdentity("room-1", a), PaneIdentity("room-1", a), "same pane, same model: kept")
+        XCTAssertNotEqual(PaneIdentity("room-1", a), PaneIdentity("room-1", b),
+                          "a model replaced after a reconnect gets a fresh view (onAppear starts it)")
+        XCTAssertNotEqual(PaneIdentity("room-1", a), PaneIdentity("room-2", a))
+        XCTAssertNotEqual(PaneIdentity("room-1", a, nil), PaneIdentity("room-1", a, b), "an Activity model appearing counts too")
+    }
+
     func testPaneArrivalStartsOffsetAndTransparentOnlyWithMotion() {
         XCTAssertEqual(PaneArrival.state(arrived: false, motion: true).opacity, PaneArrival.startOpacity)
         XCTAssertGreaterThan(PaneArrival.startOpacity, 0, "never a fully empty frame on a switch")

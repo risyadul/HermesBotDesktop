@@ -28,6 +28,10 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
         var assignees = ["alice", "bob"]
         var calls: [String] = []
         var nextId = 0
+        /// The next `board` / `addComment` call parks until `release()` (`parked` tells when it does).
+        var holdNextBoard = false
+        var holdNextComment = false
+        var parked: CheckedContinuation<Void, Never>?
     }
 
     private let lock = NSLock()
@@ -42,6 +46,18 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
     }
 
     var calls: [String] { with { $0.calls } }
+    var isParked: Bool { with { $0.parked != nil } }
+
+    func release() {
+        let c: CheckedContinuation<Void, Never>? = with { s in defer { s.parked = nil }; return s.parked }
+        c?.resume()
+    }
+
+    /// Parks the call when `flag` is set (and clears it).
+    private func parkIf(_ flag: WritableKeyPath<State, Bool>) async {
+        guard with({ s in defer { s[keyPath: flag] = false }; return s[keyPath: flag] }) else { return }
+        await withCheckedContinuation { c in with { $0.parked = c } }
+    }
     func count(_ call: String) -> Int { calls.filter { $0 == call }.count }
 
     static func task(_ id: String, _ title: String, status: String, priority: Int = 0, assignee: String? = nil,
@@ -98,6 +114,7 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
 
     func board(_ board: String?, includeArchived: Bool, tenant: String?) async throws -> KanbanBoard {
         record("board")
+        await parkIf(\.holdNextBoard)
         await pause(with { $0.boardDelay })
         let (cols, error) = with { ($0.columns, $0.boardError) }
         if let error { throw error }
@@ -167,6 +184,7 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
 
     func addComment(taskId: String, body: String, board: String?, author: String) async throws {
         record("comment")
+        await parkIf(\.holdNextComment)
         if let error = with({ $0.commentError }) { throw error }
         with { s in
             s.nextId += 1

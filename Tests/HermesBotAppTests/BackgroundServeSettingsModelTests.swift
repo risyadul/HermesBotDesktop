@@ -16,6 +16,7 @@ private actor FakeBackgroundServe: BackgroundServeControl {
     var pid: Int32?
     private(set) var calls: [String] = []
     private var holdNextInstall = false
+    private var holdNextPID = false
     private var gate: CheckedContinuation<Void, Never>?
 
     init(_ status: BackgroundServe.Status, resolved: BackgroundServe.ResolvedHermes? = .init(path: "/opt/hermes/bin/hermes", fromEnvironment: false),
@@ -27,6 +28,8 @@ private actor FakeBackgroundServe: BackgroundServeControl {
     func failInstall(_ e: Error?) { installFailure = e }
     func failUninstall(_ e: Error?) { uninstallFailure = e }
     func hold() { holdNextInstall = true }
+    /// Parks the next `jobPID()` until `release()`.
+    func holdPID() { holdNextPID = true }
     func release() { gate?.resume(); gate = nil }
     var isHeld: Bool { gate != nil }
 
@@ -59,7 +62,14 @@ private actor FakeBackgroundServe: BackgroundServeControl {
         current = .notInstalled
     }
 
-    func jobPID() async -> Int32? { calls.append("pid"); return pid }
+    func jobPID() async -> Int32? {
+        calls.append("pid")
+        if holdNextPID {
+            holdNextPID = false
+            await withCheckedContinuation { gate = $0 }
+        }
+        return pid
+    }
 }
 
 /// Records what Settings asked the app to do.
@@ -371,6 +381,26 @@ final class BackgroundServeSettingsModelTests: XCTestCase {
         XCTAssertNil(m.prompt)
         XCTAssertTrue(host.events.isEmpty)
         XCTAssertFalse(m.isOn)
+    }
+
+    func testTwoRapidTogglesOffUninstallOnce() async {
+        let fake = FakeBackgroundServe(.loaded(executable: "/x/hermes"), pid: 4242)
+        let host = HostLog()
+        host.attachedPID = 999  // attached to another serve: turning off does not ask
+        let m = model(fake, host: host)
+        await m.load()
+        await fake.holdPID()
+        let first = Task { await m.setEnabled(false) }
+        await waitUntil("the pid lookup parked") { await fake.isHeld }
+        XCTAssertTrue(m.busy, "busy while launchd is asked")
+        XCTAssertFalse(m.canToggle)
+        await m.setEnabled(false)  // a second click meanwhile
+        await fake.release()
+        await first.value
+        let calls = await fake.calls
+        XCTAssertEqual(calls, ["status", "pid", "uninstall", "status"], "exactly one uninstall")
+        XCTAssertFalse(m.isOn)
+        XCTAssertFalse(m.busy)
     }
 
     func testAttachedServeRoleWhileTheJobRunsWithoutAPidCountsAsAttached() async {

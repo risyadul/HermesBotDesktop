@@ -126,19 +126,18 @@ final class KanbanBoardModelTests: XCTestCase {
 
     func testAnAnswerOfAStoppedLoopIsDropped() async throws {
         let api = fake()
-        api.with { $0.boardDelay = 0.2 }
+        api.with { $0.holdNextBoard = true }
         let m = model(api)
         m.start()
         let gen = m.generation
-        try await waitUntil { api.count("board") == 1 }
+        try await waitUntil { api.isParked }
         m.stop()
         XCTAssertGreaterThan(m.generation, gen)
-        try await Task.sleep(nanoseconds: 350_000_000)
+        api.release()
+        try await waitUntil { m.droppedStale >= 1 }
         XCTAssertEqual(m.state, .loading, "the late answer of the stopped loop is not applied")
         XCTAssertTrue(m.serverLanes.isEmpty)
-        XCTAssertGreaterThanOrEqual(m.droppedStale, 1)
         // A new loop applies its own answers.
-        api.with { $0.boardDelay = 0 }
         m.start()
         try await waitUntil { m.state == .ready }
         m.stop()

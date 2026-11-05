@@ -168,7 +168,11 @@ final class BackgroundServeSettingsModel: ObservableObject {
             askToInstall()
             return
         }
-        if await isAttachedToBackground() {
+        // Busy while launchd is asked for the pid, so a second toggle meanwhile is ignored (one uninstall).
+        busy = true
+        let attached = await isAttachedToBackground()
+        busy = false
+        if attached {
             prompt = .disableWhileAttached
             return
         }
@@ -246,9 +250,10 @@ final class BackgroundServeSettingsModel: ObservableObject {
         return false
     }
 
-    /// True when `operation` succeeded.
+    /// True when `operation` succeeded; false without running it while another operation is in flight.
     @discardableResult
     private func run(target on: Bool, _ operation: () async throws -> Void) async -> Bool {
+        guard !busy else { return false }
         busy = true
         target = on
         error = nil

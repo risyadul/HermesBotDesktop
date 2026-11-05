@@ -15,11 +15,11 @@ struct RoomActivityPanel: View {
 
     var body: some View {
         if let activity {
-            LiveActivityPanel(room: room, activity: activity)
+            LiveActivityPanel(room: room, activity: activity, gate: activity.gate)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s4) {
-                    ActivityPanelHeader(menu: nil)
+                    ActivityPanelHeader(menu: nil, busy: false)
                     ActivityMemberList(room: room, activity: nil, limits: .constant([:]))
                     RoundFeedSection(room: room)
                 }
@@ -33,6 +33,8 @@ struct RoomActivityPanel: View {
 private struct LiveActivityPanel: View {
     @ObservedObject var room: RoomModel
     @ObservedObject var activity: RoomActivityModel
+    /// An action in flight (possibly from another room) disables the others.
+    @ObservedObject var gate: BotActivityActionGate
     @State private var confirmEnable = false
     @State private var confirmTurnOff = false
     @State private var confirmReinstall = false
@@ -50,8 +52,8 @@ private struct LiveActivityPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s4) {
-                ActivityPanelHeader(menu: trackingOn ? { confirmTurnOff = true } : nil)
-                ActivityStateBanner(activity: activity, gate: activity.gate, onEnable: { confirmEnable = true },
+                ActivityPanelHeader(menu: trackingOn ? { confirmTurnOff = true } : nil, busy: gate.isBusy)
+                ActivityStateBanner(activity: activity, gate: gate, onEnable: { confirmEnable = true },
                                     onReinstall: { confirmReinstall = true })
                 ActivityMemberList(room: room, activity: activity, limits: $limits)
                 if !activity.loaded { RoundFeedSection(room: room) }
@@ -137,6 +139,8 @@ private struct WindowVisibilityObserver: NSViewRepresentable {
 /// "Activity" title, and the panel menu while tracking is on.
 private struct ActivityPanelHeader: View {
     let menu: (() -> Void)?
+    /// A plugin action is in flight: the menu is disabled.
+    let busy: Bool
 
     var body: some View {
         HStack(spacing: DS.Space.s2) {
@@ -152,6 +156,7 @@ private struct ActivityPanelHeader: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                .disabled(busy)
                 .accessibilityLabel("Activity options")
                 .help("Activity options")
             }
@@ -164,7 +169,8 @@ private struct ActivityPanelHeader: View {
 /// The opt-in card, progress, roll-out and error lines above the members.
 private struct ActivityStateBanner: View {
     @ObservedObject var activity: RoomActivityModel
-    /// Observed for the stage of an enable in flight (possibly started from another room).
+    /// Observed for the stage of an enable in flight (possibly started from another room); while any action
+    /// runs, the action buttons are disabled.
     @ObservedObject var gate: BotActivityActionGate
     let onEnable: () -> Void
     let onReinstall: () -> Void
@@ -186,6 +192,7 @@ private struct ActivityStateBanner: View {
                     paragraph("It was not installed from the reviewed commit \(BotActivityPluginManager.pinnedRef.prefix(7)), so it was left off.")
                     Button("Reinstall Pinned Version…", action: onReinstall)
                         .buttonStyle(DSButtonStyle(kind: .secondary))
+                        .disabled(gate.isBusy)
                         .help("Replace it with the reviewed commit and turn it on for every bot")
                 }
             case .needsRollOut(let bots):
@@ -193,11 +200,12 @@ private struct ActivityStateBanner: View {
                     paragraph("\(bots.count) \(bots.count == 1 ? "bot isn't" : "bots aren't") tracked yet: \(bots.joined(separator: ", ")).")
                     Button("Enable for \(bots.count) More \(bots.count == 1 ? "Bot" : "Bots")") { Task { await activity.rollOut() } }
                         .buttonStyle(DSButtonStyle(kind: .secondary))
+                        .disabled(gate.isBusy)
                 }
             case .error(let message):
                 VStack(alignment: .leading, spacing: DS.Space.s2) {
                     failure("Can't load activity: \(message)")
-                    Button("Try Again") { Task { await activity.poll() } }
+                    Button("Try Again") { activity.retry() }
                         .buttonStyle(DSButtonStyle(kind: .secondary))
                 }
             case .ready:
@@ -218,6 +226,7 @@ private struct ActivityStateBanner: View {
             paragraph("See each bot's tool calls, reasoning and errors as they happen. Until then, this shows each bot's turn status.")
             Button("Enable Tracking…", action: onEnable)
                 .buttonStyle(DSButtonStyle(kind: .primary))
+                .disabled(gate.isBusy)
                 .padding(.top, DS.Space.s1)
                 .help("Install the Bot Activity plugin and turn it on for every bot")
         }
@@ -300,6 +309,7 @@ private struct ActivityMemberList: View {
     var body: some View {
         let live = activity?.loaded == true
         let turns = RoomPresentation.memberStates(room: room.room, timeline: room.timeline, driver: room.driver)
+        let fallback = ActivityPresentation.fallbackStatuses(room: room.room, turns: turns)
         let byMember = Dictionary((activity?.memberActivity ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             ForEach(Array(room.room.members.enumerated()), id: \.element.id) { i, m in
@@ -311,8 +321,7 @@ private struct ActivityMemberList: View {
                                           limit: Binding(get: { limits[m.memberId] ?? Self.pageSize },
                                                          set: { limits[m.memberId] = $0 }))
                 } else {
-                    MemberHeader(identity: identity, title: m.title,
-                                 statuses: [turns[m.memberId].map { ActivityPresentation.status($0) } ?? ActivityPresentation.status(.idle)])
+                    MemberHeader(identity: identity, title: m.title, statuses: [fallback[m.memberId] ?? ActivityPresentation.status(.idle)])
                 }
             }
         }

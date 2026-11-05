@@ -19,7 +19,8 @@ extension GatewayStatus: GatewayControl {}
 ///   the agent is missing the UI shows `GatewayStatus.installCommand` for the user to run.
 /// - One Start at a time; output and errors are scrubbed before display.
 /// - `reset()` (the hub's connect / disconnect) bumps a generation: a refresh or Start still in flight from
-///   before writes nothing afterwards.
+///   before writes nothing afterwards. `starting` survives it (the dispatcher is app-wide and its
+///   `hermes gateway start` keeps running), so Start stays disabled until that start returns.
 @MainActor
 final class DispatcherStatusModel: ObservableObject {
     static let settleAttempts = 5
@@ -63,11 +64,11 @@ final class DispatcherStatusModel: ObservableObject {
     var startFailed: Bool { error != nil }
 
     /// Drops what an in-flight refresh or Start would still write, and the last Start's outcome. The state
-    /// itself is kept (it is a local fact, not a connection's).
+    /// itself is kept (it is a local fact, not a connection's), and so is `starting`: a Start in flight clears
+    /// it when it returns.
     func reset() {
         generation += 1
         refreshing = false
-        starting = false
         output = nil
         error = nil
         started = false
@@ -87,6 +88,8 @@ final class DispatcherStatusModel: ObservableObject {
         guard canStart else { return }
         let gen = generation
         starting = true
+        // Also when a `reset()` dropped this Start's outcome: the command itself has returned.
+        defer { starting = false }
         output = nil
         error = nil
         started = false
@@ -115,7 +118,6 @@ final class DispatcherStatusModel: ObservableObject {
             }
         }
         started = ok
-        starting = false
     }
 
     private var isRunning: Bool { if case .running? = state { return true }; return false }
