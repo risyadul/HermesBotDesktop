@@ -82,7 +82,11 @@ struct RoomView: View {
     private func timeline(_ rows: [RoomRow], actions: [RoomPendingAction]) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
+                // Not `LazyVStack`: with `.defaultScrollAnchor(.bottom)` and tall, uneven member messages its
+                // estimated height parked the opening scroll offset where no row was realised, so a room
+                // with history opened blank until the user scrolled. Rooms are short (each discussion stops
+                // at its reply limit), so laying out every row stays cheap.
+                VStack(alignment: .leading, spacing: DS.Space.timeline) {
                     ForEach(rows) { row in
                         rowView(row)
                             .id(row.id)

@@ -53,7 +53,9 @@ struct BotChatView: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
+                // Not `LazyVStack`, for the same reason as the Group Chat timeline (RoomView): reopening a
+                // chat with long replies could land the bottom-anchored offset on unrealised rows (blank).
+                VStack(alignment: .leading, spacing: DS.Space.timeline) {
                     ForEach(chat.lines) { line in
                         bubble(line).id(line.id)
                             .transition(motion ? .arrive(from: line.role == .user ? .bottomTrailing : .bottomLeading) : .identity)
