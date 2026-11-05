@@ -71,14 +71,14 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 
 ## P2: manage without the CLI
 
-- [ ] **A8** Edit a bot's title, description and avatar (`profiles.configure` with revision check,
+- [x] **A8** Edit a bot's title, description and avatar (`profiles.configure` with revision check,
       `profiles.set_asset`, `hermes profile describe`) (M)
-- [ ] **A9** Advanced bot settings, model and provider first, then SOUL, skills, toolsets, MCP
+- [x] **A9** Advanced bot settings, model and provider first, then SOUL, skills, toolsets, MCP
       (`profiles.describe` / `profiles.configure`, `model.options`) (L, split per section)
 - [ ] **A15** Routines (scheduled tasks) per bot: list, pause/resume, delete, details, create with a schedule
       picker, deliver results to Bot Chat (`cron.manage`) (L)
-- [ ] **A11** Duplicate a bot (`profiles.create {clone_from}`) (S)
-- [ ] **A12** Delete a bot (never `default`), with confirmation (`hermes profile delete --yes`) (S)
+- [x] **A11** Duplicate a bot (`profiles.create {clone_from}`) (S)
+- [x] **A12** Delete a bot (never `default`), with confirmation (`hermes profile delete --yes`) (S)
 - [ ] **C2.2** Change room members: create a new room with the new members and carry a summary over (M)
 - [ ] **K4** Kanban filters and search: by profile, archived, group Running by profile (S)
 - [ ] **K5** Kanban workers: active workers, inspect run, terminate, reclaim (M)

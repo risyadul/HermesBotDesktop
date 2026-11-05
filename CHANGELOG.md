@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Manage bots without the CLI (right-click a bot, or the ••• menu in Bot details):
+  - **Edit…** a bot's title, description and avatar (PNG/JPEG up to 15 MB, saved as a 256 px square), and under
+    Advanced its model and provider (Hermes' model list, typed in, or Inherit), skills, toolsets, MCP servers
+    and SOUL. Only changed fields are saved; a field that fails says why and the others are kept. Expensive
+    models ask before switching. A saved SOUL keeps the bots' "Messaging other agents" section like Hermes
+    Desktop. The title is the one Hermes Desktop shows (`ui_meta` → `hermes-bots` → `title`), and bot rows now
+    show it.
+  - **Duplicate** a bot as `<name>-2` (clone of its profile, plus its title "(copy)" and avatar), with progress
+    and an Open button.
+  - **Delete…** a bot after a confirmation that names its profile folder (`hermes profile delete --yes`); the
+    default profile cannot be deleted.
 - Sidebar filter: a field at the top of the sidebar narrows group chats, bots and boards by name, @handle,
   member, description or model. Return or ↓ jumps to the first match; Esc clears it. ⌘F stays free.
 - Right-click a bot for Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot and Copy @handle. Pinned

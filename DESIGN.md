@@ -483,7 +483,9 @@ toolbar. Minimum window 820 × 520.
   "working" is said once, by the ribbon's room chip; the timeline does not repeat it.
 - **Bot Chat:** toolbar (avatar hero + name + model, detail toggle), timeline in the same message
   grammar, composer, and a native inspector (240 pt, resizable 200–260 pt): identity header (name,
-  @handle, a "Default profile" tag when it is the default), then About, Model, Provider, Skills. The
+  @handle, a "Default profile" tag when it is the default, and a muted ••• menu for Edit… / Duplicate /
+  Delete… at its trailing edge, so it costs no row at the 520 pt minimum height), then About, Model,
+  Provider, Skills. The
   @handle is the profile name, so no separate Profile field repeats it. The inspector state is
   remembered. The chat column has no minimum width of its own: it takes what the sidebar and the
   inspector leave (312 pt at the 820 pt minimum with default column widths). The inspector's 260 pt
@@ -514,6 +516,12 @@ toolbar. Minimum window 820 × 520.
 - **Group Chat Activity panel** (the room inspector, 200–260 pt): tool titles wrap to two lines with the
   count and duration kept beside them, and the "Turn finished · 4.2s" divider label never shrinks (its
   trailing rule gives way).
+- **Bot sheets** (`sheet`, 460 pt): Edit shows the avatar preview (44 pt) with Choose Image… / Remove, Title,
+  Description and an Advanced disclosure; with Advanced open the fields scroll in a 340 pt body so the sheet
+  stays inside the 520 pt window minimum. Each field's failure is a danger `meta` line under that field.
+  Duplicate shows the running step, then the result with Open (primary). Delete names the profile folder in
+  SF Mono, says "This cannot be undone." in danger, and its Delete Bot button is `button-danger` with no Return
+  shortcut.
 - **Settings window:** 420 pt wide and as tall as its content, so every section (General, Background,
   Kanban dispatcher) is on screen without scrolling; it follows rows that come and go.
 - **Empty states** are centred in the pane, never pinned to the composer by a bottom-anchored scroll.

@@ -39,14 +39,17 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   says so; open it in that app.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
   hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
-- **It does not change your profiles or bot config**, with two exceptions. **Pin to Top** and **Hide Bot**
-  (right-click a bot) are saved in that profile's `profile.yaml` under `ui_meta` → `hermes-bots` (`pinned`,
-  `hidden`), the same place and keys Hermes Desktop uses, so both apps show the same pins and hidden bots;
-  the app changes only those two keys and leaves every other `ui_meta` entry alone. And if you turn on activity
-  tracking in a Group Chat, the app installs the open-source
+- **It changes your profiles and bot config only when you ask it to.** Bots are your existing Hermes
+  profiles. **Pin to Top**, **Hide Bot** and a bot's **title** are saved in that profile's `profile.yaml` under
+  `ui_meta` → `hermes-bots` (`pinned`, `hidden`, `title`), the same place and keys Hermes Desktop uses, so both
+  apps show the same roster; every other `ui_meta` entry is left alone. **Edit…** writes only the fields you
+  changed (description, avatar, model, skills, toolsets, MCP servers, SOUL) into that profile.
+  **Duplicate** creates a new profile cloned from the bot, and **Delete…** permanently removes a bot's whole
+  profile folder after you confirm (never `default`); see [Managing bots](#managing-bots). And if you turn on
+  activity tracking in a Group Chat, the app installs the open-source
   [Bot Activity](https://github.com/risyadul/hermes-bot-activity) plugin (a pinned commit) into Hermes and
   enables it for every bot. Turning it off from the same panel disables it in every bot profile and removes it
-  from Hermes; the bots' copies stay on disk, inactive. Bots are your existing Hermes profiles.
+  from Hermes; the bots' copies stay on disk, inactive.
 - **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
   Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use.
 - **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
@@ -128,11 +131,36 @@ have **not been tested** with this app yet.
 - **Filter:** the field at the top of the sidebar narrows group chats, bots and boards as you type (name,
   @handle, member, description or model; a leading `@` is optional). Return or ↓ selects the first match and
   moves to the list; Esc clears it. It does not take ⌘F.
-- **Bot menu** (right-click a bot): Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot, Copy @handle.
-  Pinned bots sit at the top of Bots. Hidden bots move to a collapsed **Hidden (n)** section at the bottom; a
-  hidden bot keeps working, stays mentionable and keeps its chats. A filter shows matching hidden bots without
-  expanding the section. If Hermes does not save a pin or hide (another app changed the bot at the same time,
-  or an older Hermes Agent), the row goes back and the sidebar says why.
+- **Bot menu** (right-click a bot): Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot, Copy @handle,
+  then Edit…, Duplicate and Delete… ([Managing bots](#managing-bots)). Pinned bots sit at the top of Bots.
+  Hidden bots move to a collapsed **Hidden (n)** section at the bottom; a hidden bot keeps working, stays
+  mentionable and keeps its chats. A filter shows matching hidden bots without expanding the section. If
+  Hermes does not save a pin or hide (another app changed the bot at the same time, or an older Hermes Agent),
+  the row goes back and the sidebar says why.
+
+## Managing bots
+
+Right-click a bot in the sidebar, or use the ••• menu in the Bot details panel (⌥⌘I), for **Edit…**,
+**Duplicate** and **Delete…**. These change the bot's Hermes profile, exactly as Hermes Desktop's Edit
+Profile, Duplicate and Delete do, so both apps stay in step.
+
+- **Edit…:** the bot's **title** (shown everywhere instead of the profile name), **description** and
+  **avatar** (a PNG or JPEG up to 15 MB, cropped to a 256 px square; or Remove). **Advanced** adds the
+  **model and provider** (from Hermes' model list, typed in by hand, or **Inherit** to use the main profile's
+  model), the bot's **skills**, **toolsets** and **MCP servers** (on/off), and its **SOUL**. Only the fields you
+  changed are saved. If one field cannot be saved, it says why under that field and the rest are kept; Save
+  again retries just that one. A model Hermes flags as expensive (or under a data policy) asks first and is
+  only switched when you confirm. Saving a SOUL keeps the "Messaging other agents" section bots use to talk to
+  each other (unless your Hermes adds it on its own), the same way Hermes Desktop does.
+- **Duplicate:** creates `<name>-2` (or the next free number) as a clone of the bot (settings, skills, SOUL,
+  memory), then copies its look: title with "(copy)" and avatar. The sheet shows each step and ends with
+  **Open** for the new bot.
+- **Delete…:** asks first and names the profile folder that will be removed. Deleting runs
+  `hermes profile delete <name> --yes` and cannot be undone. The default profile cannot be deleted. The bot's
+  Bot Chat is closed and the bot leaves the sidebar.
+
+"Inherit" and Delete use the `hermes` command (found the same way as for `hermes serve`); everything else goes
+through the running Hermes backend.
 
 ## Notifications and the Dock badge
 

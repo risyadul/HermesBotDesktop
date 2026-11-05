@@ -45,6 +45,12 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                               BotActivityFeed.swift: paging merge, cursor, member phases
   BackgroundServe.swift       opt-in LaunchAgent keeping `hermes serve` running (plist, launchctl; job state
                               parsed from `launchctl print`: running / loaded-not-running / not loaded)
+  BotProfileAPI.swift         profiles.describe/configure/set_asset/get_asset/create + model.options, typed
+  SoulProtocol.swift          Desktop's "Messaging other agents" SOUL section (soul.ts), verbatim
+  ProfileAvatar.swift         avatar upload: ≤15 MB, PNG/JPEG by magic bytes, 256 px centred square PNG
+  ProfileCLI.swift            `hermes profile delete <name> --yes` (never default) and `config unset model`
+                              (Inherit), trusted hermes, no shell, clean env
+  BotDuplicate.swift          Duplicate: <name>-2… name, profiles.create {clone_from}, copy look and avatar
   GatewayStatus.swift         kanban dispatcher (`hermes gateway`) state + start; CommandRunner.swift: no-shell runner
                               (output read while running and capped, cancellation terminates, no wait on a
                               pipe a grandchild still holds)
@@ -70,6 +76,11 @@ Sources/HermesBotApp/       SwiftUI app:
                               hidden section), BotRowMenu
   BotMetaModel.swift          Pin / Hide per bot: optimistic, saved with BotMetaSync (HermesGatewayKit
                               BotUIMeta.swift: ui_meta["hermes-bots"] read-patch-write with CAS, like Desktop)
+  BotEditor/                  A8/A9/A11/A12 bot management: BotProfileService (protocol; live = gateway + CLI,
+                              fake in tests), BotEditorModel + BotEditorView + BotAdvancedSection (Edit sheet:
+                              changed fields only, per-field errors, expensive-model confirm), BotLifecycleModels/
+                              Views (Duplicate progress, Delete confirmation), AppModel+BotManagement (BotSheet,
+                              roster refresh, forgetting a deleted bot)
   Notifications/              D1/D2: NotificationPolicy (when to notify, content, routes, Dock badge count,
                               @user grammar), RoomAttention (+ RoomAttentionWatcher: groups.state/log for
                               every room every 8 s), NotificationCoordinator (chats + rooms → posts, withdrawals,
@@ -176,8 +187,12 @@ exit. The app itself does not use this home.
 Live tests run against a real `~/.hermes`, so they must clean up after themselves.
 
 - Bot Chat test sessions made by the harness are titled `hba-…` and deleted after each run (the app's own
-  canonical "Bot Chat" is never deleted). The app changes no profile or bot config except Pin / Hide, which
-  write only `pinned` / `hidden` inside `ui_meta["hermes-bots"]` (the user's action; tests use a fake gateway).
+  canonical "Bot Chat" is never deleted). The app changes profiles only on the user's action: Pin / Hide and
+  the title (`pinned` / `hidden` / `title` inside `ui_meta["hermes-bots"]`), Edit (`profiles.configure`,
+  `profiles.set_asset`, `hermes --profile <name> config unset model`), Duplicate (`profiles.create`) and Delete
+  (`hermes profile delete --yes`). Tests never do any of this for real: kit tests use a scripted fake gateway
+  and `FakeCommandRunner`, app tests a fake `BotProfileService` (`BotManagementTests`); no profile is created,
+  edited or deleted, no hermes runs, no asset is uploaded.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
