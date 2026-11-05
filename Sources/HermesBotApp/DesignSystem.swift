@@ -221,6 +221,8 @@ enum DS {
         static let arriveOffset: CGFloat = 10
         static let arriveScale: CGFloat = 0.97
         static let paneOffset: CGFloat = 12
+        /// Incoming detail pane: short, so a quick run of switches never shows a pane mid-fade for long.
+        static let pane = Animation.easeOut(duration: 0.16)
         /// Approval ring: one ripple, growing this far, starting after the card settled.
         static let ringGrow: CGFloat = 10
         static let ringDelay: Double = 0.45

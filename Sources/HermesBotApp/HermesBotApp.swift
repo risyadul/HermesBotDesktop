@@ -139,22 +139,15 @@ struct RootView: View {
         }
     }
 
-    /// The incoming pane fades in from 12 pt right; the outgoing one leaves at once, so switching never
-    /// waits on an animation.
-    private var paneTransition: AnyTransition {
-        motion ? .asymmetric(insertion: .opacity.combined(with: .offset(x: DS.Motion.paneOffset)), removal: .identity) : .identity
-    }
-
+    /// One pane at a time: the outgoing pane leaves in the same frame (the selection changes outside any
+    /// animation, `SidebarView.selectionTransaction`) and the incoming one fades in on its own (`PaneArrival`).
     @ViewBuilder private var detail: some View {
-        ZStack {
-            if let name = model.selectedBot, let bot = model.bots.first(where: { $0.name == name }) {
-                BotChatView(chat: model.chat(for: bot))
-                    .id(name).transition(paneTransition)
-            } else if case .room(let id)? = model.selection, let room = model.roomModel(id) {
-                RoomView(model: room).id(id).transition(paneTransition)
-            } else {
-                placeholder.transition(.opacity)
-            }
+        if let name = model.selectedBot, let bot = model.bots.first(where: { $0.name == name }) {
+            BotChatView(chat: model.chat(for: bot)).paneArrival(motion: motion).id(name)
+        } else if case .room(let id)? = model.selection, let room = model.roomModel(id) {
+            RoomView(model: room).paneArrival(motion: motion).id(id)
+        } else {
+            placeholder
         }
     }
 

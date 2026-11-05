@@ -306,3 +306,36 @@ struct KeyHint: View {
         }
     }
 }
+
+// MARK: - pane arrival
+
+/// The incoming detail pane fades in from `DS.Motion.paneOffset` to the right, as an animation the pane runs
+/// when it appears, not as a transition of the selection change: a transition would keep the outgoing pane
+/// on screen until it finished. Each `.id` change creates a new pane, so the arrival runs once per switch.
+struct PaneArrival: ViewModifier {
+    let motion: Bool
+    @State private var arrived = false
+
+    /// Opacity and x offset before and after arriving; with motion off the pane is in place at once. It
+    /// starts part-visible: from 0 every switch showed a frame of empty window, which read as a flicker
+    /// when switching quickly.
+    static let startOpacity = 0.4
+    static func state(arrived: Bool, motion: Bool) -> (opacity: Double, offset: CGFloat) {
+        arrived || !motion ? (1, 0) : (startOpacity, DS.Motion.paneOffset)
+    }
+
+    func body(content: Content) -> some View {
+        let s = Self.state(arrived: arrived, motion: motion)
+        content
+            .opacity(s.opacity)
+            .offset(x: s.offset)
+            .onAppear {
+                guard motion else { arrived = true; return }
+                withAnimation(DS.Motion.pane) { arrived = true }
+            }
+    }
+}
+
+extension View {
+    func paneArrival(motion: Bool) -> some View { modifier(PaneArrival(motion: motion)) }
+}

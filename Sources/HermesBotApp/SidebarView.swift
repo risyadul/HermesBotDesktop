@@ -138,7 +138,17 @@ struct SidebarView: View {
     }
 
     private func select(_ item: SidebarItem) {
-        withDSAnimation(motion) { model.selection = item }
+        withTransaction(Self.selectionTransaction) { model.selection = item }
+    }
+
+    /// Switching panes is never an animated transaction. An animated one (the spring this used) keeps every
+    /// pane it removes on screen, fully opaque, until the animation settles (~0.7 s), so switching quickly
+    /// showed an older room under the new pane's fade-in, and animated the new pane's whole first layout.
+    /// The incoming pane fades in on its own (`PaneArrival`).
+    static var selectionTransaction: Transaction {
+        var t = Transaction()
+        t.disablesAnimations = true
+        return t
     }
 
     /// Up/down arrows move the selection through rooms then bots (the sidebar is focusable).

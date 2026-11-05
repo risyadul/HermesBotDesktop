@@ -36,7 +36,10 @@ struct RoomView: View {
             TurnRibbon(model: model, states: memberStates, memory: memory)
             Hairline()
             if rows.isEmpty && actions.isEmpty && !model.active {
-                emptyRoom
+                switch Self.emptyKind(synced: model.lastSync != nil, syncFailed: model.notes.contains { RoomNote($0).failed }) {
+                case .loading: loadingRoom
+                case .empty: emptyRoom
+                }
             } else {
                 timeline(rows, actions: actions)
             }
@@ -151,6 +154,22 @@ struct RoomView: View {
         case .failure(let memberId, let author, let text):
             FailureCard(identity: identity(memberId, title: author), author: author, text: text)
         }
+    }
+
+    enum EmptyKind: Equatable { case loading, empty }
+
+    /// A room with no rows yet is loading until its first sync lands (or fails: the note bar then says why),
+    /// not "No messages yet": opening a busy room flashed the empty state before its history.
+    nonisolated static func emptyKind(synced: Bool, syncFailed: Bool) -> EmptyKind {
+        synced || syncFailed ? .empty : .loading
+    }
+
+    private var loadingRoom: some View {
+        EmptyStateView(symbol: "bubble.left.and.bubble.right", title: "Opening \(model.room.name)",
+                       message: "Loading the conversation from Hermes.") {
+            ProgressView().controlSize(.small).accessibilityLabel("Loading")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Centred in the pane (not pinned to the composer by the bottom-anchored scroll view).

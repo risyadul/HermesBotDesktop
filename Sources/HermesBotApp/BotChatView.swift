@@ -12,6 +12,8 @@ struct BotChatView: View {
     @State private var dropTargeted = false
     /// Open/closed Thought and tool rows, kept across row re-creation (DisclosureStore).
     @StateObject private var disclosure = DisclosureStore()
+    /// The transcript stays invisible until it has been scrolled to its last row (`settle`).
+    @State private var transcriptSettled = false
     @Environment(\.motionEnabled) private var motion
 
     private var identity: BotIdentity { avatars.identity(profile: chat.bot.name, title: chat.bot.title) }
@@ -79,12 +81,26 @@ struct BotChatView: View {
             }
             .defaultScrollAnchor(.bottom)
             .environmentObject(disclosure)
+            .opacity(transcriptSettled ? 1 : 0)
+            .onAppear { settle(proxy) }
             .onChange(of: chat.lines.last?.text) { _, _ in
                 if let id = TranscriptItem.build(chat.lines).last?.id { proxy.scrollTo(id, anchor: .bottom) }
             }
             .onChange(of: chat.requests.last?.id) { _, id in
                 if let id { proxy.scrollTo("request-\(id)", anchor: .bottom) }
             }
+        }
+    }
+
+    /// Reopening a long Bot Chat first drew it some rows above the end, then jumped down once the eagerly laid
+    /// out tail had its real heights (the bottom anchor works from estimates on the first pass). The transcript
+    /// is scrolled to its last row, again on the next runloop turn after that layout, and only then shown.
+    private func settle(_ proxy: ScrollViewProxy) {
+        let last = TranscriptItem.build(chat.lines).last?.id
+        if let last { proxy.scrollTo(last, anchor: .bottom) }
+        DispatchQueue.main.async {
+            if let last { proxy.scrollTo(last, anchor: .bottom) }
+            transcriptSettled = true
         }
     }
 

@@ -107,6 +107,7 @@ final class AppModel: ObservableObject {
 #if DEBUG
             autochat()
             autoroom()
+            autoswitch()
 #endif
         } catch {
             let msg = Redaction.describe(error)
