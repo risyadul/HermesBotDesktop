@@ -218,6 +218,8 @@ Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes
 - Bots created or deleted in Hermes Desktop or the CLI appear in or leave the sidebar within seconds.
 - A legacy routine whose pause keeps failing is retried with a backoff, not on every refresh.
 - The Routines toolbar button opens its sheet again.
+- Search Messages: "No messages found" explains what is searched and suggests opening the chat; results update
+  when a chat's messages load while the palette is open.
 - Quick Switch (⌘K) ranks an exact title first, then title prefix, word or @handle start, substring and fuzzy
   matches; group chats matching only a member's name come last ("gen" no longer lists group chats above the
   bot generalist).

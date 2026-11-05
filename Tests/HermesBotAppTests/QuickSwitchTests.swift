@@ -190,6 +190,37 @@ final class QuickSwitchTests: XCTestCase {
         app.roomDigests.forget(room.roomId)
     }
 
+    /// Live UI test 2026-11-06 (round 5): with no results the palette only said "No messages found.", and the
+    /// results stayed stale when a chat opened (its lines loaded) while the palette was up.
+    func testNoResultsExplainsWhatIsSearched() {
+        XCTAssertTrue(MessageSearch.noResultsNote.hasPrefix("No messages found."))
+        XCTAssertTrue(MessageSearch.noResultsNote.contains("Bot Chats opened since launch"))
+        XCTAssertTrue(MessageSearch.noResultsNote.contains("recent messages of each group chat"))
+        XCTAssertTrue(MessageSearch.noResultsNote.contains("Open a chat"))
+    }
+
+    func testMessageResultsRerunWhenAChatsLinesLoad() async {
+        let app = AppModel()
+        let alpha = bot("alpha", title: "Alpha")
+        app.bots = [alpha]
+        let search = MessageSearchModel(sources: { app.searchSources }, changes: app.searchSourcesChanged)
+        search.search("friday")
+        XCTAssertTrue(search.hits.isEmpty, "no chat open yet")
+
+        let chat = ChatModel(bot: alpha, opener: { _ in throw GatewayClient.ClientError.notConnected })
+        chat.log = { _ in }
+        app.chats["alpha"] = chat  // the chat opens with the palette up
+        _ = chat.transcript.beginTurn("ship it friday")  // its lines load
+        await eventually { search.hits.map(\.item) == [.bot("alpha")] }
+        XCTAssertEqual(search.hits.first?.snippet, "ship it friday")
+
+        chat.transcript.abandon("stopped")  // the turn ends; the next message is a new one
+        _ = chat.transcript.beginTurn("friday standup moved")
+        await eventually { search.hits.count == 2 }
+        search.search("x")
+        XCTAssertTrue(search.hits.isEmpty, "a one-character query searches nothing")
+    }
+
     func testJumpIsOnlyForItsOwnPane() {
         let jumps = MessageJumpCenter()
         jumps.request(.bot("alpha"), .roomSeq(1))

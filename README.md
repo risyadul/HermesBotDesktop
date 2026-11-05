@@ -306,7 +306,8 @@ have **not been tested** with this app yet.
 - **Search messages:** **⇧⌘F** (Go → Search Messages…), or Tab in the switcher, searches the messages the app
   already holds: the Bot Chats you opened since launch and, for every group chat, its loaded log or the latest
   200 events the sidebar's background check fetched. Results show the chat, the author and the text around the
-  match; Return opens the chat and scrolls to the message. Older messages that are not loaded are not searched.
+  match; Return opens the chat and scrolls to the message. Older messages that are not loaded are not searched:
+  open the chat to include its history (results update while the palette is open).
 - **Own window:** right-click a bot or group chat → **Open in New Window** (also in the pane's toolbar menu),
   ⌘-double-click it, or Go → Open in New Window for the one on screen. The window shows the same chat as the
   main window (same connection, same polling, same drafts) and reopens at the next launch.

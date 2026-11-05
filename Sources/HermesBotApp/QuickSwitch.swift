@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import HermesGatewayKit
 
@@ -185,6 +186,12 @@ enum MessageSearch {
     static let limit = 100
     static let snippetRadius = 60
 
+    /// The palette's empty state for a query that found nothing: what is searched, and how to search more.
+    static let noResultsNote = """
+        No messages found. Search covers the Bot Chats opened since launch and the recent messages of each group \
+        chat. Open a chat to search its history too.
+        """
+
     static func terms(_ query: String) -> [String] {
         query.split(whereSeparator: \.isWhitespace).map(String.init)
     }
@@ -243,5 +250,33 @@ enum MessageSearch {
             guard !text.isEmpty else { return nil }
             return Message(anchor: .roomSeq(l.id), author: l.kind == .user ? "You" : l.author, text: text)
         })
+    }
+}
+
+/// The Messages palette's results. They follow the query and are re-run when the searched chats change, so a
+/// chat opened (or a reply arriving) while the palette is up shows up in the results (live UI test
+/// 2026-11-06, round 5: they stayed stale).
+@MainActor
+final class MessageSearchModel: ObservableObject {
+    static let refreshDelay = 150
+
+    @Published private(set) var hits: [MessageSearch.Hit] = []
+    private(set) var query = ""
+    private let sources: () -> [MessageSearch.Source]
+    private var refresh: AnyCancellable?
+
+    init(sources: @escaping () -> [MessageSearch.Source], changes: AnyPublisher<Void, Never>) {
+        self.sources = sources
+        refresh = changes.sink { [weak self] in MainActor.assumeIsolated { self?.run() } }
+    }
+
+    func search(_ query: String) {
+        self.query = query
+        run()
+    }
+
+    private func run() {
+        let long = MessageSearch.terms(query).joined().count >= MessageSearch.minQuery
+        hits = long ? MessageSearch.search(query, in: sources()) : []
     }
 }

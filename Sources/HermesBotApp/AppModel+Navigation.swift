@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import HermesGatewayKit
 import SwiftUI
 
@@ -79,6 +80,21 @@ extension AppModel {
         }
         let chatSources = bots.compactMap { bot in chats[bot.name].map { MessageSearch.source(bot: bot, lines: $0.lines) } }
         return roomSources + chatSources
+    }
+
+    /// Fires when what `searchSources` reads changed: a Bot Chat's transcript or an open room's log grew, the
+    /// sidebar's background tails moved, or chats and rooms came or went. Debounced (a streaming reply changes
+    /// the transcript on every delta) and delivered on the main queue after the change landed.
+    var searchSourcesChanged: AnyPublisher<Void, Never> {
+        let chatLines = $chats.map { chats in Publishers.MergeMany(chats.values.map { $0.$transcript.map { _ in () } }) }
+            .switchToLatest()
+        let roomLogs = $roomModels.map { rooms in Publishers.MergeMany(rooms.values.map { $0.$timeline.map { _ in () } }) }
+            .switchToLatest()
+        return Publishers.MergeMany(chatLines.eraseToAnyPublisher(), roomLogs.eraseToAnyPublisher(),
+                                    roomDigests.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                                    $bots.map { _ in () }.eraseToAnyPublisher(), $rooms.map { _ in () }.eraseToAnyPublisher())
+            .debounce(for: .milliseconds(MessageSearchModel.refreshDelay), scheduler: DispatchQueue.main)
+            .eraseToAnyPublisher()
     }
 
     /// Opens a search hit: selects its Bot Chat or room and asks the pane to scroll to the message.

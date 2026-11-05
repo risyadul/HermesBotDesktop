@@ -9,6 +9,7 @@ import SwiftUI
 struct CommandPaletteView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var mutes: NotificationMutes
+    @StateObject private var search: MessageSearchModel
     @State private var mode: PaletteMode
     @State private var query = ""
     @State private var selected = 0
@@ -18,12 +19,14 @@ struct CommandPaletteView: View {
     init(model: AppModel, mode: PaletteMode, onClose: @escaping () -> Void) {
         _model = ObservedObject(wrappedValue: model)
         _mutes = ObservedObject(wrappedValue: model.mutes)
+        _search = StateObject(wrappedValue: MessageSearchModel(sources: { [weak model] in model?.searchSources ?? [] },
+                                                               changes: model.searchSourcesChanged))
         _mode = State(initialValue: mode)
         self.onClose = onClose
     }
 
     private var switchResults: [QuickSwitchCandidate] { QuickSwitch.results(query, model.switchCandidates) }
-    private var messageResults: [MessageSearch.Hit] { MessageSearch.search(query, in: model.searchSources) }
+    private var messageResults: [MessageSearch.Hit] { search.hits }
     private var count: Int { mode == .switcher ? switchResults.count : messageResults.count }
 
     var body: some View {
@@ -63,8 +66,8 @@ struct CommandPaletteView: View {
         }
         .frame(width: DS.Size.paletteWidth)
         .background(DS.Palette.window)
-        .onAppear { fieldFocused = true }
-        .onChange(of: query) { _, _ in selected = 0 }
+        .onAppear { fieldFocused = true; search.search(query) }
+        .onChange(of: query) { _, q in selected = 0; search.search(q) }
         .onChange(of: mode) { _, _ in selected = 0; fieldFocused = true }
     }
 
@@ -101,7 +104,7 @@ struct CommandPaletteView: View {
         if query.trimmingCharacters(in: .whitespaces).count < MessageSearch.minQuery {
             placeholder("Type at least \(MessageSearch.minQuery) characters. Searches the Bot Chats opened since launch and the recent messages of every group chat.")
         } else if hits.isEmpty {
-            placeholder("No messages found.")
+            placeholder(MessageSearch.noResultsNote)
         }
         ForEach(Array(hits.enumerated()), id: \.element.id) { i, hit in
             PaletteRow(selected: i == selected, action: { open(hit) }) {

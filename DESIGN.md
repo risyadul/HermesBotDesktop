@@ -737,7 +737,9 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   selection takes `selected`, hover takes `hover`). Go to rows: kind symbol, title, muted subtitle, then
   `bell.slash` for a muted item and the `⌘n` caption it answers to. Message rows: "<chat> · <author>" in
   `meta` 600 muted over a two-line `body` snippet with the query terms in 600. Empty and too-short queries say
-  so in one muted `meta` line.
+  so in one muted `meta` line; a query that finds nothing says what is searched (Bot Chats opened since
+  launch, recent group chat messages) and to open a chat to search its history. Message results re-run as
+  chats load or grow while the palette is up.
 - `template-sheet` (Save as Template, D13): a `sheetWidth` sheet like New Group Chat: name field, the members
   as one `body` line, an opening-prompt editor 96 pt high (`templatePromptHeight`, surface fill, hairline,
   control radius), Cancel and Save Template.
