@@ -83,11 +83,22 @@ Sources/HermesBotApp/       SwiftUI app:
   ToolActivityRow.swift       compact tool-call row
   ServerRequestCards.swift    approval/clarify/secret cards; RequestCardModels.swift: their labels and answers
   MediaViews.swift            MEDIA files: inline images, file chips, click-time safety check
-  SidebarView.swift           Group Chats + Bots + Boards sidebar, filter field, bot row menu, Hidden (n), row
-                              style, connection footer; SidebarFilter.swift: filter, BotRoster (pinned first,
-                              hidden section), BotRowMenu
-  BotMetaModel.swift          Pin / Hide per bot: optimistic, saved with BotMetaSync (HermesGatewayKit
+  SidebarView.swift           Group Chats + Bots + Boards sidebar, filter field, bot row (preview, age, unread,
+                              attention), bot row menu, section blocks + drag and drop, Hidden (n), row style,
+                              connection footer; SidebarFilter.swift: filter, BotRoster (pinned, then newest
+                              activity; section blocks; hidden section), BotRowMenu; BotRowBadges.swift
+  BotMetaModel.swift          Pin / Hide / section per bot: optimistic, saved with BotMetaSync (HermesGatewayKit
                               BotUIMeta.swift: ui_meta["hermes-bots"] read-patch-write with CAS, like Desktop)
+  BotActivityHub.swift        A4/A6: profiles.list {include_sessions: true} every 10 s (HermesGatewayKit
+                              BotRosterActivity.swift: Desktop's activity/preview/recent-session rules), unread
+                              watermark per bot (UserDefaults hba.botReadThrough, seeded on first sight),
+                              needs-attention from failed turns (HermesGatewayKit BotAttention.swift)
+  BotSections.swift           A5: BotSectionsModel (local list hba.botSections + collapsed hba.botSectionsCollapsed;
+                              membership sectionId/sectionName on each bot via BotMetaModel; adopt / backfill
+                              like Desktop's user-sections.ts), BotSectionBlock, BotDrag (@handle payload);
+                              BotSectionViews.swift: header, empty slot, name sheet, Undo line
+  RecentSessionView.swift     A17: read-only sheet of a bot's newest non-Bot-Chat session (HermesGatewayKit
+                              SessionTranscriptREST.swift: GET /api/sessions/{id}/messages, read-only store)
   BotEditor/                  A8/A9/A11/A12 bot management: BotProfileService (protocol; live = gateway + CLI,
                               fake in tests), BotEditorModel + BotEditorView + BotAdvancedSection (Edit sheet:
                               changed fields only, per-field errors, expensive-model confirm), BotLifecycleModels/
@@ -136,9 +147,12 @@ Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, Group
                             shapes, RoomPoller lifecycle + room availability
                             + parity suites: CanonicalBotChat, BotChatRebind (reclaim/session.info), ChatAttachment,
                             ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand, ChatControls
-                            (ParityTestSupport: fakes)
+                            (ParityTestSupport: fakes); BotRosterActivity (A4-A6/A17 parsing, attention
+                            classes, section ui_meta merge, read-only transcript route)
 Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls), BotChatUIModel, MediaViews, RoomModel Group Chat
-                            actions + RoomDigestHub (with FakeRoomActions); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
+                            actions + RoomDigestHub (with FakeRoomActions); BotRoster (order, unread, attention,
+                            recent session) and BotSections (CRUD, Desktop adoption, layout, drag payload), all
+                            with fakes and throwaway UserDefaults suites; app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate; real-window suites are opt-in

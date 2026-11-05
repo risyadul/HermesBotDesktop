@@ -160,12 +160,29 @@ have **not been tested** with this app yet.
 - **Filter:** the field at the top of the sidebar narrows group chats, bots and boards as you type (name,
   @handle, member, description or model; a leading `@` is optional). Return or ↓ selects the first match and
   moves to the list; Esc clears it. It does not take ⌘F.
-- **Bot menu** (right-click a bot): Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot, Copy @handle,
-  then Edit…, Duplicate and Delete… ([Managing bots](#managing-bots)). Pinned bots sit at the top of Bots.
+- **Bot rows:** bots with the newest activity come first (pinned bots stay on top). Each row shows the last
+  message and its age; a message one bot sent another reads "@sender: …". A dot marks a bot with activity you
+  have not opened yet (a routine run, a reply that finished while you were elsewhere, a message from Hermes
+  Desktop or the CLI); opening its Bot Chat clears it. What you have seen is remembered across launches. The
+  app reads all of this from one `profiles.list` every 10 seconds, without opening any chat.
+- **Needs attention:** an amber warning on a bot whose last turn failed in a way you have to fix: sign in
+  again, quota or balance exhausted, provider not configured, or blocked. The tooltip says which. Temporary
+  failures (rate limits, timeouts, server errors) never show it, and the bot's next good reply clears it.
+- **Bot menu** (right-click a bot): Open Bot Chat, Open Recent Session, Pin to Top / Unpin, Hide Bot / Unhide
+  Bot, Move to Section, Copy @handle, then Edit…, Duplicate and Delete… ([Managing bots](#managing-bots)).
   Hidden bots move to a collapsed **Hidden (n)** section at the bottom; a hidden bot keeps working, stays
   mentionable and keeps its chats. A filter shows matching hidden bots without expanding the section. If
-  Hermes does not save a pin or hide (another app changed the bot at the same time, or an older Hermes Agent),
-  the row goes back and the sidebar says why.
+  Hermes does not save a pin, hide or move (another app changed the bot at the same time, or an older Hermes
+  Agent), the row goes back and the sidebar says why.
+- **Open Recent Session** shows the bot's newest conversation other than its Bot Chat (a routine run, or a
+  side thread started in Hermes Desktop or the CLI) in a read-only sheet. Nothing is resumed or written; to
+  continue it, use Hermes Desktop or the CLI.
+- **Sections:** the folder button next to **Bots** (or Move to Section → New Section…) makes a section. File a
+  bot with Move to Section or by dragging its row onto a section; bots in no section are under
+  **Unassigned**. Click a section's header to collapse it; right-click it to rename, move or delete it. Deleting
+  a section only moves its bots to Unassigned, and **Undo** puts it back. Each bot keeps its section in its
+  profile (`ui_meta` → `hermes-bots` → `sectionId` / `sectionName`, Hermes Desktop's keys), so Hermes Desktop
+  shows the same folders; the list of sections and which are collapsed stay on this Mac.
 
 ## Managing bots
 
