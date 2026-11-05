@@ -25,6 +25,15 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
         var downloadError: Error?
         var deleteError: Error?
         var comments: [String: [JSONValue]] = [:]
+        /// `include_archived` of every `board` call, in order.
+        var boardArchivedFlags: [Bool] = []
+        /// K5: the `/workers/active` rows, and per-call errors.
+        var workers: [JSONValue] = []
+        var workersError: Error?
+        var runError: Error?
+        var inspectError: Error?
+        var terminateError: Error?
+        var terminated: [(runId: Int, reason: String?)] = []
         var assignees = ["alice", "bob"]
         var calls: [String] = []
         var nextId = 0
@@ -114,6 +123,7 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
 
     func board(_ board: String?, includeArchived: Bool, tenant: String?) async throws -> KanbanBoard {
         record("board")
+        with { $0.boardArchivedFlags.append(includeArchived) }
         await parkIf(\.holdNextBoard)
         await pause(with { $0.boardDelay })
         let (cols, error) = with { ($0.columns, $0.boardError) }
@@ -197,6 +207,7 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
         record("reclaim")
         if let error = with({ $0.reclaimError }) { throw error }
         _ = update(id, ["status": "ready"])
+        with { $0.workers.removeAll { $0["task_id"]?.string == id } }
     }
 
     static func attachment(_ id: Int, task: String, name: String, size: Int = 10) -> JSONValue {
@@ -233,5 +244,47 @@ final class FakeKanbanService: KanbanService, @unchecked Sendable {
         record("delete")
         if let error = with({ $0.deleteError }) { throw error }
         with { s in for k in s.attachments.keys { s.attachments[k]?.removeAll { $0["id"]?.intValue == id } } }
+    }
+
+    // MARK: K5 workers
+
+    static func worker(run: Int, task: String, title: String, profile: String?, started: Int = 1_760_000_000,
+                       heartbeat: Int? = 1_760_000_290, pid: Int = 4242) -> JSONValue {
+        var o: [String: JSONValue] = ["run_id": .number(Double(run)), "task_id": .string(task), "task_title": .string(title),
+                                      "task_status": "running", "worker_pid": .number(Double(pid)),
+                                      "started_at": .number(Double(started))]
+        if let profile { o["profile"] = .string(profile); o["task_assignee"] = .string(profile) }
+        if let heartbeat { o["last_heartbeat_at"] = .number(Double(heartbeat)) }
+        return .object(o)
+    }
+
+    func activeWorkers(board: String?) async throws -> KanbanActiveWorkers {
+        record("workers")
+        let (rows, error) = with { ($0.workers, $0.workersError) }
+        if let error { throw error }
+        return KanbanActiveWorkers(json: ["workers": .array(rows), "count": .number(Double(rows.count)), "checked_at": 1_760_000_300])
+    }
+
+    func run(_ runId: Int, board: String?) async throws -> KanbanRun {
+        record("run")
+        if let error = with({ $0.runError }) { throw error }
+        return try KanbanRun.decodeRecord(["run": ["id": .number(Double(runId)), "profile": "alice", "status": "running",
+                                                   "summary": "Halfway there", "started_at": 1_760_000_000]])
+    }
+
+    func inspectRun(_ runId: Int, board: String?) async throws -> KanbanRunProcess {
+        record("inspect")
+        if let error = with({ $0.inspectError }) { throw error }
+        return KanbanRunProcess(json: ["run_id": .number(Double(runId)), "alive": true, "pid": 4242, "cpu_percent": .number(12.5),
+                                       "memory_rss_bytes": 1_048_576, "num_threads": 4, "status": "running"])
+    }
+
+    func terminateRun(_ runId: Int, board: String?, reason: String?) async throws {
+        record("terminate")
+        if let error = with({ $0.terminateError }) { throw error }
+        with { s in
+            s.terminated.append((runId, reason))
+            s.workers.removeAll { $0["run_id"]?.intValue == runId }
+        }
     }
 }

@@ -32,6 +32,10 @@ struct KanbanBoardView: View {
     /// Empty lanes the user unfolded.
     @State private var expandedLanes: Set<String> = []
     @State private var query = ""
+    /// K4: one profile at a time (nil = all), and Running grouped by profile (persisted, as Desktop's).
+    @State private var assigneeFilter: String?
+    @AppStorage("hba.kanbanGroupRunning") private var groupRunning = false
+    @State private var showWorkers = false
     @State private var showNewTask = false
     @State private var archiveCandidate: KanbanTask?
     @State private var dropTarget: String?
@@ -80,6 +84,12 @@ struct KanbanBoardView: View {
                                onCreate: { draft, column in await model.create(draft, column: column) },
                                onClose: { showNewTask = false })
         }
+        .motionSheet(isPresented: $showWorkers, motion: motion) {
+            KanbanWorkersSheet(slug: model.slug, api: model.api,
+                               onOpenTask: { id in showWorkers = false; openTask(id) },
+                               onChanged: { Task { await model.refresh() } },
+                               onClose: { showWorkers = false })
+        }
     }
 
     /// Where "Go to Another Board" leads: the first other listed board, or nil when there is none.
@@ -124,6 +134,12 @@ struct KanbanBoardView: View {
             TextField("Filter by title or @assignee", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: DS.Kanban.filterWidth)
+            KanbanFilterMenu(assignee: $assigneeFilter, profiles: model.assigneeNames, archived: model.includeArchived,
+                             onArchived: { model.setIncludeArchived($0) }, groupRunning: $groupRunning)
+            Button { showWorkers = true } label: { Label("Workers", systemImage: "cpu") }
+                .buttonStyle(DSButtonStyle(kind: .secondary))
+                .help("Active workers: inspect, terminate or reclaim a run")
+                .disabled(model.state != .ready)
             Spacer(minLength: DS.Space.s2)
             DispatcherChipView(model: hub.dispatcher)
         }
@@ -185,8 +201,8 @@ struct KanbanBoardView: View {
     }
 
     private var lanes: some View {
-        let visible = KanbanFilter.apply(model.lanes, query: query)
-        let filtering = !KanbanFilter.terms(query).isEmpty
+        let visible = KanbanFilter.apply(KanbanProfileFilter.apply(model.lanes, assignee: assigneeFilter), query: query)
+        let filtering = !KanbanFilter.terms(query).isEmpty || assigneeFilter != nil
         let names = model.serverLanes.map(\.name)
         let now = model.serverNow ?? Int(Date().timeIntervalSince1970)
         return ScrollViewReader { proxy in
@@ -207,7 +223,8 @@ struct KanbanBoardView: View {
         }
         .overlay {
             if filtering && visible.allSatisfy(\.tasks.isEmpty) {
-                Text("No cards match “\(query)”").font(DS.Typeface.body).foregroundStyle(DS.Palette.muted)
+                Text(KanbanFilter.terms(query).isEmpty ? "No cards for @\(assigneeFilter ?? "")" : "No cards match “\(query)”")
+                    .font(DS.Typeface.body).foregroundStyle(DS.Palette.muted)
             }
         }
     }
@@ -221,6 +238,7 @@ struct KanbanBoardView: View {
             } else {
                 KanbanLaneView(lane: lane, filtering: filtering, now: now, targeted: targeted,
                                model: model, laneNames: names,
+                               groupByProfile: KanbanProfileFilter.groupsLane(lane, enabled: groupRunning),
                                onSelect: { model.select($0.id) }, onOpen: open, onArchive: { archiveCandidate = $0 },
                                onCollapse: lane.tasks.isEmpty && expandedLanes.contains(lane.name)
                                    ? { setExpanded(lane.name, false) } : nil)
@@ -254,9 +272,11 @@ struct KanbanBoardView: View {
 
     /// "Open" (context menu, accessibility action): select and show the details even if the user had closed
     /// them. A plain click only selects (the inspector follows KanbanInspectorRule).
-    private func open(_ task: KanbanTask) {
+    private func open(_ task: KanbanTask) { openTask(task.id) }
+
+    private func openTask(_ id: String) {
         inspectorClosedByUser = false  // before selecting, so the selection handler agrees
-        model.select(task.id)
+        model.select(id)
         setInspector(true)
     }
 }
@@ -330,6 +350,8 @@ struct KanbanLaneView: View {
     let targeted: Bool
     @ObservedObject var model: KanbanBoardModel
     let laneNames: [String]
+    /// Running split into profile groups (K4 "Group Running by profile").
+    var groupByProfile = false
     let onSelect: (KanbanTask) -> Void
     let onOpen: (KanbanTask) -> Void
     let onArchive: (KanbanTask) -> Void
@@ -364,7 +386,14 @@ struct KanbanLaneView: View {
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: DS.Space.s2) {
-                        ForEach(lane.tasks) { task in card(task).id(task.id) }
+                        if groupByProfile {
+                            ForEach(KanbanProfileFilter.groups(lane.tasks), id: \.name) { group in
+                                KanbanLaneGroupHeader(name: group.name, count: group.tasks.count)
+                                ForEach(group.tasks) { task in card(task).id(task.id) }
+                            }
+                        } else {
+                            ForEach(lane.tasks) { task in card(task).id(task.id) }
+                        }
                         if lane.tasks.isEmpty {
                             Text(filtering ? "No matches" : "Empty")
                                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
