@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Sidebar filter: a field at the top of the sidebar narrows group chats, bots and boards by name, @handle,
+  member, description or model. Return or ↓ jumps to the first match; Esc clears it. ⌘F stays free.
+- Right-click a bot for Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot and Copy @handle. Pinned
+  bots stay at the top; hidden bots move to a collapsible "Hidden (n)" section. Both are saved in the bot's
+  profile (`ui_meta` → `hermes-bots`, with Hermes Desktop's keys and revision check), so Hermes Desktop shows
+  the same pins and hidden bots; no other profile setting is touched.
+- Notifications while the app is in the background: a finished Bot Chat reply, a bot asking for approval or
+  an answer (Bot Chat and Group Chat), and a Group Chat round that ended with `@user`. Approvals can be
+  answered from the notification (Approve Once, Deny). Permission is asked the first time. Off with the
+  `notificationsEnabled` default (`defaults write io.github.risyadul.hermesbot notificationsEnabled -bool false`).
+- Dock badge with the number of approvals and questions waiting in Bot Chats and Group Chats.
 - Group Chat Activity panel (⌥⌘I): what each bot in the room is doing right now, its recent tool calls with
   arguments and results, its reasoning and errors, with its turn status kept beside the live status. The
   detailed view uses the open-source Bot Activity Hermes plugin; without it the panel shows each bot's turn

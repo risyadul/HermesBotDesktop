@@ -53,8 +53,8 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 
 ## P1: daily friction
 
-- [ ] **D1** Native notifications for replies and approvals, with Approve/Deny actions (M)
-- [ ] **D2** Dock badge for pending approvals and questions (S)
+- [x] **D1** Native notifications for replies and approvals, with Approve/Deny actions (M)
+- [x] **D2** Dock badge for pending approvals and questions (S)
 - [ ] **B2** Copy message and Copy full response (S)
 - [ ] **B8** Queue messages while the bot is busy; steer the running turn (`session.redirect`); queue panel (M)
 - [ ] **B7** Model and reasoning effort per chat (`model.options`, `config.set`) (M)
@@ -64,9 +64,10 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **C1.5** "Needs you" badge when a bot writes `@user` (S)
 - [ ] **C1.6** Per-message actions in rooms: Reply to @bot, Copy (S)
 - [ ] **C1.7** Last-message preview in room rows; per-room drafts (S)
-- [ ] **A1** Bot row context menu: Open, Pin, Hide, Edit, Duplicate, Delete, Manage groups (S)
-- [ ] **A2** Pin bots to the top; Hide/Unhide with a "Hidden (n)" section, stored in the profile's `ui_meta` (S–M)
-- [ ] **A3** Search and filter bots and rooms (S)
+- [x] **A1** Bot row context menu: Open, Pin, Hide, Copy @handle; Edit, Duplicate, Delete and Manage groups join
+      it with A8, A11, A12 and A5 (S)
+- [x] **A2** Pin bots to the top; Hide/Unhide with a "Hidden (n)" section, stored in the profile's `ui_meta` (S–M)
+- [x] **A3** Search and filter bots and rooms (S)
 
 ## P2: manage without the CLI
 
@@ -128,7 +129,7 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **D5** ⌘1…9 to switch bots, ⌘K quick switcher (S)
 - [ ] **D8** Quick Look for bot files and attachments; drag files out to Finder (S)
 - [ ] **D13** Room templates: saved member sets and an opening prompt (S)
-- [ ] **D15** Mute notifications per bot or room (S)
+- [ ] **D15** Mute notifications per bot or room; a Settings switch for `notificationsEnabled` (S)
 - [ ] **D3** Menu bar extra: bot status and quick send (M)
 - [ ] **D4** Global hotkey "quick ask" panel (M)
 - [ ] **D6** macOS Services / Share: "Send to Hermes bot" (M)
