@@ -32,6 +32,8 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
                             RoomPoller (one generation-guarded poll loop per room), JSONValue
   CanonicalBotChat.swift      the bot's one "Bot Chat": find -> resume, create only when absent, detach-only teardown
   ChatAttachments.swift       image/pdf/file attach RPCs, client-side checks, prompt text
+  ChatControls.swift          composer controls: session.redirect, model.options, config.set model (--session) and
+                              reasoning (no scope), session.usage / context_breakdown, CompactionPhase
   MediaTags.swift             MEDIA:<path> parsing + MediaSafety (deny rules for Open/Reveal)
   ServerRequests.swift        server->client requests (approval, clarify, sudo, secret): frames, answers, cancel
   SlashCommands.swift         commands.catalog (curated like Desktop) + invocation classification
@@ -58,8 +60,13 @@ Sources/HermesBotApp/       SwiftUI app:
   ChatModel.swift             one Bot Chat 1:1 (open/seed/send gate, wraps ChatTranscript)
   ChatModel+Slash.swift       slash command execution and directives
   ChatModel+Requests.swift    attachments staging and server request cards state
+  ChatModel+Queue.swift       B8: Return steers (session.redirect), ⌘Return queues, auto-drain, Stop pauses, edit
+  ChatModel+Controls.swift    B7/B9: model + reasoning per chat (optimistic, rollback, confirm), context usage
   ChatSessionLink.swift       protocol ChatModel needs from a chat (BotChatSession in prod, fake in tests)
-  ChatComposer.swift          composer: paperclip, drop/paste, slash menu, Send/Stop
+  ChatComposer.swift          composer: paperclip, drop/paste, slash menu, Send/Steer/Queue/Save, Stop, status row
+  ChatComposerControls.swift  model menu, reasoning menu, context gauge + breakdown popover
+  ChatQueuePanel.swift        queued messages above the composer (Edit, Send now, Delete, Resume)
+  MessageCopy.swift           B2: Copy message / Copy full response (hover + context menu)
   SlashCommandMenu.swift      slash menu keyboard model
   AttachmentChips.swift       staged attachment chips, pasteboard file import
   ToolActivityRow.swift       compact tool-call row
@@ -91,8 +98,9 @@ Sources/HermesBotApp/       SwiftUI app:
 Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, GroupChat logic + groups.* wire
                             shapes, RoomPoller lifecycle + room availability
                             + parity suites: CanonicalBotChat, BotChatRebind (reclaim/session.info), ChatAttachment,
-                            ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand (ParityTestSupport: fakes)
-Tests/HermesBotAppTests/    ChatModel (with FakeChatLink), BotChatUIModel, MediaViews; app regressions: Try Again reconnects after a failed load (ConnectFlow + real
+                            ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand, ChatControls
+                            (ParityTestSupport: fakes)
+Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls), BotChatUIModel, MediaViews; app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate; real-window suites are opt-in
@@ -165,7 +173,8 @@ exit. The app itself does not use this home.
 Live tests run against a real `~/.hermes`, so they must clean up after themselves.
 
 - Bot Chat test sessions made by the harness are titled `hba-…` and deleted after each run (the app's own
-  canonical "Bot Chat" is never deleted). The app never changes profile or bot config.
+  canonical "Bot Chat" is never deleted). The app never changes profile or bot config: Bot Chat model and
+  effort picks are session-scoped (`--session` / no scope), and tests use `FakeChatLink` / `FakeGateway` only.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
   pruning. The hidden member sessions are cleaned without restarting anything:
   `group-chat-harness cleanup <evidence-dir> @<room-manifest.jsonl>` disbands, then re-discovers the rooms'

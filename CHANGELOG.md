@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Bot Chat: Copy message and Copy Full Response (hover or right-click a message).
+- Bot Chat while the bot is replying: Return steers the running reply (`session.redirect`), ⌘Return queues
+  the message. A queue panel above the composer lists waiting messages (Edit, Send now, Delete); they are
+  sent one at a time when the reply finishes, and Stop pauses them until Resume. A correction the bot
+  refuses is queued instead of lost.
+- Bot Chat model and reasoning effort per chat, under the composer, from the backend's model list. Changes
+  apply to that chat's session only (`--session`); no profile config is written.
+- Bot Chat context gauge (click for the breakdown by category) and a "Compacting the conversation…" status
+  while Hermes compacts it.
 - Group Chat Activity panel (⌥⌘I): what each bot in the room is doing right now, its recent tool calls with
   arguments and results, its reasoning and errors, with its turn status kept beside the live status. The
   detailed view uses the open-source Bot Activity Hermes plugin; without it the panel shows each bot's turn
