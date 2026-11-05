@@ -51,7 +51,7 @@ public struct RoomMember: Sendable, Hashable, Identifiable {
 public struct RoomSummary: Sendable, Hashable, Identifiable {
     public var id: String { roomId }
     public let roomId: String
-    public let name: String
+    public private(set) var name: String
     public let members: [RoomMember]
     public let revision: Int
     public let createdAt: Double
@@ -78,6 +78,24 @@ public struct RoomSummary: Sendable, Hashable, Identifiable {
         guard let memberId else { return nil }
         return members.first { $0.memberId == memberId }
     }
+
+    /// The same row under another name (the optimistic side of `groups.rename`).
+    public func renamed(_ newName: String) -> RoomSummary {
+        var copy = self
+        copy.name = newName
+        return copy
+    }
+
+    /// A room name as the server stores it (`hosted_rooms._validate_room_name`: stripped, 1–200
+    /// characters, any text), or nil when it would be refused.
+    public static func normalizedName(_ raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...maxNameChars).contains(name.unicodeScalars.count) else { return nil }
+        return name
+    }
+
+    /// `MAX_ROOM_NAME_CHARS` (`gateway/hosted_rooms.py`), counted like Python `len` (code points).
+    public static let maxNameChars = 200
 }
 
 /// One durable room-log event (`_event_from_row`).
@@ -284,9 +302,40 @@ extension GroupsAPI {
             "choice": .string(choice), "request_id": .string(approval.requestId)])
     }
 
+    /// `groups.rename {room_id, event_id, name}` → `{room: {…room, event}}`: the renamed row (revision + 1)
+    /// plus its `room.renamed` log event (`hosted_rooms.rename_room`). Idempotent per `event_id` with the
+    /// same name; it needs no room worker. Errors: 4117 for a room error (unknown or disbanded room, invalid
+    /// name, an `event_id` reused with another name), 5117 otherwise (`methods_groups.py` `_passthrough`).
+    public func renameRoom(roomId: String, eventId: String, name: String) async throws -> RoomSummary {
+        let r = try await client.call("groups.rename", ["room_id": .string(roomId), "event_id": .string(eventId),
+                                                        "name": .string(name)])
+        guard let room = r["room"].flatMap(RoomSummary.init) else { throw GatewayClient.ClientError.badFrame("groups.rename: no room") }
+        return room
+    }
+
     /// `groups.disband {room_id}` → `{tombstone}`. It first stops the room and REFUSES (5114
     /// "room work is still stopping…") while a stop is unacknowledged; retry later.
     public func disbandRoom(roomId: String, cancelId: String = "hba-disband-\(UUID().uuidString.lowercased())") async throws -> JSONValue {
         try await client.call("groups.disband", ["room_id": .string(roomId), "cancel_id": .string(cancelId)])
     }
 }
+
+/// The room actions `RoomModel` sends, on top of the poll reads. `GroupsAPI` is the live one; app tests
+/// use an in-memory fake. Ids (`event_id`, `cancel_id`) are minted by the caller, fresh per action.
+public protocol RoomActions: RoomSource {
+    func sendMessage(roomId: String, eventId: String, text: String, threadId: String) async throws -> RoomEvent
+    func stopRoom(roomId: String, cancelId: String) async throws -> Int
+    func retry(roomId: String, taskId: String) async throws -> JSONValue
+    func approve(roomId: String, approval: RoomApproval, choice: String) async throws -> JSONValue
+    func disbandRoom(roomId: String, cancelId: String) async throws -> JSONValue
+    func renameRoom(roomId: String, eventId: String, name: String) async throws -> RoomSummary
+}
+
+extension GroupsAPI: RoomActions {}
+
+/// Every live room plus its log/state reads: what the sidebar's room digests poll.
+public protocol RoomDirectory: RoomSource {
+    func allRooms() async throws -> [RoomSummary]
+}
+
+extension GroupsAPI: RoomDirectory {}

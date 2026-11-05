@@ -457,12 +457,26 @@ Errors use the M0 envelope; app/harness render them only through `Redaction.desc
 | `groups.approve` | `{room_id, member_id, task_id, execution_generation, choice: once\|deny, request_id}` | `{approved: true, result: {resolved: 1}}` | `:437` |
 | `groups.retry` | `{room_id, task_id}` | `{retried: true, task: {room_id, task_id, thread_id, turn_id, status: "queued", execution_generation, cancel_generation}}` | `:448` |
 | `groups.disband` | `{room_id, cancel_id}` | `{tombstone: {disbanded_at, event: room.disbanded}}` | `:397` |
+| `groups.rename` | `{room_id, event_id: "hba-rename-<uuid>", name}` | `{room: {…room, revision + 1, event: room.renamed}}`; name stripped, 1–200 chars; no worker needed; 4117 room error, 5117 other | `:483` → `hosted_rooms.rename_room` |
 
 App rules on top of the wire:
 - Room ids are minted by the app: `hba-` + 12 hex (`AppModel.createRoom`). Members are the user's bots
   with `member_id = handle = profile = profile name` and `display_name` from `profiles.list`; names that
   fail the identifier rule (`^[A-Za-z0-9][A-Za-z0-9._:-]*$`, ≤128) or are `all`/`everyone` are not
   offered (`RoomMember.forBot`) [src + test]. Create needs 2–6 bots in the UI.
+- Threads [src + test]: the room composer sends `thread_id: "main"`; the thread pane sends the thread's id.
+  "Reply in thread" on a `main` message starts `hba-t-<seq>` (anchored on that message), on a thread message
+  continues its thread (including ids other clients minted). The policy plans each thread on its own and a
+  member's prompt holds only that thread's messages (`hosted_room_discussion.py` `_pending_discussion`,
+  `_thread_messages`), so the first message of an anchored thread quotes the anchor (`> Author: …`,
+  `RoomThreads.opening`). `groups.log` carries `payload.thread_id` on user/member messages and on
+  `turn.*`/`room.activity`; events without one count as `main`.
+- Sidebar digests [src + test]: `RoomDigestHub` lists rooms every 5 s (an unsettled room) or 15 s, reads
+  `groups.log` only for rooms whose `latest_seq` moved (≤ 40 events from the last seq held), and asks
+  `groups.state` only for rooms with an unsettled discussion (approvals exist only while a turn runs). The
+  open room feeds it from its own polls. "Needs you" = a member message matching `@user` (Hermes Desktop's
+  rule, not inside e-mail addresses or longer handles) newer than the user's last message and than the seq
+  last on screen (persisted per room), or a pending approval.
 - `groups.send` `text` ≤ 64 KiB (`hosted_room_discussion.py:198-203`). `RoomComposer` blocks a
   second submit while one send is in flight; a user may post while bots work (the newer message
   supersedes the older one in the same thread) [src + test].

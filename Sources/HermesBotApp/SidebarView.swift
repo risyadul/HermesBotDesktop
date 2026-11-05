@@ -189,17 +189,10 @@ struct SidebarView: View {
         .accessibilityAddTraits(model.selection == item ? .isSelected : [])
     }
 
+    /// Last message + age, "needs you" badge, live dot (RoomDigests.swift).
     private func roomRow(_ room: RoomSummary) -> some View {
-        HStack(spacing: DS.Space.gutter) {
-            RoomAvatarStack(identities: room.members.map { avatars.identity(profile: $0.profile, title: $0.title) })
-            VStack(alignment: .leading, spacing: DS.Space.s0 / 2) {
-                Text(room.name).font(DS.Typeface.bodyMedium).foregroundStyle(DS.Palette.ink).lineLimit(1)
-                Text("\(room.members.count) bots · " + room.members.map { "@\($0.handle)" }.joined(separator: " "))
-                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            if let m = model.roomModels[room.roomId] { RoomLiveDot(model: m) }
-        }
+        RoomRowContent(room: room, digests: model.roomDigests, live: model.roomModels[room.roomId],
+                       onScreen: model.selection == .room(room.roomId))
     }
 
     private func botRow(_ bot: Bot) -> some View {

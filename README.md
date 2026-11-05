@@ -151,6 +151,22 @@ have **not been tested** with this app yet.
   (a Settings switch for this key is planned). Notifications need the packaged `HermesBot.app`; a bare
   `swift run` binary shows the Dock badge only.
 
+## Using Group Chat
+
+- **Rename a room:** room menu (⋯) → **Rename…**. The new name shows at once; if Hermes refuses it, the old name
+  comes back and the note above the composer says why. Bots see the new name from their next turn.
+- **Threads:** hover a message (or right-click it) and choose **Reply in thread**. The thread opens in the right
+  column with its own composer; the room composer below the timeline always writes to the whole room. Replying
+  in thread to a room message starts a thread on it, and the first reply quotes that message, because bots only
+  see the messages of their own thread. Thread messages also show in the room timeline with a "Thread · …"
+  label; a message with a thread under it shows its reply count. Click either to open the thread.
+- **Reply to @bot and Copy:** hover a bot's message for **Reply to @bot** (puts `@bot` in the composer of that
+  message's thread; you still send) and **Copy** (the text as written). Your own messages offer Copy too.
+- **Sidebar rows** show the last message and how long ago it was. An amber **@** badge means a bot wrote
+  `@user` and you have not answered or opened the room since; an amber hand means a bot waits on your
+  approval. Rooms you are not looking at are checked every 5–15 seconds.
+- **Drafts** are kept per room and per thread while the app runs, so switching rooms does not lose them.
+
 ## Group Chat activity
 
 Bots in a Group Chat work in hidden sessions, so the room itself only shows when each bot starts, replies or

@@ -15,6 +15,8 @@ final class AppModel: ObservableObject {
     @Published var roomModels: [String: RoomModel] = [:]
     /// Activity panel models per room (`activityModel(for:)`, RoomActivityModel.swift).
     var activityModels: [String: RoomActivityModel] = [:]
+    /// Sidebar room rows: last message, age, "needs you" (RoomDigests.swift).
+    let roomDigests = RoomDigestHub()
     @Published var showCreateRoom = false
     /// `groups.capabilities` answered at connect. False on an older Hermes Agent without `groups.*`:
     /// Group Chat is off (no "+", a notice), Bot Chat still works.
@@ -231,6 +233,7 @@ final class AppModel: ObservableObject {
         roomModels = [:]
         for m in activityModels.values { m.shutdown() }
         activityModels = [:]
+        roomDigests.stop()
         for c in chats.values { c.close() }
         chats = [:]
         kanban.disconnect()
@@ -266,11 +269,14 @@ final class AppModel: ObservableObject {
 
     func loadRooms() async {
         guard let groups else { return }
+        var listed: [RoomSummary]?
         do {
             rooms = try await groups.allRooms()
             notifications.rooms.setRooms(rooms)
+            listed = rooms
             log("groups.list → \(rooms.count) room(s)")
         } catch { log("groups.list failed: \(Redaction.describe(error))") }
+        roomDigests.start(directory: groups, listed: listed)
     }
 
     func roomModel(_ id: String) -> RoomModel? {
@@ -284,6 +290,8 @@ final class AppModel: ObservableObject {
             self?.notifications.rooms.ingest(room: model.room, events: new, driver: model.driver, latestSeq: model.timeline.cursor)
         }
         m.onDisbanded = { [weak self] model in self?.roomDisbanded(model.id) }
+        m.onApplied = { [weak self] model in self?.roomDigests.absorb(model) }
+        m.onRoomChanged = { [weak self] room in self?.roomRenamed(room) }
         roomModels[id] = m
         return m
     }
@@ -296,7 +304,14 @@ final class AppModel: ObservableObject {
         roomModels[id] = nil
         activityModels.removeValue(forKey: id)?.shutdown()
         notifications.rooms.setRooms(rooms)
+        roomDigests.forget(id)
         log("room \(id) disbanded → removed from the sidebar")
+    }
+
+    /// A room's name changed (renamed here, optimistically, or seen renamed by a poll): its sidebar row follows.
+    func roomRenamed(_ room: RoomSummary) {
+        guard let i = rooms.firstIndex(where: { $0.roomId == room.roomId }), rooms[i].name != room.name else { return }
+        rooms[i] = rooms[i].renamed(room.name)
     }
 
     /// An app-minted room id: `hba-` + 12 hex.
@@ -336,6 +351,7 @@ final class AppModel: ObservableObject {
         if let b = backend { unsubscribeDisconnect(b) }  // our own close is not a lost connection
         for m in roomModels.values { m.shutdown() }
         for m in activityModels.values { m.shutdown() }
+        roomDigests.stop()
         kanban.disconnect()
         notifications.reset()
 #if DEBUG

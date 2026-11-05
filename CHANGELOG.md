@@ -17,6 +17,17 @@ All notable changes to this project are documented here. The format follows
   answered from the notification (Approve Once, Deny). Permission is asked the first time. Off with the
   `notificationsEnabled` default (`defaults write io.github.risyadul.hermesbot notificationsEnabled -bool false`).
 - Dock badge with the number of approvals and questions waiting in Bot Chats and Group Chats.
+- Group Chat: rename a room from the room menu (Rename…). The new name shows at once and goes back if Hermes
+  refuses it, with the reason above the composer.
+- Group Chat threads: Reply in thread opens the thread beside the room with its own composer; the room
+  composer keeps writing to the whole room. A thread started on a room message quotes it in its first reply,
+  since bots only see their own thread. Thread messages are labelled in the room timeline, and a message with a
+  thread shows its reply count.
+- Group Chat message actions on hover or right-click: Reply to @bot (puts the mention in the right composer)
+  and Copy.
+- Group Chat rows in the sidebar show the last message and its age, and an amber badge when a bot wrote
+  `@user` that you have not answered or seen, or waits on your approval. Composer drafts are kept per room
+  and per thread while the app runs.
 - Group Chat Activity panel (⌥⌘I): what each bot in the room is doing right now, its recent tool calls with
   arguments and results, its reasoning and errors, with its turn status kept beside the live status. The
   detailed view uses the open-source Bot Activity Hermes plugin; without it the panel shows each bot's turn

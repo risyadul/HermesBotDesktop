@@ -5,7 +5,9 @@ import SwiftUI
 // MARK: - views
 //
 // Layout and tokens: DESIGN.md (Group Chat). Toolbar (room name, Stop, room menu) → turn ribbon →
-// timeline (rows from `RoomPresentation`, action cards) → note bar → composer.
+// timeline (rows from `RoomPresentation`, action cards) → note bar → composer. The inspector column shows
+// the open thread (RoomThreadViews.swift) or, otherwise, the Activity panel. Drafts live in `RoomModel`
+// (per thread), so they survive switching panes.
 // Every action still goes through `RoomModel` (send gate, perform keys, disband), exactly as in M2.
 // Room-level "working" has one home, the ribbon's room chip: the timeline does not repeat it.
 
@@ -15,8 +17,8 @@ struct RoomView: View {
     var activity: RoomActivityModel? = nil
     @ObservedObject private var avatars = AvatarStore.shared
     @StateObject private var memory: RoomMotionMemory
-    @State private var draft = ""
     @State private var confirmDisband = false
+    @State private var showRename = false
     @State private var dismissedNote: String?
     @FocusState private var composerFocused: Bool
     @State private var paste = AttachmentPasteMonitor()
@@ -34,6 +36,17 @@ struct RoomView: View {
     }
 
     private var rows: [RoomRow] { RoomPresentation.rows(lines: model.lines, events: model.timeline.events) }
+
+    /// The inspector column holds the open thread, else the Activity panel when that is on.
+    private var inspectorShown: Binding<Bool> {
+        Binding(get: { showActivity || model.openThread != nil },
+                set: { shown in if !shown { showActivity = false; model.openThread = nil } })
+    }
+
+    /// Column changes animate with the system inspector slide only while motion is on.
+    private func inspectorChange(_ change: () -> Void) {
+        if motion { change() } else { withDSAnimation(false) { change() } }
+    }
     private var memberStates: [String: RoomPresentation.MemberState] {
         RoomPresentation.memberStates(room: model.room, timeline: model.timeline, driver: model.driver)
     }
@@ -67,18 +80,21 @@ struct RoomView: View {
             return true
         } isTargeted: { dropTargeted = $0 && model.composer.isOpen }
         .onChange(of: composerFocused) { _, f in paste.focused = f }
-        .onChange(of: model.restoredDraft) { _, restored in
-            guard let restored else { return }
-            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = restored }
-            model.restoredDraft = nil
-        }
+        .onChange(of: model.focusRequest) { _, r in if r?.thread == RoomThreads.main { composerFocused = true } }
         .onDisappear { paste.remove() }
         .navigationTitle(model.room.name)
         .navigationSubtitle("\(model.room.members.count) bots")
         .toolbar { toolbar }
-        .inspector(isPresented: $showActivity) {
-            RoomActivityPanel(room: model, activity: activity)
-                .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
+        .inspector(isPresented: inspectorShown) {
+            Group {
+                if let thread = model.openThread {
+                    RoomThreadPane(model: model, thread: thread, row: { rowView($0, inThreadPane: true) },
+                                   identity: { identity($0.memberId, title: $0.title) })
+                } else {
+                    RoomActivityPanel(room: model, activity: activity)
+                }
+            }
+            .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showActivity) { _, shown in storedActivity = shown }
         .onAppear {
@@ -91,6 +107,9 @@ struct RoomView: View {
             if sync != nil { memory.setBaselineIfNeeded(model.timeline.cursor) }
         }
         .onChange(of: memberStates) { _, s in memory.observe(s) }
+        .motionSheet(isPresented: $showRename, motion: motion) {
+            RenameRoomView(current: model.room.name, onRename: { model.rename($0) }, onClose: { showRename = false })
+        }
         .confirmationDialog("Disband \(model.room.name)?", isPresented: $confirmDisband) {
             Button("Disband", role: .destructive) { Task { _ = await model.disband() } }
         } message: { Text("The room id is retired for good. This cannot be undone.") }
@@ -108,6 +127,9 @@ struct RoomView: View {
                 .help("Stop the running turns in this room")
                 .disabled(!model.active || model.busyActions.contains("stop") || !model.composer.isOpen)
             Menu {
+                Button("Rename…") { showRename = true }
+                    .disabled(model.busyActions.contains("rename"))
+                Divider()
                 Button("Disband Room…", role: .destructive) { confirmDisband = true }
             } label: { Label("Room", systemImage: "ellipsis.circle") }
                 .help("Room actions")
@@ -117,7 +139,10 @@ struct RoomView: View {
             // ⌥⌘I as in Bot Chat: the two panes are never on screen together. System inspector animation with
             // motion on; a no-animation transaction with it off.
             Button {
-                if motion { showActivity.toggle() } else { withDSAnimation(false) { showActivity.toggle() } }
+                inspectorChange {
+                    // A thread in the column: Activity takes it over (closing the thread), rather than hiding it.
+                    if model.openThread != nil { model.openThread = nil; showActivity = true } else { showActivity.toggle() }
+                }
             } label: { Label("Activity", systemImage: "sidebar.trailing") }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .help("Show or hide what each bot is doing (⌥⌘I)")
@@ -127,7 +152,9 @@ struct RoomView: View {
     // MARK: timeline
 
     private func timeline(_ rows: [RoomRow], actions: [RoomPendingAction]) -> some View {
-        ScrollViewReader { proxy in
+        let threads = Dictionary(model.timeline.threads.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        func timelineRow(_ row: RoomRow) -> some View { self.timelineRow(row, threads: threads) }
+        return ScrollViewReader { proxy in
             ScrollView {
                 // Older rows lazy, the rows seen on open laid out eagerly (EagerTail: why not all of one kind).
                 let tail = EagerTail.start(of: rows) { $0.approximateLines }
@@ -160,10 +187,29 @@ struct RoomView: View {
         }
     }
 
-    private func timelineRow(_ row: RoomRow) -> some View {
-        rowView(row)
-            .id(row.id)
-            .transition(transition(for: row))
+    /// A timeline row plus its thread links: the label above a message in another thread, the reply count
+    /// under a message a thread hangs off.
+    private func timelineRow(_ row: RoomRow, threads: [String: RoomThreadSummary]) -> some View {
+        let isUser: Bool = { if case .user = row.kind { return true }; return false }()
+        let anchored = threads[RoomThreads.anchored(at: row.id)]
+        return VStack(alignment: isUser ? .trailing : .leading, spacing: DS.Space.s1) {
+            if row.isMessage && row.threadId != RoomThreads.main {
+                RoomThreadLink(style: .label, text: RoomPresentation.threadTitle(threads[row.threadId])) { open(row.threadId) }
+                    .padding(.leading, isUser ? 0 : DS.Size.contentInset)
+            }
+            rowView(row)
+            if row.isMessage, row.threadId == RoomThreads.main, let anchored {
+                RoomThreadLink(style: .replies, text: RoomPresentation.replyCount(anchored.messageCount)) { open(anchored.id) }
+                    .padding(.leading, isUser ? 0 : DS.Size.contentInset)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+        .id(row.id)
+        .transition(transition(for: row))
+    }
+
+    private func open(_ thread: String) {
+        inspectorChange { model.showThread(thread) }
     }
 
     private func passCount(_ row: RoomRow) -> Int {
@@ -181,7 +227,9 @@ struct RoomView: View {
         }
     }
 
-    @ViewBuilder private func rowView(_ row: RoomRow) -> some View {
+    /// One row. Messages carry their actions (hover strip + context menu): Reply to @bot, Reply in thread
+    /// (not inside the thread pane, whose composer already posts to the thread) and Copy.
+    @ViewBuilder func rowView(_ row: RoomRow, inThreadPane: Bool = false) -> some View {
         switch row.kind {
         case .user(let text):
             let parts = RoomAttachments.split(text)
@@ -189,10 +237,12 @@ struct RoomView: View {
             UserBubble(text: parts.text, time: row.time, mentionHandles: Set(model.room.members.map(\.handle)),
                        attachments: RoomAttachments.mediaRefs(parts.paths),
                        autoResolve: { RoomAttachmentStore.contains($0.path, room: roomId) })
+                .messageActions(messageActions(row, memberId: nil, inThreadPane: inThreadPane), alignment: .topTrailing)
         case .member(let memberId, let author, let text):
             MemberMessage(identity: identity(memberId, title: author), author: author, time: row.time) {
                 MessageBody(text: text, mentions: Set(model.room.members.map(\.handle))).equatable()
             }
+            .messageActions(messageActions(row, memberId: memberId, inThreadPane: inThreadPane), alignment: .topTrailing)
         case .passes(let passes):
             PassLine(passes: passes, memory: memory, identity: { identity($0.memberId, title: $0.author) })
         case .divider(let text):
@@ -202,6 +252,15 @@ struct RoomView: View {
         case .failure(let memberId, let author, let text):
             FailureCard(identity: identity(memberId, title: author), author: author, text: text)
         }
+    }
+
+    private func messageActions(_ row: RoomRow, memberId: String?, inThreadPane: Bool) -> RoomMessageActions {
+        let seq = row.id, model = model
+        return RoomMessageActions(
+            replyHandle: model.room.member(memberId)?.handle,
+            onReply: { inspectorChange { model.replyToMember(seq: seq) } },
+            onReplyInThread: inThreadPane || !model.composer.isOpen ? nil : { inspectorChange { model.replyInThread(seq: seq) } },
+            copyText: RoomPresentation.copyText(row))
     }
 
     enum EmptyKind: Equatable { case loading, empty }
@@ -257,15 +316,15 @@ struct RoomView: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
             ComposerBox(placeholder: "Message \(model.room.name). Start with @handle to address one bot",
-                        draft: $draft,
+                        draft: mainDraft,
                         canSend: canSend,
                         onSend: send, focus: $composerFocused,
-                        onTab: { MentionSuggestions.acceptFirst(&draft, members: model.room.members) },
+                        onTab: { MentionSuggestions.acceptFirst(&mainDraft.wrappedValue, members: model.room.members) },
                         onAttach: attachAction,
                         attachments: model.pending,
                         onRemoveAttachment: { model.removeAttachment($0) })
                 .overlay(alignment: .topLeading) {
-                    MentionSuggestions(draft: $draft, members: model.room.members, identity: { identity($0.memberId, title: $0.title) })
+                    MentionSuggestions(draft: mainDraft, members: model.room.members, identity: { identity($0.memberId, title: $0.title) })
                         .alignmentGuide(.top) { $0[.bottom] + DS.Space.s1 }
                 }
             HStack(spacing: DS.Space.s3) {
@@ -294,16 +353,21 @@ struct RoomView: View {
         return { pickFiles() }
     }
 
+    /// The room composer's draft (`main`), kept by the model.
+    private var mainDraft: Binding<String> {
+        Binding(get: { model.draft(RoomThreads.main) }, set: { model.setDraft($0, thread: RoomThreads.main) })
+    }
+
     /// Text, or at least one ready attachment, and the room accepts messages.
     private var canSend: Bool {
         guard model.composer.canSend else { return false }
-        let hasText = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasText = !model.draft(RoomThreads.main).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return hasText || model.pending.contains(where: \.isReady)
     }
 
-    /// Clears the draft only when the model accepted it (a closing/disbanded room keeps it).
+    /// The model clears the draft only when it accepted it (a closing/disbanded room keeps it).
     private func send() {
-        if model.send(draft) { draft = "" }
+        model.submit(thread: RoomThreads.main)
     }
 
     private func pickFiles() {
