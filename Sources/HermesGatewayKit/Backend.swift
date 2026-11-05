@@ -2,7 +2,7 @@ import Foundation
 
 /// M1 connection layer: attach-first to a running backend, spawn-if-absent otherwise.
 ///
-/// Order (docs/gateway-contract.md §1, probe t_8cf3b257):
+/// Order (docs/gateway-contract.md §1):
 /// 1. `HostRendezvous.discover` over the per-user lock dir: `host-serve` then `host-desktop-serve`.
 ///    The first record that proves itself (uid, protocol, pid+start time, token fingerprint, TCP,
 ///    `/api/host/identity`) is attached to: WS `/api/ws?token=<0600 token>`. Nothing is spawned and the

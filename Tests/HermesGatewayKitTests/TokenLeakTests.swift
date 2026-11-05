@@ -3,7 +3,7 @@ import Network
 import XCTest
 @testable import HermesGatewayKit
 
-/// BLOCK-001 of review run300: no error text that leaves the kit may carry the WS token.
+/// Token leaks: no error text that leaves the kit may carry the WS token.
 /// Runs against an in-process fake gateway on 127.0.0.1 (never the user's backend).
 final class TokenLeakTests: XCTestCase {
     private let secret = "hbaTestSecret_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")

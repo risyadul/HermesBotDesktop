@@ -32,7 +32,8 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   Hermes desktop app), this app attaches to it. Otherwise it starts its own `hermes serve` on `~/.hermes` and
   stops it when you quit. A backend it attached to is never stopped.
 - **Bot Chat sessions are deleted on quit (default).** 1:1 chats created by this app are closed and
-  deleted on Quit. To keep them, launch with `HERMES_BOT_APP_KEEP_SESSIONS=1`.
+  deleted on a normal Quit. They may be kept if the connection to the backend was lost, or if quit cleanup
+  hit its 5-second deadline. To always keep them, launch with `HERMES_BOT_APP_KEEP_SESSIONS=1`.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
   hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
 - **It does not change your profiles or bot config.** Bots are your existing Hermes profiles.
@@ -47,7 +48,7 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 | macOS | 14 or later (Apple Silicon tested; Intel untested) |
 | Toolchain | Xcode 26 / Swift 6.3 (tested). Command Line Tools only: **untested** |
 | Hermes Agent | installed and configured with a model provider (see below) |
-| `hermes` binary | found automatically: `HERMES_BOT_APP_HERMES_BIN`, `~/.local/bin/hermes`, `$PATH`, then `/opt/homebrew/bin` and `/usr/local/bin`. It must be executable and not group/world-writable |
+| `hermes` binary | found automatically: `~/.local/bin/hermes`, the `$PATH` of the process that launched the app, then `/opt/homebrew/bin` and `/usr/local/bin`. `HERMES_BOT_APP_HERMES_BIN` (an absolute path) replaces that search. It must be a regular executable file, not group/world-writable, in a directory that is not group/world-writable (unless sticky) |
 
 Hermes Agent compatibility: tested only against a Hermes Agent `main` build (`v0.21.6+783.g8a7a5a9`).
 The `groups.*` API this app needs is present in stable `v2026.9.14` and later, but stable releases
@@ -70,8 +71,11 @@ have **not been tested** with this app yet.
    `hermes profile create reviewer --clone` also works but copies the active profile's `config.yaml` **and `.env`
    (credentials)** into the new profile; only use it if that is what you want.
    Bot Chat alone works with a single profile.
-3. **(Optional) Point the app at a specific `hermes` binary.** The app already looks in `~/.local/bin`, on
-   `$PATH` and in the Homebrew locations. Only if yours lives elsewhere (pipx, venv, …):
+3. **(Optional) Point the app at a specific `hermes` binary.** The app looks in `~/.local/bin`, on the
+   `$PATH` of the process that launched it, and in the Homebrew locations. A terminal launch inherits your
+   shell's `$PATH`; an app opened from Finder gets launchd's minimal `$PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`),
+   so there only the fixed locations (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`) find it. If yours
+   lives elsewhere (pipx, venv, …), set an absolute path; it replaces the search (nothing else is tried):
    ```sh
    export HERMES_BOT_APP_HERMES_BIN="$(which hermes)"
    ```
@@ -91,7 +95,7 @@ have **not been tested** with this app yet.
 
 | Variable | Effect |
 |---|---|
-| `HERMES_BOT_APP_HERMES_BIN=<path>` | override: `hermes` executable used when the app has to start a backend |
+| `HERMES_BOT_APP_HERMES_BIN=<path>` | `hermes` executable used when the app has to start a backend. Absolute path (or `~/…`); replaces the automatic search |
 | `HERMES_BOT_APP_KEEP_SESSIONS=1` | keep 1:1 chat sessions on quit |
 | `HERMES_BOT_APP_NO_SPAWN=1` | only attach to a running backend; never start one |
 | `HERMES_BOT_APP_APPEARANCE=light\|dark` | force appearance |
@@ -109,8 +113,9 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
 - **"Group Chat needs Hermes Agent v2026.9.14 or later":** the backend does not offer `groups.*`; update
   Hermes Agent. The "+" button stays disabled until then.
 - **Connection lost:** the app shows a failure screen; press Try Again to reconnect.
-- **My Bot Chat history is gone:** by design, 1:1 sessions are deleted on quit unless
-  `HERMES_BOT_APP_KEEP_SESSIONS=1`.
+- **My Bot Chat history is gone:** by design, 1:1 sessions are deleted on a normal quit unless
+  `HERMES_BOT_APP_KEEP_SESSIONS=1`. (After a lost connection or a quit that hit the 5-second deadline,
+  some may be left behind.)
 
 ## Download / packaging
 

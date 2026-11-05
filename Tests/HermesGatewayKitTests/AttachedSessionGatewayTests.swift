@@ -3,7 +3,7 @@ import Network
 import XCTest
 @testable import HermesGatewayKit
 
-/// Review run311 BLOCK-003A at the ACTUAL adapter boundary: `RoomSessionCleaner` driving the real
+/// Profile attribution at the ACTUAL adapter boundary: `RoomSessionCleaner` driving the real
 /// `AttachedSessionGateway` against an in-process fake backend (WS `/api/ws` JSON-RPC + HTTP
 /// `GET /api/sessions/{id}?profile=`) on 127.0.0.1 — never the user's backend.
 ///
@@ -11,15 +11,15 @@ import XCTest
 /// (it drops `kanban`/`tool`/`oneshot`, archived and out-of-window rows, `methods_session.py:133-157,549-571`),
 /// while the detail route reads the whole store by exact id (`web_routers/sessions.py:562-582`).
 final class AttachedSessionGatewayTests: XCTestCase {
-    static let thief = RoomMember(memberId: "thief", profile: "thief", handle: "thief")
+    static let translator = RoomMember(memberId: "translator", profile: "translator", handle: "translator")
     static let reviewer = RoomMember(memberId: "code-reviewer", profile: "code-reviewer", handle: "code-reviewer")
     static let probe = RoomManifestEntry(roomId: "hba-cleanup-probe", name: "hba cleanup probe", createdAt: 1_000,
-                                         members: [thief, reviewer])
+                                         members: [translator, reviewer])
     private let secret = "hbaRestSecret_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
 
     // MARK: - the reviewer's repro and its variants
 
-    /// Own `thief:same-key` bot_room row (listed, exact Group title) + a foreign `code-reviewer:same-key` row
+    /// Own `translator:same-key` bot_room row (listed, exact Group title) + a foreign `code-reviewer:same-key` row
     /// that `session.list` never shows (denied source / archived / outside the window) + ONE idle runtime on
     /// `same-key` whose live title is blank or agrees with the own row. Before the fix: closed the runtime,
     /// deleted the own row, ok:true. Now: 0 close, 0 delete, unresolved key_collision, not ok.
@@ -31,7 +31,7 @@ final class AttachedSessionGatewayTests: XCTestCase {
                 let label = "\(why), live title '\(liveTitle)'"
                 let be = try await FakeBackend.start(token: secret)
                 defer { be.stop() }
-                be.state.listed["thief"] = [StoredSessionRow(profile: "thief", id: "same-key", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+                be.state.listed["translator"] = [StoredSessionRow(profile: "translator", id: "same-key", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
                 be.state.listed["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "cr-visible", title: "Plan", source: "desktop", startedAt: 900)]
                 be.state.unlisted["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "same-key", title: "", source: source, startedAt: 1_010)]
                 be.state.live = [LiveSessionRow(runtimeId: "foreign-runtime", sessionKey: "same-key", title: liveTitle, status: "idle")]
@@ -52,10 +52,10 @@ final class AttachedSessionGatewayTests: XCTestCase {
                 XCTAssertTrue(report.final.ownedLive.isEmpty, label)
                 XCTAssertEqual(be.state.live.map(\.runtimeId), ["foreign-runtime"], label)
                 XCTAssertEqual(be.state.unlisted["code-reviewer"]?.map(\.id), ["same-key"], label)
-                XCTAssertEqual(be.state.listed["thief"]?.map(\.id), ["same-key"], label)
+                XCTAssertEqual(be.state.listed["translator"]?.map(\.id), ["same-key"], label)
                 // Every scanned profile was asked by exact id, with the header token and no token in the URL.
                 XCTAssertEqual(Set(be.state.httpRequests.map(\.target)),
-                               ["/api/sessions/same-key?profile=thief", "/api/sessions/same-key?profile=code-reviewer",
+                               ["/api/sessions/same-key?profile=translator", "/api/sessions/same-key?profile=code-reviewer",
                                 "/api/sessions/same-key?profile=default"], label)
                 XCTAssertTrue(be.state.httpRequests.allSatisfy { $0.tokenOK && !$0.target.contains(secret) }, label)
                 XCTAssertFalse(report.json.compactJSON().contains(secret), label)
@@ -68,7 +68,7 @@ final class AttachedSessionGatewayTests: XCTestCase {
     func testUniqueKeyIsClosedAndDeleted() async throws {
         let be = try await FakeBackend.start(token: secret)
         defer { be.stop() }
-        be.state.listed["thief"] = [StoredSessionRow(profile: "thief", id: "k1", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+        be.state.listed["translator"] = [StoredSessionRow(profile: "translator", id: "k1", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
         be.state.listed["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "other", title: "Plan", source: "desktop", startedAt: 900)]
         be.state.unlisted["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "k1-not-the-same", source: "kanban", startedAt: 1_010)]
         be.state.live = [LiveSessionRow(runtimeId: "own-runtime", sessionKey: "k1", title: "Group: hba-cleanup-probe", status: "idle")]
@@ -76,7 +76,7 @@ final class AttachedSessionGatewayTests: XCTestCase {
             .run(AttachedSessionGateway(client: be.client, rest: be.rest))
         XCTAssertTrue(report.ok, report.reason)
         XCTAssertEqual(be.state.closeCalls, ["own-runtime"])
-        XCTAssertEqual(be.state.deleteCalls, ["thief:k1"])
+        XCTAssertEqual(be.state.deleteCalls, ["translator:k1"])
         XCTAssertEqual(be.state.unlisted["code-reviewer"]?.map(\.id), ["k1-not-the-same"])
         XCTAssertEqual(be.state.listed["code-reviewer"]?.map(\.id), ["other"])
         XCTAssertEqual(report.closed.count, 1)
@@ -88,7 +88,7 @@ final class AttachedSessionGatewayTests: XCTestCase {
         let be = try await FakeBackend.start(token: secret)
         defer { be.stop() }
         be.state.prefixResolve = true
-        be.state.listed["thief"] = [StoredSessionRow(profile: "thief", id: "k2", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+        be.state.listed["translator"] = [StoredSessionRow(profile: "translator", id: "k2", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
         be.state.unlisted["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "k2_longer", source: "kanban", startedAt: 1_010)]
         be.state.live = [LiveSessionRow(runtimeId: "own-runtime", sessionKey: "k2", title: "", status: "idle")]
         let gw = AttachedSessionGateway(client: be.client, rest: be.rest)
@@ -107,7 +107,7 @@ final class AttachedSessionGatewayTests: XCTestCase {
         for fault in Fault.allCases {
             let be = try await FakeBackend.start(token: secret)
             defer { be.stop() }
-            be.state.listed["thief"] = [StoredSessionRow(profile: "thief", id: "k3", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+            be.state.listed["translator"] = [StoredSessionRow(profile: "translator", id: "k3", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
             be.state.live = [LiveSessionRow(runtimeId: "own-runtime", sessionKey: "k3", title: "", status: "idle")]
             var rest: SessionRESTAccess? = be.rest
             switch fault {
@@ -132,16 +132,16 @@ final class AttachedSessionGatewayTests: XCTestCase {
     func testOwnRowGoneOnExactLookupIsUnresolved() async throws {
         let be = try await FakeBackend.start(token: secret)
         defer { be.stop() }
-        be.state.listed["thief"] = [StoredSessionRow(profile: "thief", id: "k4", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+        be.state.listed["translator"] = [StoredSessionRow(profile: "translator", id: "k4", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
         be.state.live = [LiveSessionRow(runtimeId: "own-runtime", sessionKey: "k4", title: "", status: "idle")]
-        be.state.httpFault = ["thief": (404, ["detail": "Session not found"])]
+        be.state.httpFault = ["translator": (404, ["detail": "Session not found"])]
         let d = try await RoomSessionCleaner(manifest: [Self.probe]).discover(AttachedSessionGateway(client: be.client, rest: be.rest))
         XCTAssertTrue(d.ownedLive.isEmpty)
         XCTAssertEqual(d.unresolved.map(\.kind), ["key_inventory_changed"])
-        XCTAssertEqual(d.keyInventory["k4"]?["thief"], .absent("not_found"))
+        XCTAssertEqual(d.keyInventory["k4"]?["translator"], .absent("not_found"))
     }
 
-    // MARK: - review run313 BLOCK-003C: deleted keys re-created by late title accounting
+    // MARK: - deleted keys re-created by late title accounting
 
     /// Actual adapter: own bot_room row + idle runtime → close + delete; the backend re-creates the SAME id
     /// right after the delete as `source=unknown`, llm title, 0 messages (listed, but not bot_room). The
@@ -150,28 +150,28 @@ final class AttachedSessionGatewayTests: XCTestCase {
     func testRecreatedSameKeyAfterDeleteIsReadBackAndRedeleted() async throws {
         let be = try await FakeBackend.start(token: secret)
         defer { be.stop() }
-        be.state.listed["thief"] = [StoredSessionRow(profile: "thief", id: "k5", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+        be.state.listed["translator"] = [StoredSessionRow(profile: "translator", id: "k5", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
         be.state.listed["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "unrelated-unknown", title: "Aux only", source: "unknown", startedAt: 1_015)]
         be.state.live = [LiveSessionRow(runtimeId: "own-runtime", sessionKey: "k5", title: "Group: hba-cleanup-probe", status: "idle")]
-        be.state.recreateOnDelete = ["thief:k5": StoredSessionRow(profile: "thief", id: "k5", title: "History of tide clocks essay", source: "unknown", startedAt: 1_020)]
-        be.state.messageCounts = ["thief:k5": 0]
+        be.state.recreateOnDelete = ["translator:k5": StoredSessionRow(profile: "translator", id: "k5", title: "History of tide clocks essay", source: "unknown", startedAt: 1_020)]
+        be.state.messageCounts = ["translator:k5": 0]
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hba-ledger-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
         let gw = AttachedSessionGateway(client: be.client, rest: be.rest)
         let report = await RoomSessionCleaner(manifest: [Self.probe], maxRounds: 6, every: 0, scope: "fake", recorder: FileSessionLedger(url: url)).run(gw)
         XCTAssertTrue(report.ok, report.reason)
         XCTAssertEqual(be.state.closeCalls, ["own-runtime"])
-        XCTAssertEqual(be.state.deleteCalls, ["thief:k5", "thief:k5"])
+        XCTAssertEqual(be.state.deleteCalls, ["translator:k5", "translator:k5"])
         XCTAssertEqual(report.redeleted.count, 1)
-        XCTAssertFalse(be.state.listed["thief"]?.contains { $0.id == "k5" } ?? false)
+        XCTAssertFalse(be.state.listed["translator"]?.contains { $0.id == "k5" } ?? false)
         XCTAssertEqual(be.state.listed["code-reviewer"]?.map(\.id), ["unrelated-unknown"], "an unrelated unknown row is never touched")
-        XCTAssertTrue(be.state.httpRequests.contains { $0.target == "/api/sessions/k5?profile=thief" })
+        XCTAssertTrue(be.state.httpRequests.contains { $0.target == "/api/sessions/k5?profile=translator" })
         XCTAssertEqual(try SessionLedger.load(url).map(\.event), ["proven", "deleted", "redeleted"])
         XCTAssertFalse(report.json.compactJSON().contains(secret))
         let keys = SessionLedger.keys(try SessionLedger.load(url), scope: "fake")
         let audit = try await RoomSessionCleaner(manifest: [Self.probe], ledger: keys).discover(gw)
         XCTAssertTrue(audit.isEmpty)
-        XCTAssertEqual(audit.ledgerReadback["thief:k5"], .absent("not_found"))
+        XCTAssertEqual(audit.ledgerReadback["translator:k5"], .absent("not_found"))
     }
 
     /// Same boundary, the re-creation lands only after the run settled (beyond its budget): an audit from
@@ -179,30 +179,30 @@ final class AttachedSessionGatewayTests: XCTestCase {
     func testRecreationAfterTheRunFailsAuditUntilLedgerCleanup() async throws {
         let be = try await FakeBackend.start(token: secret)
         defer { be.stop() }
-        be.state.listed["thief"] = [StoredSessionRow(profile: "thief", id: "k6", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+        be.state.listed["translator"] = [StoredSessionRow(profile: "translator", id: "k6", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hba-ledger-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
         let gw = AttachedSessionGateway(client: be.client, rest: be.rest)
         let r1 = await RoomSessionCleaner(manifest: [Self.probe], maxRounds: 4, every: 0, scope: "fake", recorder: FileSessionLedger(url: url)).run(gw)
         XCTAssertTrue(r1.ok, r1.reason)
-        be.state.listed["thief", default: []].append(StoredSessionRow(profile: "thief", id: "k6", title: "Essay", source: "unknown", startedAt: 1_030))
-        be.state.messageCounts = ["thief:k6": 0]
+        be.state.listed["translator", default: []].append(StoredSessionRow(profile: "translator", id: "k6", title: "Essay", source: "unknown", startedAt: 1_030))
+        be.state.messageCounts = ["translator:k6": 0]
         let blind = try await RoomSessionCleaner(manifest: [Self.probe]).discover(gw)
         XCTAssertTrue(blind.isEmpty, "listing-only audit is blind")
         let keys = SessionLedger.keys(try SessionLedger.load(url), scope: "fake")
         let audit = try await RoomSessionCleaner(manifest: [Self.probe], ledger: keys).discover(gw)
-        XCTAssertEqual(audit.ledgerRecreated.map(\.entry.key), ["thief:k6"])
+        XCTAssertEqual(audit.ledgerRecreated.map(\.entry.key), ["translator:k6"])
         XCTAssertEqual(audit.ledgerRecreated.first?.presence, .present(source: "unknown", messages: 0))
-        be.state.messageCounts = ["thief:k6": 2]
+        be.state.messageCounts = ["translator:k6": 2]
         let withMessages = try await RoomSessionCleaner(manifest: [Self.probe], ledger: keys).discover(gw)
         XCTAssertEqual(withMessages.unresolved.map(\.kind), ["ledger_key_present"], "not the placeholder shape → never deleted")
         be.state.messageCounts = [:]
         let noCount = try await RoomSessionCleaner(manifest: [Self.probe], ledger: keys).discover(gw)
         XCTAssertEqual(noCount.unresolved.map(\.kind), ["ledger_key_present"], "an unproven message count is not the placeholder shape")
-        be.state.messageCounts = ["thief:k6": 0]
+        be.state.messageCounts = ["translator:k6": 0]
         let r2 = await RoomSessionCleaner(manifest: [], maxRounds: 4, every: 0, ledger: keys, scope: "fake", recorder: FileSessionLedger(url: url)).run(gw)
         XCTAssertTrue(r2.ok, r2.reason)
-        XCTAssertEqual(be.state.deleteCalls, ["thief:k6", "thief:k6"])
+        XCTAssertEqual(be.state.deleteCalls, ["translator:k6", "translator:k6"])
         let after = try await RoomSessionCleaner(manifest: [Self.probe], ledger: keys).discover(gw)
         XCTAssertTrue(after.isEmpty)
     }
@@ -240,7 +240,7 @@ final class FakeBackendState: @unchecked Sendable {
     private var _prefixResolve = false
     private var _recreateOnDelete: [String: StoredSessionRow] = [:]
     private var _messageCounts: [String: Int] = [:]
-    let profiles = ["default", "thief", "code-reviewer"]
+    let profiles = ["default", "translator", "code-reviewer"]
 
     var listed: [String: [StoredSessionRow]] { get { lock.withLock { _listed } } set { lock.withLock { _listed = newValue } } }
     var unlisted: [String: [StoredSessionRow]] { get { lock.withLock { _unlisted } } set { lock.withLock { _unlisted = newValue } } }

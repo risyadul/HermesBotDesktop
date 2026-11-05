@@ -35,11 +35,17 @@ final class ChatModel: ObservableObject, Identifiable {
     private func run(_ text: String, backend: Backend, title: String) async {
         do {
             if session == nil {
+                guard !closed else { return }  // closed (quitting): never open a session nobody will close
                 let open = Task { [bot] in try await BotChatSession.open(backend, bot: bot, title: title) }
                 opening = open
                 defer { opening = nil }
                 let s = try await open.value
-                guard !closed else { return }  // `close()` awaited `open` and closes this session
+                if closed {
+                    // `close()` claims an in-flight `open` (clearing `opening`) and closes that session itself;
+                    // a session it did not claim is closed and deleted here.
+                    if opening != nil { for n in await Self.close(s) { AppModel.shared.log(n) } }
+                    return
+                }
                 // FIFO onto the main actor: one Task per event would not guarantee delta order.
                 s.onEvent { [weak self] e in DispatchQueue.main.async { MainActor.assumeIsolated { self?.apply(e) } } }
                 session = s
@@ -72,8 +78,15 @@ final class ChatModel: ObservableObject, Identifiable {
         closed = true
         var pending = session
         session = nil
-        if pending == nil, let open = opening { pending = try? await open.value }
+        if pending == nil, let open = opening {
+            opening = nil  // claimed: `run` leaves closing this session to us
+            pending = try? await open.value
+        }
         guard let s = pending else { return [] }
+        return await Self.close(s)
+    }
+
+    private static func close(_ s: BotChatSession) async -> [String] {
         let keep = ProcessInfo.processInfo.environment["HERMES_BOT_APP_KEEP_SESSIONS"] == "1"
         return await s.close(deleteStored: !keep)
     }

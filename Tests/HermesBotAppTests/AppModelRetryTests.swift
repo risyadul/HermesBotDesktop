@@ -1,7 +1,7 @@
 import XCTest
 @testable import HermesBotApp
 
-/// BLOCK-001 end to end through the real `AppModel.connect()` (the Try Again action): a local fake
+/// Try Again end to end through the real `AppModel.connect()` (the Try Again action): a local fake
 /// backend that the app attaches to via the rendezvous lock dir answers the first `profiles.list` with an
 /// RPC error and the second with one bot. Before the fix the second `connect()` returned at once and the
 /// server only ever saw one `profiles.list`.

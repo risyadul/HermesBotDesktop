@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import HermesBotApp
 
-/// BLOCK-002 (review run318): the monogram fallback drew white letters on a gradient lifted toward white,
+/// The monogram fallback drew white letters on a gradient lifted toward white,
 /// which dropped below 4.5:1 (3.42:1 measured on teal). This renders the real `AvatarView` (no avatar
 /// image loaded, so the monogram path) for every bot colour at every size that carries letters, and
 /// measures the lightest tile pixel behind the glyphs in the actual bitmap, not the token swatch.

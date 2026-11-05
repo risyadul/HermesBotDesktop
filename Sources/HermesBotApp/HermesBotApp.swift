@@ -21,7 +21,11 @@ struct HermesBotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage(DS.Motion.settingKey) private var motion = true
     var body: some Scene {
-        WindowGroup("Hermes Bot") { RootView(model: AppModel.shared).modifier(MotionGate()) }
+        WindowGroup("Hermes Bot") {
+            RootView(model: AppModel.shared).modifier(MotionGate())
+                // Every link surface in the window (not only message bodies) opens web pages only.
+                .environment(\.openURL, OpenURLAction { url in MessageBody.opensLink(url) ? .systemAction : .discarded })
+        }
             .defaultSize(DS.Size.windowDefault)
             .windowToolbarStyle(.unified)
             .commands {

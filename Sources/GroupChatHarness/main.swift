@@ -96,7 +96,7 @@ func noteCreated(_ room: RoomSummary) {
 let isoRoomManifestFile = ProcessInfo.processInfo.environment["HBA_ISO_ROOM_MANIFEST"].map { URL(fileURLWithPath: $0) }
     ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("evidence/m2/iso-room-manifest.jsonl")
 
-/// Durable record of every member-session key a cleanup proved (BLOCK-003C, `SessionLedger`).
+/// Durable record of every member-session key a cleanup proved (`SessionLedger`).
 let sessionLedgerFile = ProcessInfo.processInfo.environment["HBA_SESSION_LEDGER"].map { URL(fileURLWithPath: $0) }
     ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("evidence/m2/session-ledger.jsonl")
 
@@ -881,9 +881,9 @@ do {
     case "ledger-audit": try await scenarioLedger(cleanup: false)
     case "ledger-cleanup": try await scenarioLedger(cleanup: true)
     case "list": try await scenarioList()
-    case "multi": try await scenarioMulti(args.count > 3 ? args[3] : "thief,code-reviewer")
-    case "stop": try await scenarioStop(args.count > 3 ? args[3] : "thief,code-reviewer")
-    case "retry-attach": try await scenarioRetryAttach(args.count > 3 ? args[3] : "thief,code-reviewer")
+    case "multi": try await scenarioMulti(args.count > 3 ? args[3] : "translator,code-reviewer")
+    case "stop": try await scenarioStop(args.count > 3 ? args[3] : "translator,code-reviewer")
+    case "retry-attach": try await scenarioRetryAttach(args.count > 3 ? args[3] : "translator,code-reviewer")
     case "approve-iso": try await scenarioApproveIso()
     case "retry-iso": try await scenarioRetryIso()
     case "cleanup": try await scenarioCleanup(args.count > 3 ? args[3] : "")

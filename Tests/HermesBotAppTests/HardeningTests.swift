@@ -35,6 +35,32 @@ final class MonogramTests: XCTestCase {
         XCTAssertEqual(a["rs"], "RB", "a two-word title keeps its own base when it does not collide")
     }
 
+    func testBaseUsesOnlyLettersAndDigitsAndIsTwoCharacters() {
+        XCTAssertEqual(Monogram.base("🤖 Helper"), "HE", "symbols are not part of a word")
+        XCTAssertEqual(Monogram.base("A.I. Bot"), "AI")
+        XCTAssertEqual(Monogram.base("x-1"), "X1")
+        XCTAssertEqual(Monogram.base("(beta)"), "BE")
+        XCTAssertEqual(Monogram.base("R"), "RR", "a one-character title still gives two characters")
+        XCTAssertEqual(Monogram.base("7"), "77")
+        XCTAssertEqual(Monogram.base("ß"), "SS")
+        XCTAssertEqual(Monogram.base("ßeta"), "SE", "ß uppercases to SS but stays one monogram character")
+        XCTAssertEqual(Monogram.base("Straße Bot"), "SB")
+        XCTAssertEqual(Monogram.base("--"), "?", "no letters or digits at all")
+        for t in ["ß", "ßß", "ﬁx", "Ǆemal", "é", "e\u{301}t", "Ⅻ legion", "日本"] {
+            XCTAssertEqual(Monogram.base(t).count, 2, t)
+        }
+    }
+
+    func testOddTitlesStayUniqueAndTwoCharacters() {
+        let bots = [("r1", "R"), ("r2", "R"), ("rr", "rr"), ("strasse", "Straße"), ("ss", "ß"), ("sym", "🤖 Robo"),
+                    ("ro", "Ro")]
+        let a = Monogram.assign(bots.map { (profile: $0.0, title: $0.1) })
+        let b = Monogram.assign(bots.reversed().map { (profile: $0.0, title: $0.1) })
+        XCTAssertEqual(a, b)
+        XCTAssertEqual(Set(a.values).count, bots.count, "monograms collide: \(a)")
+        XCTAssertTrue(a.values.allSatisfy { $0.count == 2 }, "\(a)")
+    }
+
     func testIdentityUsesRosterMonogram() {
         let id = BotIdentity(profile: "reviewer", title: "reviewer", slot: 0, uniqueMonogram: "RV")
         XCTAssertEqual(id.monogram, "RV")
@@ -65,6 +91,31 @@ final class RoomSyncFailureTests: XCTestCase {
 /// Same python fake approach as `AppModelRetryTests` (skipped without python3; never a real backend).
 @MainActor
 final class BackendLossTests: XCTestCase {
+    /// `AppModel.shared` is process-wide: start from a clean model, so a failure elsewhere cannot cascade.
+    override func setUp() async throws {
+        let model = AppModel.shared
+        await model.shutdown()
+        model.selection = nil
+        model.chats = [:]
+        model.rooms = []
+        model.roomModels = [:]
+        model.bots = []
+        model.modeText = ""
+        model.phase = .connecting
+        XCTAssertNil(model.backend)
+    }
+
+    /// Reads the fake backend's stdout until a whole line (or EOF): one read may return a partial line.
+    private static func firstLine(_ h: FileHandle) -> String {
+        var buf = Data()
+        while !buf.contains(0x0A) {
+            let d = h.availableData
+            if d.isEmpty { break }
+            buf.append(d)
+        }
+        return String(decoding: buf.prefix { $0 != 0x0A }, as: UTF8.self)
+    }
+
     func testLostBackendFailsThenTryAgainReconnects() async throws {
         let python = "/usr/bin/python3"
         guard FileManager.default.isExecutableFile(atPath: python) else { throw XCTSkip("python3 not available") }
@@ -83,8 +134,8 @@ final class BackendLossTests: XCTestCase {
             let out = Pipe()
             server.standardOutput = out
             try server.run()
-            let ready = String(decoding: out.fileHandleForReading.availableData, as: UTF8.self)
-            XCTAssertTrue(ready.contains("READY"), "fake backend did not start: \(ready)")
+            let ready = Self.firstLine(out.fileHandleForReading)
+            XCTAssertEqual(ready, "READY", "fake backend did not start")
             return server
         }
 

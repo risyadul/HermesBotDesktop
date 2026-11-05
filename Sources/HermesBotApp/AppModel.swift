@@ -20,7 +20,13 @@ final class AppModel: ObservableObject {
     var selectedBot: String? { if case .bot(let n)? = selection { return n }; return nil }
     private(set) var backend: Backend?
     private var disconnectToken: UUID?
-    private var connecting = false
+    /// The connect attempt in flight (nil when idle). `shutdown()` cancels it so a backend spawned while
+    /// the app quits is stopped instead of outliving it; `backendLost` drops it so Try Again works at once.
+    private var connectTask: Task<Void, Never>?
+    /// `Backend.shutdown` of a lost backend, still running (an owned one may take up to its grace period
+    /// to exit). The next attempt waits for it, so it never attaches to or spawns beside a dying backend.
+    private var releasingLost: Task<Void, Never>?
+    private var shuttingDown = false
     let started = Date()
 #if DEBUG
     /// Scripted runs and window evidence (EvidenceDriver.swift); not compiled into release builds.
@@ -43,26 +49,38 @@ final class AppModel: ObservableObject {
 
     /// Also the Try Again action. A failed attempt keeps no connection (`ConnectFlow`), and a lost
     /// connection is dropped (`backendLost`), so calling this again after `.failed` really reconnects;
-    /// while an attempt runs, or once connected, it is a no-op.
+    /// while an attempt runs, once connected, or while quitting, it is a no-op.
     func connect() async {
-        guard !connecting, backend == nil else { return }
-        connecting = true
-        defer { connecting = false }
+        guard !shuttingDown, connectTask == nil, backend == nil else { return }
+        let task = Task { await self.attemptConnect() }
+        connectTask = task
+        await task.value
+        if connectTask == task { connectTask = nil }
+    }
+
+    private func attemptConnect() async {
         phase = .connecting
+        if let lost = releasingLost {
+            await lost.value
+            releasingLost = nil
+        }
         AvatarStore.shared.reset()  // retry avatars that failed on the previous connection
         do {
-            _ = try await ConnectFlow.open(
+            let b = try await ConnectFlow.open(
                 connect: { try await Backend.connect(log: { line in Task { @MainActor in AppModel.shared.log(line) } }) },
                 load: { b in
                     self.backend = b
                     self.disconnectToken = b.onDisconnect { [weak self] reason in
                         Task { @MainActor in self?.backendLost(b, reason: reason) }
                     }
+                    try Task.checkCancellation()  // quitting: `release` stops what was just connected
                     self.modeText = b.mode.description
                     self.bots = try await Bot.list(b)
                     self.log("profiles.list → \(self.bots.map(\.name))")
                 },
                 release: { b in
+                    // Lost while loading: `backendLost` already dropped it and is stopping it.
+                    guard self.backend === b else { return }
                     self.unsubscribeDisconnect(b)
                     self.backend = nil
                     self.bots = []
@@ -72,9 +90,10 @@ final class AppModel: ObservableObject {
                     self.log(owned.map { "load failed: owned backend pid \($0.pid) stopped" }
                              ?? "load failed: socket closed, attached backend left running (not ours)")
                 })
+            guard backend === b else { return }  // lost while loading: `backendLost` set `.failed`
             await checkGroups()
             if groupsAvailable { await loadRooms() }
-            guard backend != nil else { return }  // lost while loading: `backendLost` set `.failed`
+            guard backend === b else { return }
             phase = .connected
 #if DEBUG
             autochat()
@@ -82,8 +101,10 @@ final class AppModel: ObservableObject {
 #endif
         } catch {
             let msg = Redaction.describe(error)
-            phase = .failed(msg)
             log("connect failed: \(msg)")
+            // `backendLost` already showed why; its message is the one to keep.
+            if case .failed = phase { return }
+            phase = .failed(msg)
         }
     }
 
@@ -105,7 +126,8 @@ final class AppModel: ObservableObject {
         bots = []
         modeText = ""
         backend = nil
-        Task.detached { b.shutdown() }  // stops an owned backend; an attached one is left running
+        connectTask = nil  // an attempt still loading bails out (`backend !== b`); Try Again may start anew
+        releasingLost = Task.detached { b.shutdown() }  // stops an owned backend; an attached one is left running
         phase = .failed("Lost the connection to Hermes (\(reason)).")
     }
 
@@ -115,9 +137,12 @@ final class AppModel: ObservableObject {
         do {
             _ = try await groups.capabilities()
             groupsAvailable = true
+        } catch let e as GatewayClient.RPCError where e.code == -32601 {
+            groupsAvailable = false  // JSON-RPC "method not found": this Hermes Agent has no `groups.*`
+            log("groups.capabilities not supported, Group Chat off: \(Redaction.describe(e))")
         } catch {
-            groupsAvailable = false
-            log("groups.capabilities failed, Group Chat off: \(Redaction.describe(error))")
+            groupsAvailable = true  // transient: Group Chat stays available
+            log("groups.capabilities failed, Group Chat kept on: \(Redaction.describe(error))")
         }
     }
 
@@ -180,6 +205,13 @@ final class AppModel: ObservableObject {
     }
 
     func shutdown() async {
+        shuttingDown = true
+        defer { shuttingDown = false }
+        if let attempt = connectTask {  // quitting mid-connect: whatever it connected is released below
+            attempt.cancel()
+            await attempt.value
+            connectTask = nil
+        }
         if let b = backend { unsubscribeDisconnect(b) }  // our own close is not a lost connection
         for m in roomModels.values { m.shutdown() }
 #if DEBUG

@@ -1,7 +1,7 @@
 import XCTest
 @testable import HermesBotApp
 
-/// BLOCK-001 (review run318): Try Again after a failed bot-list load was a no-op because the opened
+/// Try Again after a failed bot-list load was a no-op because the opened
 /// connection was kept and `connect()` refused to run while one existed. `ConnectFlow.open` must leave
 /// nothing behind on a failed load, so the next attempt opens a fresh connection and can succeed.
 @MainActor

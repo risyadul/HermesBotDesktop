@@ -41,6 +41,21 @@ final class ServeProcessHardeningTests: XCTestCase {
         XCTAssertEqual(Config.executableCandidates(environment: env, home: home).first, "/Users/tester/.local/bin/hermes")
     }
 
+    func testRelativeOverrideIsRejectedNotResolvedAgainstTheWorkingDir() {
+        for o in ["hermes", "bin/hermes", "./hermes", "~hermes"] {
+            let r = Config.resolveExecutable(environment: ["HERMES_BOT_APP_HERMES_BIN": o], home: home) { _ in true }
+            XCTAssertNil(r.url, o)
+            XCTAssertEqual(r.tried, [o])
+            XCTAssertTrue(r.problem?.contains("must be an absolute path") == true, "\(o): \(r.problem ?? "nil")")
+        }
+    }
+
+    func testTildeOverrideExpandsToHome() {
+        let env = ["HERMES_BOT_APP_HERMES_BIN": "~/bin/hermes", "PATH": "/usr/bin"]
+        XCTAssertEqual(Config.executableCandidates(environment: env, home: home), ["/Users/tester/bin/hermes"])
+        XCTAssertNil(Config.resolveExecutable(environment: env, home: home) { _ in false }.problem)
+    }
+
     func testResolvePicksFirstExecutable() {
         let env = ["PATH": "/a:/b"]
         let r = Config.resolveExecutable(environment: env, home: home) { $0 == "/b/hermes" || $0 == "/usr/local/bin/hermes" }
@@ -74,6 +89,15 @@ final class ServeProcessHardeningTests: XCTestCase {
         XCTAssertNotNil(ServeProcess.binaryTrustProblem(mode: 0o100757, owner: me, me: me))
         XCTAssertEqual(ServeProcess.binaryTrustProblem(mode: 0o100755, owner: 777, me: me),
                        "it is owned by uid 777, neither you (uid 501) nor root")
+    }
+
+    func testDirectoryTrustProblem() {
+        XCTAssertNil(ServeProcess.directoryTrustProblem(mode: 0o040755, path: "/d"))
+        XCTAssertNil(ServeProcess.directoryTrustProblem(mode: 0o041777, path: "/tmp"), "sticky: others cannot replace our file")
+        XCTAssertNil(ServeProcess.directoryTrustProblem(mode: 0o041775, path: "/d"))
+        XCTAssertEqual(ServeProcess.directoryTrustProblem(mode: 0o040777, path: "/d"),
+                       "its directory /d is group- or world-writable without the sticky bit (mode 777)")
+        XCTAssertNotNil(ServeProcess.directoryTrustProblem(mode: 0o040775, path: "/d"))
     }
 
     // MARK: - start() failures before launch
@@ -124,6 +148,66 @@ final class ServeProcessHardeningTests: XCTestCase {
         XCTAssertFalse(serve.isRunning)
     }
 
+    func testBinaryInWritableDirectoryIsRefused() async throws {
+        let open = tmp.appendingPathComponent("open")
+        try FileManager.default.createDirectory(at: open, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: open.path)
+        let real = open.appendingPathComponent("hermes")
+        FileManager.default.createFile(atPath: real.path, contents: Data("#!/bin/sh\nexit 0\n".utf8),
+                                       attributes: [.posixPermissions: 0o755])
+        // Named through a symlink in a private dir: the check applies to the directory of the real file.
+        let link = tmp.appendingPathComponent("hermes-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        for exe in [real, link] {
+            let serve = ServeProcess(configuration: config(executable: exe))
+            do {
+                _ = try await serve.start()
+                XCTFail("start() must fail for \(exe.path)")
+            } catch let e as ServeProcess.ServeError {
+                guard case .untrustedBinary(let path, let reason, _) = e else { return XCTFail("wrong error: \(e)") }
+                XCTAssertEqual(path, exe.path)
+                XCTAssertTrue(reason.contains("without the sticky bit"), reason)
+            }
+            serve.stop()
+            XCTAssertFalse(serve.isRunning)
+        }
+    }
+
+    func testDirectoryNamedExplicitlyIsNotAnExecutableFile() async throws {
+        for search in [[], [tmp.path]] {  // given directly, or as HERMES_BOT_APP_HERMES_BIN
+            var c = config(executable: tmp)
+            c.executableSearch = search
+            let serve = ServeProcess(configuration: c)
+            do {
+                _ = try await serve.start()
+                XCTFail("start() must fail")
+            } catch let e as ServeProcess.ServeError {
+                guard case .invalidBinary(let path, let reason, _) = e else { return XCTFail("wrong error: \(e)") }
+                XCTAssertEqual(path, tmp.path)
+                XCTAssertEqual(reason, "it is not a regular executable file")
+            }
+            serve.stop()
+        }
+    }
+
+    func testRelativeOverrideFailsStartWithClearError() async throws {
+        let r = Config.resolveExecutable(environment: ["HERMES_BOT_APP_HERMES_BIN": "hermes"], home: home)
+        var c = config(executable: tmp.appendingPathComponent("unused"))
+        c.executableSearch = r.tried
+        c.executableProblem = r.problem
+        let serve = ServeProcess(configuration: c)
+        do {
+            _ = try await serve.start()
+            XCTFail("start() must fail")
+        } catch let e as ServeProcess.ServeError {
+            guard case .invalidBinary(let path, let reason, _) = e else { return XCTFail("wrong error: \(e)") }
+            XCTAssertEqual(path, "hermes")
+            XCTAssertTrue(reason.contains("must be an absolute path"), reason)
+            XCTAssertTrue(e.description.contains("HERMES_BOT_APP_HERMES_BIN"))
+        }
+        serve.stop()
+    }
+
     func testStopWithoutStartIsSafe() {
         let serve = ServeProcess(configuration: config(executable: tmp.appendingPathComponent("x")))
         serve.stop()
@@ -138,6 +222,7 @@ final class ServeProcessHardeningTests: XCTestCase {
             .homeInsideDefaultRoot("/Users/tester/.hermes/x", log: log),
             .binaryNotFound(tried: ["/a/hermes", "/b/hermes"], log: log),
             .untrustedBinary(path: "/a/hermes", reason: "it is group- or world-writable (mode 777)", log: log),
+            .invalidBinary(path: "hermes", reason: "HERMES_BOT_APP_HERMES_BIN (hermes) must be an absolute path", log: log),
             .launchFailed("NSCocoaErrorDomain 4: missing", log: log),
             .exitedBeforeReady(1, log: log),
             .readyTimeout(log: log),

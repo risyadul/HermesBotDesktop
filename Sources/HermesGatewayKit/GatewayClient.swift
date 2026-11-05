@@ -57,6 +57,10 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
     private var _onDisconnect: (@Sendable (_ reason: String) -> Void)?
     private var _onWire: (@Sendable (_ outbound: Bool, _ line: String) -> Void)?
     private var _negotiatedProtocol: String?
+#if DEBUG
+    /// Tests only: runs in `call` between reading the task and registering the reply continuation.
+    var beforeRegister: (() -> Void)?
+#endif
 
     public var onEvent: EventHandler? {
         get { lock.withLock { _onEvent } }
@@ -159,7 +163,15 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
         let line = frame.compactJSON()
         onWire?(true, line)
         return try await withCheckedThrowingContinuation { cont in
-            lock.lock(); pending[id] = cont; lock.unlock()
+#if DEBUG
+            beforeRegister?()
+#endif
+            // `failAll` may have run since `task` was read: it drained `pending` already, so a
+            // continuation registered now would only ever resume on the timeout.
+            lock.lock()
+            if let terminalError { lock.unlock(); cont.resume(throwing: terminalError); return }
+            pending[id] = cont
+            lock.unlock()
             t.send(.string(line + "\n")) { [weak self] err in
                 if let err, let self { self.resolve(id: id, .failure(self.sanitize(err))) }
             }

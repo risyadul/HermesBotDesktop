@@ -259,7 +259,7 @@ struct MessageBody: View {
     }
 
     /// Only http and https links in model output are opened (file:, smb:, custom schemes are dropped).
-    static func opensLink(_ url: URL) -> Bool {
+    nonisolated static func opensLink(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), url.host?.isEmpty == false else { return false }
         return scheme == "http" || scheme == "https"
     }

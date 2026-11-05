@@ -56,16 +56,23 @@ struct BotIdentity: Equatable {
     var monogram: String { uniqueMonogram ?? Monogram.base(title) }
 }
 
-/// Two-letter monograms, unique within one roster. The base is the first letters of the first two words
-/// (or the first two letters of one word). Bots whose bases collide ("reviewer", "researcher" → RE) each
-/// take their first letter plus the first letter after the prefix they share ("RV", "RS"), moving on to
-/// later letters when that pair is taken. Deterministic: names are placed in sorted profile order.
+/// Two-letter monograms, unique within one roster. Only letters and digits count: the base is the first
+/// characters of the first two words (or the first two of one word; a one-character title doubles it,
+/// "R" → RR). Bots whose bases collide ("reviewer", "researcher" → RE) each take their first letter plus
+/// the first letter after the prefix they share ("RV", "RS"), moving on to later letters when that pair
+/// is taken. Deterministic: names are placed in sorted profile order.
 enum Monogram {
     static func base(_ title: String) -> String {
-        let parts = title.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).filter { !$0.isEmpty }
-        let letters = parts.count >= 2 ? [parts[0].first, parts[1].first] : [title.first, title.dropFirst().first]
-        return String(letters.compactMap { $0 }).uppercased()
+        let words = title.split(whereSeparator: { !isMonogramCharacter($0) }).map { $0.map(upper) }
+        guard let first = words.first?.first else { return "?" }
+        let second = words.count >= 2 ? words[1][0] : words[0].dropFirst().first ?? first
+        return String([first, second])
     }
+
+    private static func isMonogramCharacter(_ c: Character) -> Bool { c.isLetter || c.isNumber }
+
+    /// One character in, one out: "ß" uppercases to "SS", which would make a three-letter monogram.
+    private static func upper(_ c: Character) -> Character { String(c).uppercased().first ?? c }
 
     /// `bots`: (profile, title). Returns profile → monogram.
     static func assign(_ bots: [(profile: String, title: String)]) -> [String: String] {
@@ -78,10 +85,10 @@ enum Monogram {
         var taken = Set(groups.filter { $0.value.count == 1 }.keys)
         for p in profiles where out[p] == nil {
             guard let group = groups[bases[p]!], group.count > 1 else { out[p] = bases[p]; continue }
-            let letters = group.map { Array(titles[$0]!.uppercased().filter { $0.isLetter || $0.isNumber }) }
+            let letters = group.map { titles[$0]!.filter(isMonogramCharacter).map(upper) }
             let shared = sharedPrefix(letters)
             for (member, chars) in zip(group, letters) {
-                let first = chars.first.map(String.init) ?? ""
+                let first = chars.first.map(String.init) ?? "?"
                 // Letters after the shared prefix first, then the shared ones (a title that is a prefix of another).
                 let start = max(shared, 1)
                 let picks = Array(chars.indices.dropFirst(start)) + Array(chars.indices.dropFirst().prefix(start - 1))

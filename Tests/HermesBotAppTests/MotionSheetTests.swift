@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import HermesBotApp
 
-/// BLOCK-003B (review run320): SwiftUI's `.sheet` kept its slide and dimmer fade with the motion gate
+/// SwiftUI's `.sheet` kept its slide and dimmer fade with the motion gate
 /// closed. The create-room sheet now goes through `motionSheet`, which runs the AppKit sheet itself.
 /// These tests present a real sheet on a real window and sample the sheet window's on-screen bounds and
 /// alpha from the window server while it opens and closes.

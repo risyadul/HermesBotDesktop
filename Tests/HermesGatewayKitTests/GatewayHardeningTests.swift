@@ -105,6 +105,21 @@ final class GatewayHardeningTests: XCTestCase {
         XCTAssertEqual(reasons.all.count, 1, "the disconnect is reported once")
     }
 
+    /// The socket fails between `call` reading the live task and registering its reply continuation:
+    /// `failAll` has already drained `pending`, so the call must fail at once, not wait for its timeout.
+    func testCallRacingDisconnectFailsAtOnce() async throws {
+        let gw = try await FakeGateway.start()
+        defer { gw.stop() }
+        let backend = try await connectBackend(gw)
+        let client = backend.client
+        client.beforeRegister = { client.close() }
+        defer { client.beforeRegister = nil }
+        let started = Date()
+        do { _ = try await client.call("profiles.list", timeout: 30); XCTFail("call succeeded on a closed client") }
+        catch GatewayClient.ClientError.closed(let reason) { XCTAssertEqual(reason, "client close") }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the call waited for its timeout")
+    }
+
     // MARK: - helpers
 
     private func connectBackend(_ gw: FakeGateway) async throws -> Backend {

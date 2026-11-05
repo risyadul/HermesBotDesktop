@@ -6,9 +6,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- The app finds `hermes` automatically: `HERMES_BOT_APP_HERMES_BIN`, then `~/.local/bin`, every `$PATH`
-  directory, then Homebrew locations (`/opt/homebrew/bin`, `/usr/local/bin`). The error shown when it is
-  missing names the override variable.
+- The app finds `hermes` automatically: `~/.local/bin`, every directory on the `$PATH` of the process that
+  launched the app, then Homebrew locations (`/opt/homebrew/bin`, `/usr/local/bin`). An app opened from
+  Finder gets launchd's minimal `$PATH`, so the fixed locations are what find it there.
+  `HERMES_BOT_APP_HERMES_BIN` (an absolute path) replaces the search instead of being its first step. The
+  error shown when it is missing names the override variable; a relative override or a directory gets its
+  own clear error. A binary in a group/world-writable directory without the sticky bit is refused.
 - Group Chat availability check: when the backend lacks `groups.*`, "+" is disabled and the app shows
   "Group Chat needs Hermes Agent v2026.9.14 or later".
 - Clickable links in messages (http and https only).
@@ -21,7 +24,8 @@ All notable changes to this project are documented here. The format follows
   state; Try Again reconnects.
 - Quit cleanup finishes within about 5 seconds, then the app exits. Bot Chat sessions opened during quit are
   no longer left behind.
-- The UI states plainly that 1:1 chats are deleted on quit (unless `HERMES_BOT_APP_KEEP_SESSIONS=1`).
+- The UI states plainly that 1:1 chats are deleted on quit (unless `HERMES_BOT_APP_KEEP_SESSIONS=1`). They
+  are deleted on a normal quit; they may be kept if the connection was lost or quit hit the 5-second deadline.
 - Bot monograms are unique among visible bots (for example "reviewer" and "researcher" no longer both show
   "RE").
 - Avatars that failed to load are retried after reconnecting.

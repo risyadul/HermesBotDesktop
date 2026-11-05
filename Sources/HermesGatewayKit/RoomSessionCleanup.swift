@@ -1,6 +1,6 @@
 import Foundation
 
-// Cleanup of the hidden member sessions of test rooms (review BLOCK-003).
+// Cleanup of the hidden member sessions of test rooms.
 //
 // Each room member runs in a hidden session of its own profile (`source=bot_room`), created by the
 // room driver with the title `Group: <room_id>` (`tui_gateway/hosted_room_driver.py:877-885,905-907`,
@@ -449,7 +449,7 @@ public enum RoomSessionClassifier {
         d.keyInventory = inventory
     }
 
-    /// Third gate (BLOCK-003C): every ledger key (proven earlier, maybe deleted) that is not an owned row of
+    /// Third gate (ledger): every ledger key (proven earlier, maybe deleted) that is not an owned row of
     /// this pass is read back by exact id in its own profile (`answers[profile:id]`), whatever its source or
     /// title — `session.list` + the `bot_room` filter cannot see a row the title accounting re-created as
     /// `source=unknown` (`hermes_state_usage.py:388-391`).
@@ -537,7 +537,7 @@ public struct RoomSessionCleanupReport: Sendable {
 /// (4023 → next round), and stops only after `settleRounds` consecutive empty discoveries (rounds are
 /// `every` seconds apart). Out of rounds → `ok == false` with what is left and why.
 ///
-/// Ledger (BLOCK-003C): every owned row is recorded as `proven` (scope, profile, exact id, room, evidence)
+/// Ledger: every owned row is recorded as `proven` (scope, profile, exact id, room, evidence)
 /// BEFORE its runtime is closed or the row deleted — a record that cannot be written means no close and
 /// no delete for that key. Every later round (and `discover` in an audit or a later run that loads the
 /// ledger) reads each remembered key back by exact id, independent of source/title/runtime
