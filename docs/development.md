@@ -58,6 +58,11 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   ProfileCLI.swift            `hermes profile delete <name> --yes` (never default) and `config unset model`
                               (Inherit), trusted hermes, no shell, clean env
   BotDuplicate.swift          Duplicate: <name>-2… name, profiles.create {clone_from}, copy look and avatar
+  SetupCheck.swift            E2 setup.runtime_check (read-only) → ready / noModel / unknown; retries the
+                              gateway's "probe in progress" error (5097), anything unclear is `.unknown`
+  DesktopGroupArchive.swift   E4/D17 parser for Hermes Desktop's ui_meta["hermes-bots-groups"] projection
+                              (v1–v3, tombstones; rooms/members/messages/characters capped again), read via
+                              profiles.list only
   GatewayStatus.swift         kanban dispatcher (`hermes gateway`) state + start; CommandRunner.swift: no-shell runner
                               (output read while running and capped, cancellation terminates, no wait on a
                               pipe a grandchild still holds)
@@ -135,6 +140,13 @@ Sources/HermesBotApp/       SwiftUI app:
   RoomActivityModel.swift     per-room Activity inspector state: bot-activity polling, plugin enable/remove;
                               RoomActivityPresentation.swift (rows, chips, turn-state fallback),
                               RoomActivityPanel.swift (panel, enable sheet)
+  Onboarding.swift            E2 SetupIssue (from the spawn error / setup.runtime_check), which first-run screen
+                              shows, the commands offered (never run); OnboardingView.swift: the screens, CommandRow;
+                              AppModel+Onboarding.swift: checkSetup (once per connection) and Check Again
+  DesktopArchiveModel.swift   E4/D17 read-only Desktop archive: listing for the import sheet, import/remove,
+                              JSON file store (Application Support, 0600), Continue-in-a-new-room helpers;
+                              DesktopArchiveViews.swift: File menu command, import sheet, sidebar section, pane;
+                              AppModel+DesktopArchive.swift: app actions (prefilled create sheet + carry-over draft)
   RoomPresentation, Identity, Components, DesignSystem, MotionSheet, ConnectFlow: shared view logic
   EvidenceDriver.swift        scripted runs + window snapshots, #if DEBUG only (see below)
 Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, GroupChat logic + groups.* wire

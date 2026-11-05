@@ -9,7 +9,9 @@ struct CreateRoomView: View {
     /// Change Members (C2.2): the room being replaced. Its name and members are prefilled, members who stay
     /// keep their roster entries, Create needs a different set of bots, and a successful create does not
     /// close the sheet (it moves on to the old room's choice, ChangeMembersSheet).
-    let replacing: RoomSummary?
+    var replacing: RoomSummary? = nil
+    /// Name and members to start with ("Continue in a New Room" from the Desktop archive).
+    var prefill: CreateRoomPrefill? = nil
     let onCreate: (String, [RoomMember]) async -> String?
     /// Closes the sheet (Cancel, Escape, or a successful create). The sheet is presented by
     /// `motionSheet`, not SwiftUI, so `\.dismiss` would not reach it.
@@ -22,9 +24,10 @@ struct CreateRoomView: View {
     /// The Name field takes focus on open, as it did under SwiftUI's `.sheet`.
     @FocusState private var nameFocused: Bool
 
-    init(bots: [Bot], replacing: RoomSummary? = nil, onCreate: @escaping (String, [RoomMember]) async -> String?,
-         onClose: @escaping () -> Void) {
-        self.bots = bots; self.replacing = replacing; self.onCreate = onCreate; self.onClose = onClose
+    init(bots: [Bot], replacing: RoomSummary? = nil, prefill: CreateRoomPrefill? = nil,
+         onCreate: @escaping (String, [RoomMember]) async -> String?, onClose: @escaping () -> Void) {
+        self.bots = bots; self.replacing = replacing; self.prefill = prefill
+        self.onCreate = onCreate; self.onClose = onClose
         _name = State(initialValue: replacing?.name ?? "Group chat")
         _picked = State(initialValue: replacing.map { Self.prefill(bots: bots, room: $0) } ?? [])
     }
@@ -106,7 +109,13 @@ struct CreateRoomView: View {
         .padding(DS.Space.s5).frame(width: DS.Size.sheetWidth)
         .background(DS.Palette.window)
         .defaultFocus($nameFocused, true)
-        .onAppear { nameFocused = true }
+        .onAppear {
+            nameFocused = true
+            if let prefill {
+                name = prefill.name
+                picked = Set(prefill.members).intersection(eligible.map(\.0.name))
+            }
+        }
     }
 
     private func memberToggle(_ bot: Bot) -> some View {

@@ -38,7 +38,10 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   exists, it does not start a new one. If the chat is running in another Hermes app (error 4090), the app
   says so; open it in that app.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
-  hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
+  hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa. You can
+  copy them into this app as a **read-only archive** with **File → Import from Hermes Desktop…** (see
+  [Importing Hermes Desktop group chats](#importing-hermes-desktop-group-chats)); that only reads, and the copy
+  is kept by this app alone.
 - **It changes your profiles and bot config only when you ask it to.** Bots are your existing Hermes
   profiles. **Pin to Top**, **Hide Bot** and a bot's **title** are saved in that profile's `profile.yaml` under
   `ui_meta` → `hermes-bots` (`pinned`, `hidden`, `title`), the same place and keys Hermes Desktop uses, so both
@@ -106,7 +109,11 @@ have **not been tested** with this app yet.
    .build/debug/HermesBotApp        # or: swift run HermesBotApp (the package has several executables)
    ```
 5. **First chat:** pick a bot in the sidebar and send a message. For Group Chat, press **+**, choose 2–6
-   bots, and send the opening message.
+   bots, and send the opening message. If something is missing on first run, the app shows a setup screen
+   instead of an error: **Hermes not found** (install it, or set `HERMES_BOT_APP_HERMES_BIN`; Try Again),
+   **no model configured** (`hermes setup` or `hermes model`, then Check Again; detected with the read-only
+   `setup.runtime_check`), or **only one bot** (Bot Chat works; the commands to add a second bot, with Copy
+   buttons). The app never runs those commands for you.
 6. **Quit** with ⌘Q, by closing the window, or with Ctrl+C in the terminal you launched it from. All three
    run the same cleanup (see the data section above). Force-killing the app (`kill -9`) skips it.
 
@@ -233,6 +240,22 @@ through the running Hermes backend.
   approval. Rooms you are not looking at are checked every 5–15 seconds.
 - **Drafts** are kept per room and per thread while the app runs, so switching rooms does not lose them.
 
+## Importing Hermes Desktop group chats
+
+Hermes Desktop runs its own group chats in the desktop app; they are not the backend's hosted rooms this app
+uses. Desktop also saves a short copy of each one (the last 16 messages, up to 1200 characters each) into your
+default profile, and **File → Import from Hermes Desktop…** reads that copy (`profiles.list`, read-only).
+
+- Pick the rooms to import; they appear under **Desktop archive** at the bottom of the sidebar (collapsible,
+  hidden while empty). Opening one shows its members and saved messages, read-only. Earlier messages Desktop did
+  not save are counted, not shown.
+- The archive is this app's own copy (`~/Library/Application Support/HermesBotApp/Desktop Archive/`). Importing
+  never changes Hermes, your profiles or Hermes Desktop, and never creates rooms. Import again to refresh a room;
+  **Remove from Archive** deletes only this app's copy.
+- **Continue in a New Room…** opens New Group Chat with the archived name and its members that are bots on
+  this Hermes (at least two are needed), and puts the last few messages, quoted, into the new room's composer
+  for you to edit and send.
+
 ## Group Chat activity
 
 Bots in a Group Chat work in hidden sessions, so the room itself only shows when each bot starts, replies or
@@ -332,7 +355,13 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
 
 - **Backend does not start:** check `~/Library/Logs/HermesBotApp/serve.log` (the error message names it);
   usually the `hermes` path (quick start step 3) or a missing provider config (step 1).
-- **"hermes not found":** set `HERMES_BOT_APP_HERMES_BIN` to the full path of the binary.
+- **"Install Hermes Agent" screen / "hermes not found":** install Hermes Agent, or set
+  `HERMES_BOT_APP_HERMES_BIN` to the full path of the binary and start the app from that terminal; the screen
+  lists the places it checked.
+- **"Choose a model for Hermes" screen:** Hermes runs but has no usable provider; run `hermes setup` or
+  `hermes model`, then press Check Again.
+- **Import from Hermes Desktop finds nothing:** Desktop saves its group chats into the default profile of the
+  Hermes it is connected to; connect this app to the same Hermes.
 - **Bots list is empty / Group Chat needs more bots:** see quick start step 2.
 - **"Group Chat needs Hermes Agent v2026.9.14 or later":** the backend does not offer `groups.*`; update
   Hermes Agent. The "+" button stays disabled until then.

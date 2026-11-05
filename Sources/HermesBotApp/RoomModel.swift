@@ -13,6 +13,8 @@ enum SidebarItem: Hashable {
     case room(String)
     /// A kanban board, by slug (KanbanBoardView).
     case board(String)
+    /// A Hermes Desktop group chat in the read-only archive, by its archive key (DesktopArchiveModel).
+    case archive(String)
 }
 
 @MainActor
