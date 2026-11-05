@@ -42,6 +42,9 @@ final class RoomAttachmentsTests: XCTestCase {
         try Data("x".utf8).write(to: multiline)
         XCTAssertThrowsError(try RoomAttachments.check(multiline)) { XCTAssertTrue($0 is RoomAttachments.Failure) }
         XCTAssertThrowsError(try RoomAttachments.check(dir))
+        let spaced = dir.appendingPathComponent("notes.txt ")
+        try Data("x".utf8).write(to: spaced)
+        XCTAssertThrowsError(try RoomAttachments.check(spaced), "an edge space would not survive the block round trip")
         let big = dir.appendingPathComponent("big.bin")
         FileManager.default.createFile(atPath: big.path, contents: nil)
         let h = try FileHandle(forWritingTo: big)

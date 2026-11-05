@@ -25,6 +25,8 @@ final class RoomModel: ObservableObject, Identifiable {
     @Published private(set) var busyActions: Set<String> = []
     /// Files picked, pasted or dropped for the next message (copied into the room's folder on send).
     @Published var pending: [PendingAttachment] = []
+    /// The text of a send that failed, for the composer to take back (then set to nil).
+    @Published var restoredDraft: String?
     let api: GroupsAPI
     /// Evidence hook: every applied sync (new events since the previous one).
     var onSync: ((RoomModel, [RoomEvent]) -> Void)?
@@ -127,38 +129,61 @@ final class RoomModel: ObservableObject, Identifiable {
             note("at most \(RoomAttachments.maxFiles) files per message, message not posted")
             return false
         }
-        guard composer.canSend, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chips.isEmpty else { return false }
-        var copies: [URL] = []
-        for chip in chips {
-            guard let checked = chip.checked else { continue }
-            do {
-                copies.append(try RoomAttachmentStore.copy(checked, room: room.roomId))
-            } catch {
-                RoomAttachmentStore.discard(copies)
-                if let i = pending.firstIndex(where: { $0.id == chip.id }) { pending[i].state = .failed(Redaction.describe(error)) }
-                return false
-            }
-        }
-        guard let text = composer.beginSend(RoomAttachments.compose(text: draft, paths: copies.map(\.path))) else {
-            RoomAttachmentStore.discard(copies)
-            return false
-        }
-        let sentIds = Set(chips.map(\.id))
-        PasteboardAttachments.delete(chips.map(\.url))  // pasted images now live as room copies
-        pending.removeAll { sentIds.contains($0.id) }
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard typed.isEmpty ? !chips.isEmpty : true,
+              composer.beginSend(typed.isEmpty ? RoomAttachments.header : typed) != nil else { return false }
+        let ids = Set(chips.map(\.id))
+        setChips(ids, .sending)
+        let files = chips.compactMap(\.checked), roomId = room.roomId
         let eventId = "hba-msg-\(UUID().uuidString.lowercased())"
         Task {
-            do {
-                let e = try await api.sendMessage(roomId: room.roomId, eventId: eventId, text: text, threadId: "main")
-                AppModel.shared.log("groups.send → seq=\(e.seq) (ACK only; replies arrive through polling)")
-            } catch {
-                note("send failed, message not posted: \(Redaction.describe(error))")
-                RoomAttachmentStore.discard(copies)
+            defer { composer.finishSend(); nudge() }
+            // Copied off the main thread: ten files from another volume (no APFS clone) would stall the UI.
+            let copied = await Task.detached(priority: .userInitiated) { () -> Result<[URL], Error> in
+                var out: [URL] = []
+                do {
+                    for f in files { out.append(try RoomAttachmentStore.copy(f, room: roomId)) }
+                    return .success(out)
+                } catch {
+                    RoomAttachmentStore.discard(out)
+                    return .failure(error)
+                }
+            }.value
+            let copies: [URL]
+            switch copied {
+            case .failure(let error):
+                return sendFailed(ids, draft: draft, note: "\(Redaction.describe(error)) Message not posted.")
+            case .success(let c):
+                copies = c
             }
-            composer.finishSend()
-            nudge()
+            let text = RoomAttachments.compose(text: typed, paths: copies.map(\.path))
+            guard text.utf8.count <= RoomComposer.maxTextBytes else {
+                RoomAttachmentStore.discard(copies)
+                return sendFailed(ids, draft: draft, note: "The message and its file list are too long. Message not posted.")
+            }
+            do {
+                let e = try await api.sendMessage(roomId: roomId, eventId: eventId, text: text, threadId: "main")
+                AppModel.shared.log("groups.send → seq=\(e.seq) (ACK only; replies arrive through polling)")
+                // Sent: pasted originals now live as the room's copies.
+                PasteboardAttachments.delete(pending.filter { ids.contains($0.id) }.map(\.url))
+                pending.removeAll { ids.contains($0.id) }
+            } catch {
+                // The copies stay: a timed-out send may still have been posted, and its paths must keep working.
+                sendFailed(ids, draft: draft, note: "send failed, the message may not have been posted: \(Redaction.describe(error))")
+            }
         }
         return true
+    }
+
+    /// A send that did not go out: its chips are ready again and its text goes back to the composer.
+    private func sendFailed(_ ids: Set<UUID>, draft: String, note text: String) {
+        note(text)
+        setChips(ids, .ready)
+        restoredDraft = draft
+    }
+
+    private func setChips(_ ids: Set<UUID>, _ state: PendingAttachment.State) {
+        for i in pending.indices where ids.contains(pending[i].id) { pending[i].state = state }
     }
 
     func stop() {
@@ -232,7 +257,7 @@ extension RoomModel {
     }
 
     func removeAttachment(_ id: UUID) {
-        guard let i = pending.firstIndex(where: { $0.id == id }) else { return }
+        guard let i = pending.firstIndex(where: { $0.id == id }), !pending[i].isSending else { return }
         let chip = pending.remove(at: i)
         PasteboardAttachments.delete([chip.url])
     }

@@ -1309,6 +1309,12 @@ which the room's (local) members read with their file tools. The payload is stil
 The app folds a well-formed block back into attachments (`RoomAttachments.split`); other clients show it as
 text. Limits: 10 files of 50 MB per message (the room's text cap is 64 KiB).
 
+Privacy: the block puts absolute paths (with the macOS user name) into room history, which Hermes Desktop and
+the room's bots see; the backend is local. Because room history is shared state, the app checks and thumbnails
+only paths that are its own copies for that room (`RoomAttachmentStore.contains`); any other path in a user
+message waits for a click, like a protected folder. A send that fails keeps its copies (a timed-out send may
+still have been posted) and gives the chips and text back to the composer.
+
 ## 13. Files from bots: `MEDIA:` tags (M3)
 
 Status: **[src + test]; no live run.** Code: `MediaTags.swift` (parser, `MediaSafety`), `MediaViews.swift`

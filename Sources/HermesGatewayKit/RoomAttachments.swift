@@ -22,7 +22,8 @@ public enum RoomAttachments {
 
         public var description: String {
             switch self {
-            case .badName(let n): return "\(n) has a line break or control character in its name; rename it to attach it."
+            case .badName(let n):
+                return "\(n) has a line break, a control character or an edge space in its name; rename it to attach it."
             }
         }
     }
@@ -32,7 +33,8 @@ public enum RoomAttachments {
     public static func check(_ url: URL, fileManager: FileManager = .default) throws -> ChatAttachments.Checked {
         let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
         let name = url.lastPathComponent
-        guard !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) || $0 == "\u{2028}" || $0 == "\u{2029}" })
+        guard !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) || $0 == "\u{2028}" || $0 == "\u{2029}" }),
+              name == name.trimmingCharacters(in: .whitespaces)
         else { throw Failure.badName(VisibleText.reveal(name)) }
         guard let attrs = try? fileManager.attributesOfItem(atPath: resolved.path) else {
             throw ChatAttachments.Failure.notFound(name)

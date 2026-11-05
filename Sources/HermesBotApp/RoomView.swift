@@ -57,6 +57,11 @@ struct RoomView: View {
             return true
         } isTargeted: { dropTargeted = $0 && model.composer.isOpen }
         .onChange(of: composerFocused) { _, f in paste.focused = f }
+        .onChange(of: model.restoredDraft) { _, restored in
+            guard let restored else { return }
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = restored }
+            model.restoredDraft = nil
+        }
         .onDisappear { paste.remove() }
         .navigationTitle(model.room.name)
         .navigationSubtitle("\(model.room.members.count) bots")
@@ -156,8 +161,10 @@ struct RoomView: View {
         switch row.kind {
         case .user(let text):
             let parts = RoomAttachments.split(text)
+            let roomId = model.room.roomId
             UserBubble(text: parts.text, time: row.time, mentionHandles: Set(model.room.members.map(\.handle)),
-                       attachments: RoomAttachments.mediaRefs(parts.paths))
+                       attachments: RoomAttachments.mediaRefs(parts.paths),
+                       autoResolve: { RoomAttachmentStore.contains($0.path, room: roomId) })
         case .member(let memberId, let author, let text):
             MemberMessage(identity: identity(memberId, title: author), author: author, time: row.time) {
                 MessageBody(text: text, mentions: Set(model.room.members.map(\.handle))).equatable()

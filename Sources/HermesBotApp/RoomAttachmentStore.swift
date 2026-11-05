@@ -32,28 +32,51 @@ enum RoomAttachmentStore {
 
     /// Copies a checked file into the room's folder (APFS clones it, so even a large file is instant on the
     /// same volume) and returns the copy.
+    /// The file is checked again right before copying (it may have changed since its chip was added), and the
+    /// per-file folder is always new: a name collision fails instead of reusing or removing another's folder.
     static func copy(_ file: ChatAttachments.Checked, room: String, root: URL = RoomAttachmentStore.root) throws -> URL {
         let fm = FileManager.default
-        let dir = try folder(room: room, root: root).appendingPathComponent(String(UUID().uuidString.lowercased().prefix(8)), isDirectory: true)
+        let now = try RoomAttachments.check(file.url)
+        let roomDir = try folder(room: room, root: root)
+        let dir = roomDir.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
         do {
-            for d in [root, dir.deletingLastPathComponent(), dir] {
+            for d in [root, roomDir] {
                 try fm.createDirectory(at: d, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: d.path)
             }
+            try fm.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        } catch {
+            throw Failure.copyFailed(file.name)
+        }
+        do {
             let target = dir.appendingPathComponent(file.name)
-            try fm.copyItem(at: file.url, to: target)
+            try fm.copyItem(at: now.url, to: target)
             return target
         } catch {
-            try? fm.removeItem(at: dir)
+            try? fm.removeItem(at: dir)  // created above by this call, never someone else's
             throw Failure.copyFailed(file.name)
         }
     }
 
+    /// True for a copy this app made for `room`: `<root>/<room>/<folder>/<name>`, nothing else.
+    static func contains(_ path: String, room: String, root: URL = RoomAttachmentStore.root) -> Bool {
+        guard let roomDir = try? folder(room: room, root: root) else { return false }
+        let url = URL(fileURLWithPath: path)
+        guard !url.pathComponents.contains("..") else { return false }
+        let parts = url.standardizedFileURL.pathComponents
+        return parts.count == roomDir.standardizedFileURL.pathComponents.count + 2
+            && url.standardizedFileURL.path.hasPrefix(roomDir.standardizedFileURL.path + "/")
+    }
+
     /// Removes copies made for a message that was then not sent.
+    /// Only a copy's own per-file folder (`<root>/<room>/<folder>/<name>`) is ever removed.
     static func discard(_ copies: [URL], root: URL = RoomAttachmentStore.root) {
-        let base = root.standardizedFileURL.path + "/"
-        for c in copies where c.standardizedFileURL.path.hasPrefix(base) {
-            try? FileManager.default.removeItem(at: c.deletingLastPathComponent())
+        let base = root.standardizedFileURL
+        for c in copies {
+            let u = c.standardizedFileURL
+            guard !c.pathComponents.contains(".."), u.path.hasPrefix(base.path + "/"),
+                  u.pathComponents.count == base.pathComponents.count + 3 else { continue }
+            try? FileManager.default.removeItem(at: u.deletingLastPathComponent())
         }
     }
 

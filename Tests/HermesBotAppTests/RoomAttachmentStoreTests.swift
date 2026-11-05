@@ -48,4 +48,31 @@ final class RoomAttachmentStoreTests: XCTestCase {
         }
         RoomAttachmentStore.discard([URL(fileURLWithPath: "/tmp/outside/x.txt")], root: root)  // outside root: ignored
     }
+
+    func testFileIsCheckedAgainAtCopyTime() throws {
+        let checked = try RoomAttachments.check(source)
+        let h = try FileHandle(forWritingTo: source)
+        try h.truncate(atOffset: UInt64(RoomAttachments.maxBytes + 1))  // grew past the cap after its chip was added
+        try h.close()
+        XCTAssertThrowsError(try RoomAttachmentStore.copy(checked, room: "hba-1", root: root))
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)  // swapped for a folder
+        XCTAssertThrowsError(try RoomAttachmentStore.copy(checked, room: "hba-1", root: root))
+        try FileManager.default.removeItem(at: source)
+    }
+
+    func testDiscardOnlyRemovesAPerFileFolderAndContainsOnlyMatchesOwnCopies() throws {
+        let copy = try RoomAttachmentStore.copy(try RoomAttachments.check(source), room: "hba-1", root: root)
+        let roomDir = root.appendingPathComponent("hba-1")
+        RoomAttachmentStore.discard([roomDir.appendingPathComponent("x")], root: root)  // one level too shallow
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path), "the room folder is never removed by discard")
+        RoomAttachmentStore.discard([URL(fileURLWithPath: copy.path + "/../../../x/y/z")], root: root)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path))
+
+        XCTAssertTrue(RoomAttachmentStore.contains(copy.path, room: "hba-1", root: root))
+        XCTAssertFalse(RoomAttachmentStore.contains(copy.path, room: "hba-2", root: root), "another room's copy")
+        XCTAssertFalse(RoomAttachmentStore.contains(NSHomeDirectory() + "/.ssh/id_rsa", room: "hba-1", root: root))
+        XCTAssertFalse(RoomAttachmentStore.contains(roomDir.path + "/a/../../../../etc/passwd", room: "hba-1", root: root))
+        XCTAssertFalse(RoomAttachmentStore.contains(roomDir.path + "/deep/er/x.txt", room: "hba-1", root: root))
+    }
 }

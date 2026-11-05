@@ -189,9 +189,13 @@ final class MediaCache: @unchecked Sendable {
 /// The attachments area under a message's text.
 struct MediaAttachmentList: View {
     let refs: [MediaRef]
+    /// Refs checked (and thumbnailed) on appear; the others wait for a click like a protected folder. Group
+    /// Chat user messages auto-load only the app's own copies: room history is shared, so another client could
+    /// name any path there.
+    var autoResolve: (MediaRef) -> Bool = { _ in true }
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
-            ForEach(refs, id: \.self) { MediaAttachmentView(ref: $0) }
+            ForEach(refs, id: \.self) { MediaAttachmentView(ref: $0, autoResolve: autoResolve($0)) }
         }
     }
 }
@@ -200,12 +204,14 @@ struct MediaAttachmentList: View {
 /// disabled state for a missing or refused path, with the reason as help text and no open action).
 struct MediaAttachmentView: View {
     let ref: MediaRef
+    var autoResolve = true
     @State private var resolution: MediaResolution?
     @State private var thumbnail: MediaThumbnail?
     @Environment(\.motionEnabled) private var motion
 
-    init(ref: MediaRef) {
+    init(ref: MediaRef, autoResolve: Bool = true) {
         self.ref = ref
+        self.autoResolve = autoResolve
         // Seed from the caches so a lazily re-created row does not flash through "Checking…".
         let cached = MediaCache.shared.resolution(for: ref.path)
         _resolution = State(initialValue: cached)
@@ -261,6 +267,8 @@ struct MediaAttachmentView: View {
         let resolved: MediaResolution
         if let cached = MediaCache.shared.resolution(for: ref.path) {
             resolved = cached
+        } else if !autoResolve {
+            resolved = .deferred  // not cached: nothing touches the path before a click
         } else {
             resolved = await Task.detached(priority: .utility) { MediaResolver.resolve(ref) }.value
             MediaCache.shared.store(resolved, for: ref.path)
