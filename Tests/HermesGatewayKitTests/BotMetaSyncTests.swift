@@ -64,7 +64,8 @@ final class BotMetaSyncTests: XCTestCase {
         let server: JSONValue = ["hermes-bots": ["title": "Alpha", "sectionId": "s1", "chat": "old"], "other-plugin": ["x": 1]]
         let gw = FakeGateway(lists: [Self.list(meta: server, revision: 4)], configures: [Self.applied])
         let outcome = try await BotMetaSync.save(name: "alpha", patch: ["pinned": true], call: gw.call)
-        XCTAssertEqual(outcome, .persisted(BotUIMeta(pinned: true, hidden: false)))
+        // The section the server holds (A5) is kept and read back with the saved pin.
+        XCTAssertEqual(outcome, .persisted(BotUIMeta(pinned: true, hidden: false, sectionId: "s1")))
         let params = try XCTUnwrap(gw.configureParams.first)
         XCTAssertEqual(params["name"], "alpha")
         // Only the `hermes-bots` key: the gateway merges key-wise, so `other-plugin` is never clobbered.

@@ -70,9 +70,13 @@ lock, calls_path = sys.argv[1], sys.argv[2]
 calls = []
 
 def record(method):
+    # Written to a temp file and renamed: the test may read the log while a late call (the activity poll
+    # of a connection being shut down) is being recorded, and must never see a half-written file.
     calls.append(method)
-    with open(calls_path, "w") as f:
-        json.dump(calls, f)
+    tmp = calls_path + ".%d.tmp" % len(calls)
+    with open(tmp, "w") as f:
+        json.dump(list(calls), f)
+    os.replace(tmp, calls_path)
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -100,8 +104,14 @@ class Handler(BaseHTTPRequestHandler):
                     if mask: data = bytes(c ^ mask[i % 4] for i, c in enumerate(data))
                     if opcode == 8: break
                     if opcode != 1: continue
-                    v = json.loads(data); method = v.get("method"); record(method)
-                    if method == "profiles.list" and calls.count(method) == 1:
+                    v = json.loads(data); method = v.get("method")
+                    # The sidebar's activity poll (include_sessions: true) is not a roster load.
+                    if method == "profiles.list" and (v.get("params") or {}).get("include_sessions") is True:
+                        method = "profiles.list+sessions"
+                    record(method)
+                    if method == "profiles.list+sessions":
+                        reply = {"result": {"profiles": [{"name": "fixture", "model": "fixture"}]}}
+                    elif method == "profiles.list" and calls.count(method) == 1:
                         reply = {"error": {"code": 5000, "message": "synthetic transient profiles failure"}}
                     elif method == "profiles.list":
                         reply = {"result": {"profiles": [{"name": "fixture", "model": "fixture"}]}}
