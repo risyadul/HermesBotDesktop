@@ -36,7 +36,12 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 - **Bot Chat is the same chat Hermes Desktop uses for that bot.** Opening a bot continues its existing
   history; the app never deletes it. Quitting only disconnects. If the app cannot confirm whether the chat
   exists, it does not start a new one. If the chat is running in another Hermes app (error 4090), the app
-  says so; open it in that app.
+  says so; open it in that app. **Regenerate**, **Edit Message** and **Restore from Here** cut that shared
+  chat back to the chosen message, exactly as Hermes Desktop does: Hermes archives the later messages and they
+  disappear from both apps (you are asked first whenever later messages would go). **Branch into New Chat**
+  creates a new, separate session of the bot instead and leaves the Bot Chat alone.
+- **The approval mode menu changes the bot's profile.** It writes `approvals.mode` (Manual, Smart, Off) in
+  that bot's Hermes config, as Hermes Desktop's menu does, so it applies to every chat of that bot.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
   hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa. You can
   copy them into this app as a **read-only archive** with **File → Import from Hermes Desktop…** (see
@@ -131,10 +136,34 @@ have **not been tested** with this app yet.
   other Hermes apps to answer.
 - **Attachments:** paperclip, drag and drop, or paste. Images (up to 25 MB), PDFs (up to 50 MB and 25 pages;
   needs `pdftoppm` on the backend machine) and other files. Files over a limit are refused with a message.
+  The paperclip also offers **Attach Folder…** and **Attach URL…**: a folder (also when dropped) or a web page
+  is sent as an `@folder:` / `@url:` reference that the bot reads when your message runs; nothing is uploaded.
+  Pasting more than 3,000 characters attaches the text as a file ("Pasted content") instead of filling the
+  composer; the file is deleted once the reply finishes, like pasted images.
+- **Images in replies:** click one to zoom (up to 8×, pinch or the buttons) and drag to pan; double-click
+  resets. **Open** in that window opens it in its default app.
 - **Files from bots:** images show inline and other files as chips (Bot Chat and Group Chat). A file opens
   only when you click it, after a safety check that refuses credentials and system locations.
 - **Copy:** hover a message for Copy, or right-click it. A reply that came in several parts (text around tool
   calls) also offers Copy Full Response, which copies all of that reply's text.
+- **Regenerate, edit, restore:** hover a reply for **Regenerate** (runs the prompt above it again); hover your
+  message for **Edit Message** (change it and run it again), or right-click it for **Restore from Here** (run
+  it again as it was). These rewind the Bot Chat to that message the way Hermes Desktop does: everything after
+  it is removed from the conversation in Hermes (archived, also gone in Hermes Desktop). Restore always asks;
+  Regenerate and Edit ask when later messages would be removed. They work only while the bot is idle. If Hermes
+  cannot find the message in its stored history, the prompt is sent again as a new message and nothing is
+  removed (the chat says so).
+- **Branch into New Chat:** right-click a message to continue the conversation up to there in a new session of
+  the bot, in a window over the Bot Chat (send, steer, approvals and the composer controls all work). The Bot
+  Chat is not changed. Close the window to come back; the branch stays in Hermes and is the bot's
+  **Open Recent Session** in the sidebar.
+- **When a reply fails:** the error shows as a card with **Retry** (runs the prompt again), **Switch
+  Provider** for provider, key and billing failures (opens the model list for this chat), **Copy Diagnostics**
+  (error details for a bug report, with keys and tokens removed) and a close button.
+- **Changed files:** when a reply edited files, a card under it lists them with the lines added and removed;
+  click a file for its diff, or the folder button to reveal it in Finder (after the same safety check as files
+  from bots; paths relative to the bot's folder cannot be revealed). Shown for replies the app watched;
+  Hermes' stored history does not keep the diffs.
 - **Times:** hovering a message also shows when it was sent ("3:27 PM", "Yesterday, 3:27 PM"; the full date
   in its tooltip). A reply you watched from its start shows how long the turn took under it ("12s").
 - **@mention other bots:** type `@` for your other bots (never the one you are talking to); click one or press
@@ -160,6 +189,9 @@ have **not been tested** with this app yet.
   another Hermes app started is never steered from here: Return queues instead. If the bot cannot take a
   correction, the message is queued, so nothing you typed is lost. Files and slash commands are never used
   to steer (files are queued; slash commands run at once).
+- **Approval mode:** the ⚡ menu under the composer shows the bot's approval mode: **Manual** (ask before
+  actions that need approval), **Smart** (Hermes assesses each action and asks when needed) or **Off** (no
+  approval prompts). It is the bot's profile setting, so it applies to all of that bot's chats.
 - **Model and reasoning effort:** the row under the composer shows the chat's model and reasoning effort;
   click either to change it. A change applies to this chat only (the same as `/model … --session`); it never
   changes the bot's profile or any other bot. A model that costs more asks for confirmation first, and a

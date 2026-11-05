@@ -35,6 +35,13 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   ChatAttachments.swift       image/pdf/file attach RPCs, client-side checks, prompt text
   ChatControls.swift          composer controls: session.redirect, model.options, config.set model (--session) and
                               reasoning (no scope), session.usage / context_breakdown, CompactionPhase
+  ChatRewind.swift            B3/B4: RewindPlanner (regenerate / edit / restore plans, row id by content),
+                              RewindParams (Desktop's truncating prompt.submit), RewindReceipt (survivor rebinding),
+                              BranchPlanner (session.branch count), session.history, BotChatSession.rewind/branch
+  ChatRecovery.swift          B10: ErrorSurface, TurnFailure, ErrorRecoveryPlan, ErrorDiagnostics (redacted)
+  ContextRefs.swift           B11: @url / @folder refs (Desktop formatRefValue), LargePaste (3000-char rule)
+  ChatApprovalMode.swift      B14: approvals.mode via profile-scoped config.get / config.set
+  ChangedFiles.swift          B16: file-edit tool lines folded per file (+/- counts, diffs), cards per finished turn
   MediaTags.swift             MEDIA:<path> parsing + MediaSafety (deny rules for Open/Reveal)
   ServerRequests.swift        server->client requests (approval, clarify, sudo, secret): frames, answers, cancel
   SlashCommands.swift         commands.catalog (curated like Desktop) + invocation classification
@@ -85,6 +92,13 @@ Sources/HermesBotApp/       SwiftUI app:
   ChatModel+Requests.swift    attachments staging and server request cards state
   ChatModel+Queue.swift       B8: Return steers (session.redirect), ⌘Return queues, auto-drain, Stop pauses, edit
   ChatModel+Controls.swift    B7/B9: model + reasoning per chat (optimistic, rollback, confirm), context usage
+  ChatModel+Rewind.swift      B3 regenerate / edit / restore (confirm, row-id resolution, rollback), B4 branch,
+                              B10 error-card actions (retry, switch provider, diagnostics, dismiss)
+  ChatModel+Attachments.swift B11 URL / folder chips and long paste, B14 approval mode (optimistic, rollback)
+  ChatCards.swift             B10 ErrorCardRow, B16 ChangedFilesCard / DiffText, B3 MessageEditSheet, B11 AttachURLSheet
+  ChatSheets.swift            the dialogs a chat surface presents (rewind confirm, edit, URL, image zoom)
+  BranchChatSheet.swift       B4 read-write branch sheet; BotChatActions (per-message actions, error card)
+  ImageZoomSheet.swift        B11 zoom/pan sheet (Quick Look rendition), ImageZoomState, imageZoom environment
   ChatSessionLink.swift       protocol ChatModel needs from a chat (BotChatSession in prod, fake in tests)
   ChatComposer.swift          composer: paperclip, drop/paste, slash menu, Send/Steer/Queue/Save, Stop, status row
   ChatComposerControls.swift  model menu, reasoning menu, context gauge + breakdown popover
@@ -201,10 +215,12 @@ Sources/HermesBotApp/       SwiftUI app:
 Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, GroupChat logic + groups.* wire
                             shapes, RoomPoller lifecycle + room availability
                             + parity suites: CanonicalBotChat, BotChatRebind (reclaim/session.info), ChatAttachment,
-                            ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand, ChatControls
+                            ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand, ChatControls,
+                            ChatRewind (B3/B4 payloads + planners), ChatRecovery (B10/B11/B14/B16)
                             (ParityTestSupport: fakes); BotRosterActivity (A4-A6/A17 parsing, attention
                             classes, section ui_meta merge, read-only transcript route)
-Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls, ChatComposerFeatures: B1/B12),
+Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls, ChatComposerFeatures: B1/B12,
+                            ChatRewindModel: B3/B4/B10/B11/B14),
                             BotChatTranscriptFeatures (B5/B6/B13/B15), BotChatUIModel, MediaViews, RoomModel Group Chat
                             actions + RoomDigestHub + Change Members (RoomMemberChangeTests; with FakeRoomActions,
                             no real room is created, sent to, renamed or disbanded), RoomOrder (C1.4),
@@ -304,6 +320,12 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
 - Bot Chat @mentions (B1) are tested with `FakeChatLink` and an injected roster: tests check the note on the
   submitted text and that nothing else is sent; no prompt reaches a real bot. Drafts (B12) are tested in a
   throwaway UserDefaults suite; `ChatDraftStore.app` is nil under XCTest.
+- Regenerate / edit / restore (B3), branches (B4) and the approval mode (B14) are tested only against
+  `FakeChatLink` (it records each rewind's exact `text`, `rowId`, `confirmDeep` and `rebind`, each branch's
+  `count` and key) and the in-process `FakeGateway` (exact `prompt.submit`, `session.branch`, `session.history`,
+  `config.get` / `config.set` params). Never rewind, branch or change the approval mode of a real bot from a
+  test: a rewind archives the real Bot Chat's later messages, and `approvals.mode` is the profile's config.
+  Long-paste tests write into a temp paste folder (`pasteFolder`), never the app's.
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
