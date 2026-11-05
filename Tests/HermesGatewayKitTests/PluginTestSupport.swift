@@ -12,6 +12,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         /// Answer with these bytes (and this content type) instead of `json`.
         var data: Data?
         var contentType = "application/json"
+        /// Extra response headers (e.g. a lying Content-Length).
+        var headers: [String: String] = [:]
     }
 
     /// One request as the stub saw it (body read from the stream URLSession hands protocols).
@@ -87,7 +89,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let resp = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1",
-                                   headerFields: ["Content-Type": reply.contentType])!
+                                   headerFields: reply.headers.merging(["Content-Type": reply.contentType]) { a, _ in a })!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: reply.data ?? Data(reply.json.utf8))
         client?.urlProtocolDidFinishLoading(self)
