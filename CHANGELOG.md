@@ -30,6 +30,19 @@ All notable changes to this project are documented here. The format follows
     repository secrets exist (docs/development.md, "Release process") and stays ad-hoc signed otherwise. Not yet
     run for real: it needs the maintainer's Developer ID.
   - CI runs the build and the tests on an Intel runner (`macos-15-intel`) as well.
+- macOS integration (D3, D4, D6, D7, D12):
+  - **Menu bar extra:** every bot and group chat with its state (needs you / working / idle), the number of
+    approvals and questions waiting, and a quick-send field into a bot's Bot Chat; rows open in the main window.
+    Settings → Mac Integration → Show in menu bar (on by default).
+  - **Quick Ask (⌃⌥Space):** a floating panel from any app: pick a bot, type, the reply streams in. The shortcut
+    is configurable (Carbon hot key, no Accessibility permission).
+  - **Services → Send to Hermes Bot** for selected text and Finder files: a chooser (bot or group chat),
+    prefilled; it sends only on Send, or puts text and files into the chat's composer.
+  - **Shortcuts actions** "Ask Bot" (returns the reply, with a timeout) and "Send to Group Chat". They run in the
+    app, which must be running and connected. `scripts/package-app.sh` now generates the App Intents metadata
+    (`Metadata.appintents`) and declares the service (`NSServices`) in `Info.plist`.
+  - **Summarize since I left** in group chats: asks a chosen bot, in its Bot Chat, to summarize the messages
+    since you last had the room open; the summary shows in a sheet. Never posts into the room.
 - Group Chat rooms can be pinned and reordered in the sidebar (C1.4): right-click a room for **Pin to Top** /
   **Unpin**, **Move Up** and **Move Down**, or drag it onto another room. Pinned rooms come first. Kept on this
   Mac only (UserDefaults), never sent to Hermes.

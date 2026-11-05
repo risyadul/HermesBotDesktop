@@ -46,6 +46,8 @@ struct HermesBotApp: App {
             .windowToolbarStyle(.unified)
             .commandsRemoved()
         Settings { SettingsView() }
+        // D3: menu bar extra (MacIntegration/MenuBarExtra.swift).
+        MenuBarScene()
     }
 }
 
@@ -64,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             QuickLookController.shared.installKeyMonitor()  // D8: Space previews the file under the pointer
             UpdateChecker.shared.startSchedule()  // E3: daily update check (packaged builds, Settings switch)
         }
+        // D4 Quick Ask shortcut + D6 Services provider (MacIntegration/MacIntegration.swift).
+        MainActor.assumeIsolated { MacIntegration.shared.install() }
         // `swift run` launches a bare executable: make it a regular foreground app with a window.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -346,6 +350,7 @@ struct SettingsForm: View {
             }
             NotificationsSection()
             VoiceSection()  // B17
+            MacIntegrationSection(hotKey: MacIntegration.shared.hotKey)  // D3, D4
             BackgroundServeSection(model: background)
             GatewaySection(model: dispatcher)
             UpdatesSection(checker: updates)

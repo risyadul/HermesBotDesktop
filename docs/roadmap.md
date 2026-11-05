@@ -134,14 +134,14 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [x] **D15** Mute notifications per bot or room (S); also the Settings switch for `notificationsEnabled`
       (Settings → Notifications → Show notifications). A muted item posts no banner but still counts in the
       Dock badge.
-- [ ] **D3** Menu bar extra: bot status and quick send (M)
-- [ ] **D4** Global hotkey "quick ask" panel (M)
-- [ ] **D6** macOS Services / Share: "Send to Hermes bot" (M)
-- [ ] **D7** Shortcuts actions: "Ask <bot>", "Send to group" (M)
+- [x] **D3** Menu bar extra: bot status and quick send (M)
+- [x] **D4** Global hotkey "quick ask" panel (M)
+- [x] **D6** macOS Services / Share: "Send to Hermes bot" (M)
+- [x] **D7** Shortcuts actions: "Ask <bot>", "Send to group" (M)
 - [x] **D9** Open a Bot Chat or room in its own window (M)
 - [x] **D10** Search across Bot Chats and rooms (M): what the app holds (opened Bot Chats, room logs and
       tails); older history is not fetched
-- [ ] **D12** "Summarize since I left" for rooms (M)
+- [x] **D12** "Summarize since I left" for rooms (M)
 
 ### Migration
 - [x] **E4 / D17** One-time, read-only import of the desktop app's group chats (M)

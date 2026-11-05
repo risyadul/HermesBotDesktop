@@ -19,6 +19,11 @@ final class RoomDigestHub: ObservableObject {
     /// Per room: the log seq the user has seen (the room's pane was on screen). Persisted, so an `@user`
     /// the user already read does not badge again after a relaunch.
     @Published private(set) var seenThrough: [String: Int]
+    /// D12 "Summarize since I left": per room, `seenThrough` as it was when the room's pane last came on screen
+    /// (captured before that visit marked anything seen). In memory only.
+    @Published private(set) var leftAt: [String: Int] = [:]
+    /// The open room's poll generation of the visit `leftAt` was captured for (a new visit starts a new one).
+    private var visits: [String: Int] = [:]
 
     /// Newest events per room (bounded): what digests are built from.
     private var tails: [String: [RoomEvent]] = [:]
@@ -71,14 +76,25 @@ final class RoomDigestHub: ObservableObject {
     /// the approvals, and while its pane is on screen everything up to its cursor counts as seen.
     func absorb(_ model: RoomModel) {
         absorb(roomId: model.id, room: model.room, events: model.timeline.events, driver: model.driver,
-               onScreen: model.isOnScreen, cursor: model.timeline.cursor)
+               onScreen: model.isOnScreen, cursor: model.timeline.cursor, visit: model.pollGeneration)
     }
 
-    func absorb(roomId: String, room: RoomSummary, events: [RoomEvent], driver: RoomDriverStatus?, onScreen: Bool, cursor: Int) {
+    func absorb(roomId: String, room: RoomSummary, events: [RoomEvent], driver: RoomDriverStatus?, onScreen: Bool, cursor: Int,
+                visit: Int? = nil) {
         rooms[roomId] = room
         setTail(roomId, Array(events.suffix(Self.tailKeep)))
         setApproval(roomId, driver)
-        if onScreen { markSeen(roomId, through: cursor) }
+        if onScreen {
+            noteVisit(roomId, visit)
+            markSeen(roomId, through: cursor)
+        }
+    }
+
+    /// D12: the first on-screen poll of a visit (a new poll generation) records where the user left the room.
+    private func noteVisit(_ roomId: String, _ visit: Int?) {
+        guard let visit, visits[roomId] != visit else { return }
+        visits[roomId] = visit
+        leftAt[roomId] = seenThrough[roomId] ?? 0
     }
 
     /// Everything up to `seq` in the room was on screen. Monotonic.
@@ -91,6 +107,7 @@ final class RoomDigestHub: ObservableObject {
     /// A disbanded room: its row is gone, so is its state.
     func forget(_ roomId: String) {
         tails[roomId] = nil; rooms[roomId] = nil; digests[roomId] = nil; approvals.remove(roomId)
+        leftAt[roomId] = nil; visits[roomId] = nil
         if seenThrough.removeValue(forKey: roomId) != nil { defaults.set(seenThrough, forKey: Self.seenKey) }
     }
 

@@ -163,6 +163,20 @@ Sources/HermesBotApp/       SwiftUI app:
                               QuickLookController (QLPreviewPanel data source; the app delegate is its controller)
   RoomTemplates.swift         D13: RoomTemplateStore (UserDefaults `hba.roomTemplates`, 2–6 members, prompt), the
                               Save as Template sheet, File menu items; creating from one reuses CreateRoomPrefill
+                              under XCTest), AppModel+Notifications (click and Approve/Deny routing)
+  MacIntegration/             D3/D4/D6/D7/D12: QuickSend (QuickSender: the one send path into a bot's Bot Chat via
+                              ChatModel.sendDirect, the composer's gate, or a room's `main` via groups.send;
+                              QuickReply: a quick turn's reply from the lines after its user line; prefill for
+                              Services; AppModel.openFromIntegration), MenuBarExtra (MenuBarStatus rows/pending,
+                              MenuBarScene with `hba.menuBarExtra`, quick send), GlobalHotKey (HotKeyShortcut,
+                              HotKeyRegistering: CarbonHotKeyRegistrar in the app, QuickAskHotKey settings
+                              `hba.quickAsk.enabled` / `hba.quickAsk.shortcut`, ShortcutRecorder), QuickAskPanel
+                              (non-activating NSPanel, QuickAskModel, QuickReplyView), ServicesProvider
+                              (ServiceInput, HermesServicesProvider `sendToHermesBot:userData:error:`,
+                              ServicesRegistering, SendChooserModel + window), HermesIntents (AppIntents: Ask Bot,
+                              Send to Group Chat, Bot/Room entities; IntentRunner waits for the connection),
+                              RoomCatchUp (prompt from RoomDigestHub.leftAt, the toolbar button and sheet),
+                              MacIntegration (install at launch with injected registrars; Settings section)
   KanbanHub.swift             board list for the sidebar, per-board models (pruned when unlisted), polling paused
                               while no main window is on screen (setActive), dispatcher polling while a board shows
   DispatcherStatusModel.swift the one dispatcher status model (board chip + Settings), generation-guarded (K8)
@@ -251,6 +265,10 @@ Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatMo
                             the real GitHub API), PackageScriptTests (`bash -n` and `--dry-run` of package-app.sh)
 scripts/package-app.sh       release .app + zip: --universal (lipo), --dry-run, Developer ID + notarization by env
 scripts/HermesBot.entitlements  hardened-runtime entitlements for a Developer ID signature (no sandbox)
+                            create-room sheet vs the motion gate; macOS integration (QuickSendTests,
+                            MacIntegrationTests, RoomCatchUpTests: QuickSendFixture over FakeChatLink and
+                            FakeRoomActions, recording hot key / Services registrars); real-window suites are opt-in
+                            (WindowTestGate: HERMES_BOT_APP_WINDOW_TESTS=1)
 scripts/run-app-evidence.sh  scripted app run with a watchdog
 scripts/sigint-regression.sh Ctrl+C cleanup check against a fake backend (scripts/fixtures/)
 ```
@@ -338,6 +356,17 @@ The three certificate secrets alone give a signed, not notarized release (the wo
 imports the certificate into a throwaway keychain, stores the notary profile there, and deletes it at the end.
 **Not yet exercised:** this project has no Developer ID yet, so the signed and notarized paths have only been
 checked with `--dry-run` and by review; the first real run needs the maintainer's Apple Developer account.
+## Packaging, Services and App Intents
+
+`scripts/package-app.sh` builds the release binary with `-emit-const-values` (plus a
+`-const-gather-protocols-file` listing the App Intents protocols), then runs Xcode's
+`appintentsmetadataprocessor` on `HermesBotApp.swiftconstvalues` to write
+`HermesBot.app/Contents/Resources/Metadata.appintents`: SwiftPM does not do this itself, and without it
+Shortcuts does not list the Ask Bot / Send to Group Chat actions. Without Xcode (Command Line Tools only) the
+step is skipped with a warning. `Info.plist` declares the `NSServices` entry (`NSMessage` `sendToHermesBot`,
+text and file send types). Check: `plutil -lint dist/HermesBot.app/Contents/Info.plist` and
+`ls dist/HermesBot.app/Contents/Resources/Metadata.appintents`. Services and App Intents only work from the
+packaged app (a `swift run` binary has no bundle).
 
 ## Test-only environment variables
 
@@ -409,6 +438,12 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
   throwaway UserDefaults suite; `ChatDraftStore.app` is nil under XCTest.
 - Update checks never reach GitHub in tests: `UpdateChecker` takes an injected fetch (UpdateCheckTests answers
   with a fixture), and the schedule only starts from the app delegate. Package script tests use `--dry-run` only.
+- The macOS integration (D3/D4/D6/D7/D12) is tested headless: every quick send, Quick Ask, Services chooser,
+  Shortcuts action and Summarize goes to `QuickSendFixture` (`FakeChatLink` chats, `FakeRoomActions` rooms), so
+  no prompt reaches a real bot and no room message is posted. No global hot key is registered (`RecordingHotKeys`
+  stands in for `CarbonHotKeyRegistrar`) and no Services provider is installed (`RecordingServices` instead of
+  `NSApp.servicesProvider`); the provider test uses a private named pasteboard. Settings live in throwaway
+  UserDefaults suites. The real registrars run only from `AppDelegate` (`MacIntegration.shared.install()`).
 - Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
   not under XCTest; coordinator tests use a recording poster.
 - Voice (B17) never touches the microphone, the recognizer or the speakers in tests: `DictationTests` drive
