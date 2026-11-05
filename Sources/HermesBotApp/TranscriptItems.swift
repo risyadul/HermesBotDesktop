@@ -102,7 +102,7 @@ enum TranscriptItem: Identifiable, Equatable {
 /// which would reset view `@State`.
 @MainActor
 final class DisclosureStore: ObservableObject {
-    enum Kind: String { case row, group, thought }
+    enum Kind: String { case row, group, thought, notice }
     @Published private var states: [String: Bool] = [:]
 
     private func key(_ kind: Kind, _ id: UUID) -> String { "\(kind.rawValue):\(id.uuidString)" }

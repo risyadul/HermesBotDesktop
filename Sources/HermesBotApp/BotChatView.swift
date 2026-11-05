@@ -197,7 +197,7 @@ struct BotChatView: View {
     @ViewBuilder private func bubble(_ line: ChatLine) -> some View {
         switch line.role {
         case .user:
-            UserBubble(text: line.text, time: 0)
+            if let notice = SystemNotice.parse(line.text) { SystemNoticeRow(notice: notice, id: line.id) } else { UserBubble(text: line.text, time: 0) }
         case .bot, .thought, .tool:
             botContent(line)
         case .error:

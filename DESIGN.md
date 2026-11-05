@@ -586,6 +586,12 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   arguments, diff, output and exit code as `code-block`s (cut at 20,000 characters). Two or more adjacent
   calls fold into a `tool-group`: one muted summary line ("Ran 2 commands, used 1 tool"), collapsed by
   default; while a call runs, the collapsed line shows it after a mini spinner.
+- `system-notice` (Bot Chat): a user-role row Hermes wrote itself (a control frame: `[IMPORTANT: …`,
+  `[System: …`, `[CONTEXT SUMMARY]`, `[PRIOR CONTEXT`…, hermes-agent `CONTROL_FRAME_OPENERS`) is not a user
+  bubble: one muted `meta` row on the content edge (info symbol, "Hermes note" at 600, the frame's first
+  line, chevron), collapsed; a click shows the whole text behind a hairline bar, like a Thought. Only a
+  message that starts with a frame counts, and frames that carry the user's words (the mid-turn steer
+  marker, skill invocations) stay bubbles, so nothing a person typed is folded away.
 - `action-card`: approval and retry, in the attention role. Approval: hand symbol, member avatar and
   "<member> needs your approval", the flagged reason (`description`), the exact command in a
   `code-block` under a "Command" label, then Approve once (`button-primary`) and Deny (`button-danger`).
