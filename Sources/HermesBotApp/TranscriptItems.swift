@@ -60,6 +60,40 @@ enum TranscriptItem: Identifiable, Equatable {
     static func isBotSide(_ role: ChatLine.Role) -> Bool {
         role == .bot || role == .thought || role == .tool
     }
+
+    /// Thought and tool rows: one-line disclosure rows that read as a list inside a turn.
+    var isCompact: Bool {
+        switch self {
+        case .tools: return true
+        case .line(let l, _): return l.role == .thought || l.role == .tool
+        }
+    }
+
+    var isBotSide: Bool {
+        switch self {
+        case .tools: return true
+        case .line(let l, _): return Self.isBotSide(l.role)
+        }
+    }
+
+    /// Space above each item. Thought and tool rows of a turn stack tightly (their own row padding is the
+    /// gap), as in Hermes Desktop; text next to them sits a little apart; messages keep the timeline gap.
+    static func gaps(_ items: [TranscriptItem]) -> [UUID: CGFloat] {
+        var out: [UUID: CGFloat] = [:]
+        for (i, item) in items.enumerated() {
+            guard i > 0 else { out[item.id] = 0; continue }
+            let prev = items[i - 1]
+            let sameTurn = item.isBotSide && prev.isBotSide
+            if sameTurn && item.isCompact && prev.isCompact {
+                out[item.id] = 0
+            } else if sameTurn && (item.isCompact || prev.isCompact) {
+                out[item.id] = DS.Space.s1
+            } else {
+                out[item.id] = DS.Space.timeline
+            }
+        }
+        return out
+    }
 }
 
 /// Which Thought, tool rows and tool groups the user opened or closed, keyed by transcript line id. Kept

@@ -67,12 +67,14 @@ struct BotChatView: View {
                 // Older rows lazy, the ones seen on open laid out eagerly (EagerTail).
                 let items = TranscriptItem.build(chat.lines)
                 let tail = EagerTail.start(of: items) { $0.approximateLines }
-                VStack(alignment: .leading, spacing: DS.Space.timeline) {
-                    LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
-                        ForEach(items[..<tail]) { item in transcriptRow(item) }
+                let gaps = TranscriptItem.gaps(items)
+                VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(items[..<tail]) { item in transcriptRow(item).padding(.top, gaps[item.id] ?? 0) }
                     }
-                    ForEach(items[tail...]) { item in transcriptRow(item) }
+                    ForEach(items[tail...]) { item in transcriptRow(item).padding(.top, gaps[item.id] ?? 0) }
                     ServerRequestCards(chat: chat, identity: identity)
+                        .padding(.top, chat.requests.isEmpty ? 0 : DS.Space.timeline)
                 }
                 .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.s4).padding(.bottom, DS.Space.s3)
                 .frame(maxWidth: .infinity, alignment: .leading)

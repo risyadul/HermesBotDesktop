@@ -107,6 +107,18 @@ final class TranscriptPresentationTests: XCTestCase {
         ])
         XCTAssertEqual(items[5].id, t2.id)
     }
+
+    func testThoughtAndToolRowsStackTightlyInsideATurn() {
+        let user = ChatLine(role: .user, text: "go")
+        let thought = ChatLine(role: .thought, text: "plan")
+        let tool1 = tool("terminal"), tool2 = tool("terminal"), tool3 = tool("x")
+        let text = ChatLine(role: .bot, text: "Done")
+        let next = ChatLine(role: .user, text: "next")
+        let items = TranscriptItem.build([user, thought, tool1, text, tool2, tool3, next])
+        let gaps = TranscriptItem.gaps(items)
+        XCTAssertEqual(items.map { gaps[$0.id] }, [0, DS.Space.timeline, 0, DS.Space.s1, DS.Space.s1, DS.Space.timeline],
+                       "user → turn: timeline; Thought → tool: tight; text next to tools: small; turn → user: timeline")
+    }
 }
 
 /// Expansion state outlives the row views: a single call that becomes a group keeps it open.

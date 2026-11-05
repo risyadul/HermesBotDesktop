@@ -20,7 +20,16 @@ struct TurnRibbon: View {
                                state: states[m.memberId] ?? .idle, bump: memory.bumps[m.memberId] ?? 0)
                 }
             }
-            .padding(.horizontal, DS.Space.s4).padding(.vertical, DS.Space.gutter)
+            .padding(.leading, DS.Space.s4).padding(.trailing, DS.Space.s5).padding(.vertical, DS.Space.gutter)
+        }
+        // More chips than fit (a 6-bot room) scroll sideways: the trailing edge fades so the cut-off chip
+        // reads as "more", not as a clipped layout.
+        .mask {
+            HStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: DS.Space.s5)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Turn status")
