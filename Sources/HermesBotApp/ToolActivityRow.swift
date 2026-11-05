@@ -6,6 +6,9 @@ import SwiftUI
 /// did: command or arguments, diff, output, exit code.
 struct ToolActivityRow: View {
     let line: ChatLine
+    /// 1 in the Bot Chat transcript; the narrow Activity panel wraps the title to 2 lines so a command
+    /// stays readable (the count and duration never shrink).
+    var titleLines = 1
     @EnvironmentObject private var disclosure: DisclosureStore
     @Environment(\.motionEnabled) private var motion
 
@@ -17,10 +20,12 @@ struct ToolActivityRow: View {
                 guard p.expandable else { return }
                 toggle(disclosure, .row, line.id, to: !expanded, motion: motion)
             } label: {
-                HStack(spacing: DS.Space.s2) {
+                HStack(alignment: titleLines > 1 ? .firstTextBaseline : .center, spacing: DS.Space.s2) {
                     ToolStateGlyph(state: p.state, symbol: p.symbol)
                     Text(p.title).font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
-                        .lineLimit(1).truncationMode(.tail)
+                        .lineLimit(titleLines).truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: titleLines > 1)
+                        .layoutPriority(titleLines > 1 ? 1 : 0)
                     if let context = p.context {
                         Text(context).font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                             .lineLimit(1).truncationMode(.tail)

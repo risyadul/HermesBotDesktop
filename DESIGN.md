@@ -511,6 +511,9 @@ toolbar. Minimum window 820 × 520.
   Comment share one row. The dispatcher chip is a `status-chip`: muted when running,
   attention when stopped (with Start) or not installed (its popover shows `hermes gateway install` to
   copy).
+- **Group Chat Activity panel** (the room inspector, 200–260 pt): tool titles wrap to two lines with the
+  count and duration kept beside them, and the "Turn finished · 4.2s" divider label never shrinks (its
+  trailing rule gives way).
 - **Empty states** are centred in the pane, never pinned to the composer by a bottom-anchored scroll.
 - **Window resize:** the detail pane flexes; bubbles and messages wrap within their max widths; the
   ribbon scrolls horizontally instead of wrapping; nothing clips at the 820 pt minimum. The sidebar

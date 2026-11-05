@@ -461,13 +461,41 @@ private struct ActivityStatusChip: View {
 
 // MARK: - rows
 
+/// "Turn finished · 4.2s" between two hairlines. The label never shrinks: the trailing rule gives way.
+struct ActivityTurnDivider: View {
+    /// Tool titles in the narrow panel wrap to this many lines (ToolActivityRow `titleLines`).
+    static let toolTitleLines = 2
+
+    let title: String?
+    let finished: Bool
+    let duration: String?
+
+    static func label(finished: Bool, duration: String?) -> String {
+        finished ? "Turn finished" + (duration.map { " · \($0)" } ?? "") : "Turn started"
+    }
+
+    var body: some View {
+        HStack(spacing: DS.Space.s2) {
+            Hairline().frame(width: DS.Space.s3)
+            Text(Self.label(finished: finished, duration: duration))
+                .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).lineLimit(1)
+                .fixedSize()
+            Hairline()
+        }
+        .padding(.vertical, DS.Space.s1)
+        .help(title ?? "")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.label(finished: finished, duration: duration))
+    }
+}
+
 private struct ActivityItemRow: View {
     let item: ActivityItem
 
     var body: some View {
         switch item.kind {
         case .tool(let line):
-            ToolActivityRow(line: line)
+            ToolActivityRow(line: line, titleLines: ActivityTurnDivider.toolTitleLines)
                 .padding(.leading, -DS.Space.s2)
                 .background(item.isError ? DS.Palette.dangerSoft : .clear,
                             in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
@@ -484,16 +512,7 @@ private struct ActivityItemRow: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel((streaming ? "Writing: " : "Wrote: ") + text)
         case .turn(let title, let finished, let duration):
-            HStack(spacing: DS.Space.s2) {
-                Hairline().frame(width: DS.Space.s3)
-                Text(finished ? "Turn finished" + (duration.map { " · \($0)" } ?? "") : "Turn started")
-                    .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).lineLimit(1)
-                Hairline()
-            }
-            .padding(.vertical, DS.Space.s1)
-            .help(title ?? "")
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(finished ? "Turn finished" : "Turn started")
+            ActivityTurnDivider(title: title, finished: finished, duration: duration)
         case .error(let title, let detail):
             VStack(alignment: .leading, spacing: DS.Space.s0) {
                 Label(title, systemImage: "exclamationmark.triangle.fill").font(DS.Typeface.metaStrong)
