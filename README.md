@@ -42,7 +42,8 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 - **It does not change your profiles or bot config**, with one opt-in exception: if you turn on activity
   tracking in a Group Chat, the app installs the open-source
   [Bot Activity](https://github.com/risyadul/hermes-bot-activity) plugin (a pinned commit) into Hermes and
-  enables it for every bot. You can turn it off again from the same panel. Bots are your existing Hermes profiles.
+  enables it for every bot. Turning it off from the same panel disables it in every bot profile and removes it
+  from Hermes; the bots' copies stay on disk, inactive. Bots are your existing Hermes profiles.
 - **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
   Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use.
 - **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
@@ -123,12 +124,24 @@ have **not been tested** with this app yet.
 
 Bots in a Group Chat work in hidden sessions, so the room itself only shows when each bot starts, replies or
 passes. The **Activity** panel (toolbar button, ⌥⌘I) shows, per bot, what it is doing right now: the tool it
-is running and for how long, its recent tool calls with arguments and results, its reasoning, and errors.
+is running and for how long, its recent tool calls with arguments and results, its reasoning, and errors. The
+bot's turn status (for example "needs approval") stays next to its live status. The panel stops polling while
+its window is covered or the app is hidden, and picks up again when it is back.
 
 The detailed view needs the [Bot Activity](https://github.com/risyadul/hermes-bot-activity) Hermes plugin,
 because Hermes hands those events only to plugins. If it is not installed, the panel shows each bot's turn
-status and an **Enable Tracking…** button that installs a pinned commit of the plugin and enables it
-for every bot (or turns on a copy that is installed but disabled). **Turn Off Activity Tracking…** in the panel's … menu removes it.
+status, a **This round** list of the latest round from the room log (queued, working, replied, passed, timed
+out, failed, needs approval; newest first), and an **Enable Tracking…** button. Enable installs a pinned commit
+of the plugin, turns it back on in any bot profile where it is disabled, and enables it for every bot. A copy
+that is already installed but disabled is turned on only if Hermes's install record pins it to that same
+commit; otherwise the panel says the installed copy isn't the reviewed version and offers **Reinstall Pinned
+Version…**, which replaces it with the pinned commit. Enabling and turning off run once for the whole app: a
+second Group Chat that asks while one is running waits for it and shows the same progress.
+
+**Turn Off Activity Tracking…** in the panel's … menu disables the plugin in every bot profile
+(`hermes -p <bot> plugins disable bot-activity`), then removes the copy in Hermes's own plugins folder. The bots'
+copies stay on disk but inactive; **Enable Tracking…** turns them back on. If some bots can't be switched off,
+the panel names them.
 
 ## Kanban
 

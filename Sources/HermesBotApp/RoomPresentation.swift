@@ -141,19 +141,22 @@ enum RoomPresentation {
         var out: [String: MemberState] = [:]
         for m in room.members {
             if approvals.contains(m.memberId) { out[m.memberId] = .needsApproval; continue }
-            if let t = terminals.last(where: { $0.memberId == m.memberId }) {
-                switch t.kind {
-                case "turn.settled": out[m.memberId] = t.payload["passed"]?.bool == true ? .passed : .replied
-                case "turn.cancelled": out[m.memberId] = .cancelled
-                case "turn.failed": out[m.memberId] = .failed
-                case "turn.deferred": out[m.memberId] = .deferred
-                default: out[m.memberId] = pending ? .waiting : .idle
-                }
-            } else {
-                out[m.memberId] = pending ? .waiting : .idle
-            }
+            let t = terminals.last(where: { $0.memberId == m.memberId })
+            out[m.memberId] = t.flatMap(turnState) ?? (pending ? .waiting : .idle)
         }
         return out
+    }
+
+    /// The state a `turn.*` event leaves its member in; nil for any other kind. Shared by the ribbon and the
+    /// Activity panel's "This round" list, so both say the same thing.
+    static func turnState(_ e: RoomEvent) -> MemberState? {
+        switch e.kind {
+        case "turn.settled": return e.payload["passed"]?.bool == true ? .passed : .replied
+        case "turn.cancelled": return .cancelled
+        case "turn.failed": return .failed
+        case "turn.deferred": return .deferred
+        default: return nil
+        }
     }
 
     /// The room-level chip that leads the ribbon (same rules as the M2 status pill).

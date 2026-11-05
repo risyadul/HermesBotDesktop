@@ -102,6 +102,21 @@ final class BotActivityTests: XCTestCase {
         XCTAssertEqual(feed.rows.map(\.key), ["r2a", "r1b", "r1c"], "chronological by ts, then rev")
     }
 
+    func testRoomFeedDropsRowsOfOtherRoomsButKeepsTheCursor() {
+        var feed = BotActivityFeed()
+        feed.apply(page([row("mine", rev: 1), row("other", rev: 2, room: "hba-r2"), row("none", rev: 3, room: nil)], rev: 3, since: 0),
+                   room: "hba-r1")
+        XCTAssertEqual(feed.rows.map(\.key), ["mine"])
+        XCTAssertEqual(feed.cursor, 3)
+    }
+
+    func testTotalCapacityBoundsTheWholeFeed() {
+        var feed = BotActivityFeed(capacity: 10, totalCapacity: 3)
+        feed.apply(page((1...5).map { row("r\($0)", rev: $0, ts: Double($0), room: "hba-r\($0 % 2)") }, rev: 5, since: 0))
+        XCTAssertEqual(feed.rows.map(\.key), ["r3", "r4", "r5"], "the oldest updated rows go first, across rooms")
+        XCTAssertEqual(BotActivityFeed().totalCapacity, BotActivityFeed.defaultTotalCapacity)
+    }
+
     func testMemberPhasesUseThePluginFreshnessWindows() {
         let now = 10_000.0
         var feed = BotActivityFeed()
@@ -140,9 +155,24 @@ final class BotActivityTests: XCTestCase {
         XCTAssertEqual(BotActivityPluginManager.state(fromRows: [["name": "other"]]), .notInstalled)
         let rows: [JSONValue] = [["name": "bot-activity", "key": "bot-activity", "status": "not enabled", "version": "0.1.0", "source": "user"]]
         let s = BotActivityPluginManager.state(fromRows: rows)
-        XCTAssertEqual(s, .installed(status: "not enabled", version: "0.1.0", source: "user"))
+        XCTAssertEqual(s, .installed(status: "not enabled", version: "0.1.0", source: "user", pinnedSHA: nil))
         XCTAssertFalse(s.isEnabled)
+        XCTAssertFalse(s.isPinnedCopy, "no install record (a manual/dev copy): not provably the reviewed commit")
         XCTAssertTrue(BotActivityPluginManager.state(fromRows: [["name": "bot-activity", "status": "enabled"]]).isEnabled)
+    }
+
+    func testOnlyACopyPinnedToTheReviewedCommitIsProvenance() {
+        func state(_ sha: String?) -> BotActivityPluginManager.State {
+            var row: [String: JSONValue] = ["name": "bot-activity", "status": "disabled", "source": "user"]
+            if let sha { row["pinned_sha"] = .string(sha) }
+            return BotActivityPluginManager.state(fromRows: [.object(row)])
+        }
+        XCTAssertTrue(state(BotActivityPluginManager.pinnedRef).isPinnedCopy)
+        XCTAssertTrue(state(BotActivityPluginManager.pinnedRef.uppercased()).isPinnedCopy, "SHA case does not matter")
+        XCTAssertFalse(state("0000000000000000000000000000000000000000").isPinnedCopy, "another commit (a branch, a fork's head)")
+        XCTAssertFalse(state("").isPinnedCopy)
+        XCTAssertFalse(state(nil).isPinnedCopy)
+        XCTAssertFalse(BotActivityPluginManager.State.notInstalled.isPinnedCopy)
     }
 
     func testInstallListRemoveUsePluginsManage() async throws {
@@ -165,6 +195,7 @@ final class BotActivityTests: XCTestCase {
         let state = try await m.botActivityState()
         XCTAssertTrue(state.isEnabled)
         try await m.installBotActivity()
+        try await m.installBotActivity(force: true)
         try await m.enableBotActivity()
         try await m.removeBotActivity()
         let calls = gw.received.filter { $0["method"]?.string == "plugins.manage" }.compactMap { $0["params"] }
@@ -172,6 +203,8 @@ final class BotActivityTests: XCTestCase {
             ["action": "list"],
             ["action": "install", "repo": "https://github.com/risyadul/hermes-bot-activity",
              "ref": "da1c9d10eb228cd6f0a93e255ee92c8c3a6717f2", "enable": true],
+            ["action": "install", "repo": "https://github.com/risyadul/hermes-bot-activity",
+             "ref": "da1c9d10eb228cd6f0a93e255ee92c8c3a6717f2", "enable": true, "force": true],
             ["action": "toggle", "name": "bot-activity", "enable": true],
             ["action": "remove", "name": "bot-activity"],
         ])

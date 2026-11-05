@@ -39,7 +39,8 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   PluginREST.swift            /api/plugins/<name>/ REST client (session token header, loopback, no redirects;
                               multipart upload + download with size caps)
   KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models
-  BotActivityAPI.swift        bot-activity plugin calls + install/enable/remove via plugins.manage (pinned ref);
+  BotActivityAPI.swift        bot-activity plugin calls; install/enable/remove via plugins.manage (pinned ref,
+                              provenance check); BotActivityProfileSwitch: per-profile `plugins enable/disable`;
                               BotActivityFeed.swift: paging merge, cursor, member phases
   BackgroundServe.swift       opt-in LaunchAgent keeping `hermes serve` running (plist, launchctl)
   GatewayStatus.swift         kanban dispatcher (`hermes gateway`) state + start; CommandRunner.swift: no-shell runner

@@ -3,9 +3,11 @@ import HermesGatewayKit
 import SwiftUI
 
 // The Group Chat Activity inspector (roadmap C1.3 + C1.10), shown beside the room with ⌥⌘I like Bot Chat's
-// details. One section per member: avatar, name, a status chip, what it is doing now, then its recent
-// activity newest first. Live rows come from the `bot-activity` plugin (`RoomActivityModel`); without it
-// the chips fall back to the ribbon's turn states and an opt-in card offers to enable tracking.
+// details. One section per member: avatar, name, status chips, what it is doing now, then its recent
+// activity newest first. Live rows come from the `bot-activity` plugin (`RoomActivityModel`); the ribbon's
+// turn state stays beside the live phase. Without the plugin the chips are the ribbon's turn states, a
+// "This round" list tells the latest round from the room log, and an opt-in card offers to enable tracking.
+// Polling pauses while the window is occluded or the app hidden.
 
 struct RoomActivityPanel: View {
     @ObservedObject var room: RoomModel
@@ -19,6 +21,7 @@ struct RoomActivityPanel: View {
                 VStack(alignment: .leading, spacing: DS.Space.s4) {
                     ActivityPanelHeader(menu: nil)
                     ActivityMemberList(room: room, activity: nil, limits: .constant([:]))
+                    RoundFeedSection(room: room)
                 }
                 .padding(DS.Space.s4)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -32,6 +35,7 @@ private struct LiveActivityPanel: View {
     @ObservedObject var activity: RoomActivityModel
     @State private var confirmEnable = false
     @State private var confirmTurnOff = false
+    @State private var confirmReinstall = false
     /// Rows shown per member ("Show more" raises it).
     @State private var limits: [String: Int] = [:]
     @Environment(\.motionEnabled) private var motion
@@ -47,8 +51,10 @@ private struct LiveActivityPanel: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s4) {
                 ActivityPanelHeader(menu: trackingOn ? { confirmTurnOff = true } : nil)
-                ActivityStateBanner(activity: activity, onEnable: { confirmEnable = true })
+                ActivityStateBanner(activity: activity, gate: activity.gate, onEnable: { confirmEnable = true },
+                                    onReinstall: { confirmReinstall = true })
                 ActivityMemberList(room: room, activity: activity, limits: $limits)
+                if !activity.loaded { RoundFeedSection(room: room) }
             }
             .padding(DS.Space.s4)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -56,6 +62,7 @@ private struct LiveActivityPanel: View {
             .animation(motion ? DS.Motion.ease : nil, value: activity.actionError)
         }
         .environmentObject(activity.disclosure)
+        .background(WindowVisibilityObserver { activity.setVisible($0) })
         .onAppear {
             activity.setMembers(room.room.members)
             activity.start()
@@ -72,7 +79,57 @@ private struct LiveActivityPanel: View {
         .confirmationDialog("Turn off activity tracking?", isPresented: $confirmTurnOff) {
             Button("Turn Off", role: .destructive) { Task { await activity.turnOff() } }
         } message: {
-            Text("Removes the Bot Activity plugin from Hermes. This panel then shows only each bot's turn status. You can turn it on again here.")
+            Text(ActivityPresentation.turnOffConfirmation)
+        }
+        .confirmationDialog("Reinstall the reviewed version?", isPresented: $confirmReinstall) {
+            Button("Reinstall Pinned Version") { Task { await activity.reinstallPinned() } }
+        } message: {
+            Text(ActivityPresentation.reinstallConfirmation)
+        }
+    }
+}
+
+extension RoomActivityModel {
+    /// Polling runs only while this is true.
+    nonisolated static func isOnScreen(occlusion: NSWindow.OcclusionState, appHidden: Bool) -> Bool {
+        !appHidden && occlusion.contains(.visible)
+    }
+}
+
+/// Reports whether the hosting window is on screen (not fully occluded, app not hidden), on attach and on
+/// every occlusion / hide / unhide change. Observers are selector-based, so they go away with the view.
+private struct WindowVisibilityObserver: NSViewRepresentable {
+    let onChange: @MainActor (Bool) -> Void
+
+    func makeNSView(context: Context) -> ObserverView {
+        let v = ObserverView()
+        v.onChange = onChange
+        return v
+    }
+
+    func updateNSView(_ view: ObserverView, context: Context) { view.onChange = onChange }
+
+    final class ObserverView: NSView {
+        var onChange: (@MainActor (Bool) -> Void)?
+        private weak var observed: NSWindow?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let nc = NotificationCenter.default
+            if let observed { nc.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observed) }
+            nc.removeObserver(self, name: NSApplication.didHideNotification, object: nil)
+            nc.removeObserver(self, name: NSApplication.didUnhideNotification, object: nil)
+            observed = window
+            guard let window else { return }
+            nc.addObserver(self, selector: #selector(changed), name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            nc.addObserver(self, selector: #selector(changed), name: NSApplication.didHideNotification, object: nil)
+            nc.addObserver(self, selector: #selector(changed), name: NSApplication.didUnhideNotification, object: nil)
+            changed()
+        }
+
+        @objc private func changed() {
+            guard let window else { return }
+            onChange?(RoomActivityModel.isOnScreen(occlusion: window.occlusionState, appHidden: NSApp.isHidden))
         }
     }
 }
@@ -107,7 +164,10 @@ private struct ActivityPanelHeader: View {
 /// The opt-in card, progress, roll-out and error lines above the members.
 private struct ActivityStateBanner: View {
     @ObservedObject var activity: RoomActivityModel
+    /// Observed for the stage of an enable in flight (possibly started from another room).
+    @ObservedObject var gate: BotActivityActionGate
     let onEnable: () -> Void
+    let onReinstall: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s3) {
@@ -119,7 +179,15 @@ private struct ActivityStateBanner: View {
             case .enabling:
                 progress(activity.enableStage == .rollingOut ? "Turning it on for every bot…" : "Installing the Bot Activity plugin…")
             case .removing:
-                progress("Turning off activity tracking…")
+                progress("Turning off activity tracking for every bot…")
+            case .unpinnedCopy:
+                VStack(alignment: .leading, spacing: DS.Space.s2) {
+                    failure("An installed Bot Activity copy isn't the reviewed version")
+                    paragraph("It was not installed from the reviewed commit \(BotActivityPluginManager.pinnedRef.prefix(7)), so it was left off.")
+                    Button("Reinstall Pinned Version…", action: onReinstall)
+                        .buttonStyle(DSButtonStyle(kind: .secondary))
+                        .help("Replace it with the reviewed commit and turn it on for every bot")
+                }
             case .needsRollOut(let bots):
                 VStack(alignment: .leading, spacing: DS.Space.s2) {
                     paragraph("\(bots.count) \(bots.count == 1 ? "bot isn't" : "bots aren't") tracked yet: \(bots.joined(separator: ", ")).")
@@ -192,7 +260,7 @@ struct EnableActivitySheet: View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             Text("Turn on activity tracking?").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
             VStack(alignment: .leading, spacing: DS.Space.s2) {
-                text("To show what each bot in a group chat is doing (tool calls, reasoning, errors), Hermes Bot installs the open-source Bot Activity plugin into Hermes and turns it on for every bot.")
+                text("To show what each bot in a group chat is doing (tool calls, reasoning, errors), Hermes Bot installs the open-source Bot Activity plugin into Hermes and turns it on for every bot, including bots where it was turned off.")
                 Link(destination: Self.sourceURL) {
                     Text("github.com/risyadul/hermes-bot-activity").font(DS.Typeface.body).underline()
                 }
@@ -231,19 +299,20 @@ private struct ActivityMemberList: View {
 
     var body: some View {
         let live = activity?.loaded == true
-        let fallback = ActivityPresentation.fallbackStatuses(room: room.room, timeline: room.timeline, driver: room.driver)
+        let turns = RoomPresentation.memberStates(room: room.room, timeline: room.timeline, driver: room.driver)
         let byMember = Dictionary((activity?.memberActivity ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             ForEach(Array(room.room.members.enumerated()), id: \.element.id) { i, m in
                 if i > 0 { Hairline() }
                 let identity = avatars.identity(profile: m.profile, title: m.title)
                 if live, let activity, let a = byMember[m.memberId] {
-                    MemberActivitySection(identity: identity, title: m.title, activity: a, now: { activity.now },
+                    MemberActivitySection(identity: identity, title: m.title, activity: a, turn: turns[m.memberId],
+                                          now: { activity.now },
                                           limit: Binding(get: { limits[m.memberId] ?? Self.pageSize },
                                                          set: { limits[m.memberId] = $0 }))
                 } else {
                     MemberHeader(identity: identity, title: m.title,
-                                 status: fallback[m.memberId] ?? ActivityPresentation.status(.idle))
+                                 statuses: [turns[m.memberId].map { ActivityPresentation.status($0) } ?? ActivityPresentation.status(.idle)])
                 }
             }
         }
@@ -255,18 +324,49 @@ private struct ActivityMemberList: View {
 private struct MemberHeader: View {
     let identity: BotIdentity
     let title: String
-    let status: ActivityStatus
+    let statuses: [ActivityStatus]
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.s2) {
             AvatarView(identity: identity, size: DS.Size.avatarSuggestion)
             VStack(alignment: .leading, spacing: DS.Space.s1) {
                 Text(title).font(DS.Typeface.bodyStrong).foregroundStyle(identity.nameColor).lineLimit(1)
-                ActivityStatusChip(status: status, identity: identity)
+                HStack(spacing: DS.Space.s1) {
+                    ForEach(statuses, id: \.label) { ActivityStatusChip(status: $0, identity: identity) }
+                }
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(status.label)")
+        .accessibilityLabel(([title] + statuses.map(\.label)).joined(separator: ", "))
+    }
+}
+
+/// "This round" without the plugin: the latest round from the room log, newest first (C1.3).
+private struct RoundFeedSection: View {
+    @ObservedObject var room: RoomModel
+    @ObservedObject private var avatars = AvatarStore.shared
+
+    var body: some View {
+        let entries = ActivityPresentation.roundFeed(room: room.room, timeline: room.timeline, driver: room.driver)
+        if !entries.isEmpty {
+            VStack(alignment: .leading, spacing: DS.Space.s2) {
+                Hairline()
+                Text("This round").font(DS.Typeface.bodyStrong).foregroundStyle(DS.Palette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(entries) { e in
+                    let member = room.room.member(e.memberId)
+                    let identity = member.map { avatars.identity(profile: $0.profile, title: $0.title) }
+                    HStack(spacing: DS.Space.s2) {
+                        Text(e.title).font(DS.Typeface.meta)
+                            .foregroundStyle(identity?.nameColor ?? DS.Palette.muted).lineLimit(1)
+                        Spacer(minLength: DS.Space.s1)
+                        ActivityStatusChip(status: e.status, identity: identity)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(e.title), \(e.status.label)")
+                }
+            }
+        }
     }
 }
 
@@ -274,13 +374,15 @@ private struct MemberActivitySection: View {
     let identity: BotIdentity
     let title: String
     let activity: MemberActivity
+    /// The ribbon's turn state, kept beside the live phase.
+    let turn: RoomPresentation.MemberState?
     let now: () -> Double
     @Binding var limit: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
             MemberHeader(identity: identity, title: title,
-                         status: ActivityPresentation.status(activity.phase, current: activity.current))
+                         statuses: ActivityPresentation.chips(phase: activity.phase, current: activity.current, turn: turn))
             if let current = activity.current {
                 // The elapsed time is data, not motion: it ticks with motion off too.
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -310,7 +412,8 @@ private struct MemberActivitySection: View {
 /// `status-chip` without avatar and name (the section header carries them).
 private struct ActivityStatusChip: View {
     let status: ActivityStatus
-    let identity: BotIdentity
+    /// Tints the `waiting` hairline; nil (a room-level entry) uses the muted colour.
+    let identity: BotIdentity?
 
     var body: some View {
         HStack(spacing: DS.Space.s1) {
@@ -341,7 +444,7 @@ private struct ActivityStatusChip: View {
         switch status.tone {
         case .attention: return DS.Palette.attentionRing
         case .danger: return DS.Palette.dangerRing
-        case .waiting: return identity.color.opacity(DS.Palette.waitingBorder)
+        case .waiting: return (identity?.color ?? DS.Palette.muted).opacity(DS.Palette.waitingBorder)
         default: return .clear
         }
     }

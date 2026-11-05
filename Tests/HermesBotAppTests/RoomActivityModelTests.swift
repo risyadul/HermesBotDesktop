@@ -52,14 +52,44 @@ private actor FakeInstaller: BotActivityInstaller {
     var state: BotActivityPluginManager.State = .notInstalled
     var failure: Error?
     private(set) var calls: [String] = []
+    private var holdInstall = false
+    private var gate: CheckedContinuation<Void, Never>?
 
     func set(_ s: BotActivityPluginManager.State) { state = s }
     func fail(_ e: Error?) { failure = e }
+    func hold() { holdInstall = true }
+    func release() { gate?.resume(); gate = nil }
+    var parked: Bool { gate != nil }
 
     func pluginState() async throws -> BotActivityPluginManager.State { calls.append("state"); return state }
-    func install() async throws { calls.append("install"); if let failure { throw failure } }
+    func install(force: Bool) async throws {
+        calls.append(force ? "install(force)" : "install")
+        if holdInstall {
+            holdInstall = false
+            await withCheckedContinuation { gate = $0 }
+        }
+        if let failure { throw failure }
+    }
     func turnOn() async throws { calls.append("turnOn"); if let failure { throw failure } }
     func remove() async throws { calls.append("remove"); if let failure { throw failure } }
+}
+
+/// Stands in for `hermes -p <bot> plugins enable|disable bot-activity`; never runs anything.
+private actor FakeProfiles: BotActivityProfileToggle {
+    private(set) var calls: [String] = []
+    var failing: [String: String] = [:]
+
+    func fail(_ bot: String, _ why: String) { failing[bot] = why }
+
+    func setEnabled(_ enable: Bool, bot: String) async throws {
+        calls.append("\(enable ? "enable" : "disable") \(bot)")
+        if let why = failing[bot] { throw BotActivityProfileSwitch.Failure(description: why) }
+    }
+}
+
+private func profile(_ bot: String, installed: Bool = true, enabled: Bool = true, optedOut: Bool = false) -> BotActivitySetup.Profile {
+    BotActivitySetup.Profile(json: ["bot": .string(bot), "installed": .bool(installed), "enabled": .bool(enabled),
+                                    "opted_out": .bool(optedOut)])!
 }
 
 // MARK: - tests
@@ -81,9 +111,10 @@ final class RoomActivityModelTests: XCTestCase {
         BotActivityPage(rows: rows, rev: rev, now: now, since: since, limit: 300)
     }
 
-    private func make(_ source: FakeActivitySource, _ installer: FakeInstaller = FakeInstaller(),
-                      room: String = "hba-r1") -> RoomActivityModel {
-        RoomActivityModel(roomId: room, members: members, source: source, installer: installer, interval: .milliseconds(20))
+    private func make(_ source: FakeActivitySource, _ installer: FakeInstaller = FakeInstaller(), profiles: FakeProfiles = FakeProfiles(),
+                      gate: BotActivityActionGate = BotActivityActionGate(), room: String = "hba-r1") -> RoomActivityModel {
+        RoomActivityModel(roomId: room, members: members, source: source, installer: installer, profiles: profiles, gate: gate,
+                          interval: .milliseconds(20))
     }
 
     private func waitUntil(_ what: String, timeout: TimeInterval = 3, _ condition: () async -> Bool) async {
@@ -253,15 +284,85 @@ final class RoomActivityModelTests: XCTestCase {
         XCTAssertNil(m.actionError)
     }
 
-    func testEnableTurnsOnAnInstalledButDisabledCopy() async {
+    func testEnableTurnsOnAnInstalledButDisabledPinnedCopy() async {
         let source = FakeActivitySource()
         let installer = FakeInstaller()
-        await installer.set(.installed(status: "disabled", version: "0.1.0", source: "user"))
+        await installer.set(.installed(status: "disabled", version: "0.1.0", source: "user", pinnedSHA: BotActivityPluginManager.pinnedRef))
         let m = make(source, installer)
         await m.enable()
         let calls = await installer.calls
         XCTAssertEqual(calls, ["state", "turnOn"])
         XCTAssertEqual(m.pluginState, .ready)
+    }
+
+    func testEnableNeverTurnsOnACopyThatIsNotTheReviewedCommit() async {
+        for sha: String? in [nil, "0000000000000000000000000000000000000000"] {
+            let source = FakeActivitySource()
+            let installer = FakeInstaller()
+            await source.script([.failure(missing), .failure(missing)])
+            await installer.set(.installed(status: "disabled", version: "0.1.0", source: "user", pinnedSHA: sha))
+            let m = make(source, installer)
+            await m.poll()
+            await m.enable()
+            XCTAssertEqual(m.pluginState, .unpinnedCopy, "sha \(sha ?? "nil")")
+            XCTAssertFalse(m.canEnable, "Reinstall Pinned Version is the way on")
+            let calls = await installer.calls
+            XCTAssertEqual(calls, ["state"], "never toggled")
+            let v1 = await source.rollOutCalls
+            XCTAssertEqual(v1, 0)
+            await m.poll()
+            XCTAssertEqual(m.pluginState, .unpinnedCopy, "a missing-plugin poll keeps the warning")
+
+            await m.reinstallPinned()
+            let after = await installer.calls
+            XCTAssertEqual(after, ["state", "install(force)"], "reinstall replaces the copy with the pinned commit")
+            let v2 = await source.rollOutCalls
+            XCTAssertEqual(v2, 1)
+            XCTAssertEqual(m.pluginState, .ready)
+        }
+    }
+
+    func testReinstallFailureKeepsTheWarning() async {
+        let source = FakeActivitySource()
+        let installer = FakeInstaller()
+        await source.script([.failure(missing), .failure(missing)])
+        await installer.set(.installed(status: "disabled", version: "0.1.0", source: "user", pinnedSHA: nil))
+        let m = make(source, installer)
+        await m.enable()
+        await installer.fail(GatewayClient.RPCError(code: 5026, message: "clone failed", data: nil))
+        await m.reinstallPinned()
+        XCTAssertEqual(m.pluginState, .unpinnedCopy)
+        XCTAssertTrue(m.actionError?.hasPrefix("Couldn't reinstall") == true, m.actionError ?? "nil")
+    }
+
+    func testAReinstalledCopyIsNoLongerFlaggedEvenIfNotLiveYet() async {
+        let source = FakeActivitySource()
+        let installer = FakeInstaller()
+        await source.script([.failure(missing), .failure(missing)])
+        await source.setSetup(.failure(missing))
+        await installer.set(.installed(status: "disabled", version: "0.1.0", source: "user", pinnedSHA: nil))
+        let m = make(source, installer)
+        await m.enable()
+        XCTAssertEqual(m.pluginState, .unpinnedCopy)
+        await m.reinstallPinned()
+        XCTAssertEqual(m.pluginState, .pluginMissing, "the pinned commit is installed; Enable can finish the roll-out")
+        XCTAssertTrue(m.canEnable)
+        XCTAssertNotNil(m.actionError)
+    }
+
+    func testEnableTurnsOptedOutBotsBackOnBeforeRollingOut() async {
+        let source = FakeActivitySource()
+        let profiles = FakeProfiles()
+        await profiles.fail("eve", "Plugin 'bot-activity' not found")
+        await source.setSetup(.success(BotActivitySetup(profiles: [profile("alice"), profile("bob", optedOut: true)], untracked: [],
+                                                        outdated: [], optedOut: ["bob", "eve"])))
+        let m = make(source, profiles: profiles)
+        await m.enable()
+        let calls = await profiles.calls
+        XCTAssertEqual(calls, ["enable bob", "enable eve"])
+        let v3 = await source.rollOutCalls
+        XCTAssertEqual(v3, 1, "then POST /setup refreshes and enables the rest")
+        XCTAssertEqual(m.actionError, "Activity tracking could not be turned on for: eve (Plugin 'bot-activity' not found).")
     }
 
     func testEnableFailureKeepsTheFallbackAndSaysWhy() async {
@@ -290,30 +391,156 @@ final class RoomActivityModelTests: XCTestCase {
         XCTAssertEqual(m.actionError, "Activity tracking could not be turned on for: bob (read-only profile).")
     }
 
-    func testTurnOffRemovesThePluginAndFallsBack() async {
+    func testTurnOffDisablesEveryProfileThenRemovesTheRootCopy() async {
         let source = FakeActivitySource()
         let installer = FakeInstaller()
+        let profiles = FakeProfiles()
         await source.script([.success(page([row("a", rev: 1)], rev: 1, since: 0))])
-        let m = make(source, installer)
+        await source.setSetup(.success(BotActivitySetup(
+            profiles: [profile("default"), profile("alice"), profile("bob", enabled: false, optedOut: true),
+                       profile("carol", installed: false, enabled: false)],
+            untracked: ["carol"], outdated: [], optedOut: ["bob"])))
+        let m = make(source, installer, profiles: profiles)
         await m.poll()
         XCTAssertTrue(m.loaded)
         await m.turnOff()
+        let disabled = await profiles.calls
+        XCTAssertEqual(disabled, ["disable default", "disable alice", "disable bob"], "every profile with a copy; carol has none")
         let calls = await installer.calls
         XCTAssertEqual(calls, ["remove"])
         XCTAssertEqual(m.pluginState, .pluginMissing)
+        XCTAssertNil(m.actionError)
         XCTAssertFalse(m.loaded)
         XCTAssertTrue(m.memberActivity.allSatisfy { $0.items.isEmpty })
+    }
+
+    func testTurnOffReportsBotsItCouldNotDisable() async {
+        let source = FakeActivitySource()
+        let profiles = FakeProfiles()
+        await profiles.fail("bob", "timed out")
+        await source.setSetup(.success(BotActivitySetup(profiles: [profile("alice"), profile("bob")], untracked: [], outdated: [], optedOut: [])))
+        let m = make(source, profiles: profiles)
+        await m.poll()
+        await m.turnOff()
+        XCTAssertEqual(m.pluginState, .pluginMissing, "the root copy is gone")
+        XCTAssertEqual(m.actionError, "Activity tracking was removed, but could not be turned off for: bob (timed out).")
     }
 
     func testTurnOffFailureKeepsTrackingOn() async {
         let source = FakeActivitySource()
         let installer = FakeInstaller()
+        let profiles = FakeProfiles()
+        await profiles.fail("bob", "read-only config")
+        await source.setSetup(.success(BotActivitySetup(profiles: [profile("bob")], untracked: [], outdated: [], optedOut: [])))
         await installer.fail(PluginREST.Failure.transport("socket closed"))
-        let m = make(source, installer)
+        let m = make(source, installer, profiles: profiles)
         await m.poll()
         await m.turnOff()
-        XCTAssertEqual(m.pluginState, .ready)
-        XCTAssertTrue(m.actionError?.contains("Couldn't turn off") == true)
+        XCTAssertEqual(m.pluginState, .ready, "only a removed root copy ends in .pluginMissing")
+        XCTAssertTrue(m.actionError?.hasPrefix("Couldn't turn off activity tracking") == true, m.actionError ?? "nil")
+        XCTAssertTrue(m.actionError?.contains("bob (read-only config)") == true, m.actionError ?? "nil")
+    }
+
+    func testTurnOffWithoutTheBotListChangesNothing() async {
+        let source = FakeActivitySource()
+        let installer = FakeInstaller()
+        await source.setSetup(.failure(PluginREST.Failure.http(status: 500, detail: "x")))
+        let m = make(source, installer)
+        await m.turnOff()
+        let calls = await installer.calls
+        XCTAssertEqual(calls, [], "never removes the root copy while bot copies would keep recording")
+        XCTAssertTrue(m.actionError?.contains("couldn't list the bots") == true, m.actionError ?? "nil")
+    }
+
+    // MARK: app-wide gate
+
+    func testASecondRoomJoinsTheEnableInFlight() async {
+        let source = FakeActivitySource()
+        let installer = FakeInstaller()
+        let gate = BotActivityActionGate()
+        await installer.hold()
+        let a = make(source, installer, gate: gate, room: "hba-r1")
+        let b = make(source, installer, gate: gate, room: "hba-r2")
+        let first = Task { await a.enable() }
+        await waitUntil("the install to start") { await installer.parked }
+        XCTAssertTrue(gate.isBusy)
+        XCTAssertEqual(gate.action, .enable)
+        let second = Task { await b.enable() }
+        await waitUntil("room 2 to join") { b.pluginState == .enabling }
+        XCTAssertEqual(b.enableStage, .installing, "room 2 shows the same progress")
+        let before = await source.callCount
+        await b.poll()
+        let v4 = await source.callCount
+        XCTAssertEqual(v4, before, "no room polls while the action runs")
+        await installer.release()
+        await first.value
+        await second.value
+        let calls = await installer.calls
+        XCTAssertEqual(calls, ["state", "install"], "one install for both rooms")
+        let v5 = await source.rollOutCalls
+        XCTAssertEqual(v5, 1)
+        XCTAssertEqual(a.pluginState, .ready)
+        XCTAssertEqual(b.pluginState, .ready)
+        XCTAssertFalse(gate.isBusy)
+        XCTAssertNil(gate.action)
+    }
+
+    func testTurnOffJoinedFromAnotherRoomShowsRemoving() async {
+        let source = FakeActivitySource()
+        let installer = FakeInstaller()
+        let gate = BotActivityActionGate()
+        await installer.hold()
+        let a = make(source, installer, gate: gate, room: "hba-r1")
+        let b = make(source, installer, gate: gate, room: "hba-r2")
+        await a.poll()
+        await b.poll()
+        let enabling = Task { await a.enable() }
+        await waitUntil("the install to start") { await installer.parked }
+        let joined = Task { await b.turnOff() }
+        await waitUntil("room 2 to join") { b.pluginState != .ready }
+        XCTAssertEqual(b.pluginState, .enabling, "it joins the action in flight (enable), not its own")
+        await installer.release()
+        await enabling.value
+        await joined.value
+        let v6 = await installer.calls
+        XCTAssertFalse(v6.contains("remove"), "the joined turn-off did not run")
+    }
+
+    // MARK: visibility
+
+    func testPollingPausesWhileTheWindowIsNotVisible() async {
+        let source = FakeActivitySource()
+        let m = make(source)
+        m.setVisible(false)
+        m.start()
+        XCTAssertFalse(m.isPolling, "an occluded window never starts polling")
+        m.setVisible(true)
+        XCTAssertTrue(m.isPolling, "back on screen: resumes")
+        await waitUntil("a poll") { await source.callCount >= 1 }
+        m.setVisible(false)
+        XCTAssertFalse(m.isPolling)
+        let calls = await source.callCount
+        try? await Task.sleep(for: .milliseconds(120))
+        let later = await source.callCount
+        XCTAssertLessThanOrEqual(later, calls + 1, "at most the in-flight poll")
+        m.stop()
+        m.setVisible(true)
+        XCTAssertFalse(m.isPolling, "the panel is closed: visibility alone does not start polling")
+        XCTAssertTrue(RoomActivityModel.isOnScreen(occlusion: .visible, appHidden: false))
+        XCTAssertFalse(RoomActivityModel.isOnScreen(occlusion: [], appHidden: false))
+        XCTAssertFalse(RoomActivityModel.isOnScreen(occlusion: .visible, appHidden: true))
+    }
+
+    // MARK: feed memory
+
+    func testRowsOfAnotherRoomAreDropped() async {
+        let source = FakeActivitySource()
+        let stray = BotActivityRow(key: "x", rev: 2, ts: 100, updated: 100, bot: "alice", roomId: "hba-r2", kind: "tool", status: "ok")
+        await source.script([.success(page([row("a", rev: 1), stray], rev: 2, since: 0))])
+        let m = make(source)
+        await m.poll()
+        XCTAssertEqual(m.feed.rows.map(\.key), ["a"])
+        XCTAssertEqual(m.memberActivity[0].items.map(\.id), ["a"])
     }
 
     // MARK: mapping
@@ -439,6 +666,89 @@ final class RoomActivityModelTests: XCTestCase {
         XCTAssertEqual(statuses["m-bob"], ActivityStatus(label: "failed", symbol: "exclamationmark.triangle.fill", tone: .danger))
         XCTAssertEqual(statuses["carol"], ActivityStatus(label: "needs approval", symbol: "hand.raised.fill", tone: .attention))
         for (id, state) in ribbon { XCTAssertEqual(statuses[id]?.label, state.label, "the panel says what the ribbon says") }
+    }
+
+    private func roundFixture() throws -> (RoomSummary, (Int, String, String, JSONValue) -> RoomEvent) {
+        let room = try XCTUnwrap(RoomSummary([
+            "room_id": "hba-r1", "name": "Test",
+            "members": [["member_id": "alice", "profile": "alice", "handle": "alice", "display_name": "Alice"],
+                        ["member_id": "m-bob", "profile": "bob", "handle": "bob"],
+                        ["member_id": "carol", "profile": "carol", "handle": "carol"]],
+        ]))
+        func turn(_ seq: Int, _ kind: String, _ m: String, _ extra: JSONValue) -> RoomEvent {
+            var p: [String: JSONValue] = ["member_id": .string(m), "discussion_event_id": "user:bbb", "thread_id": "main"]
+            for (k, v) in extra.object ?? [:] { p[k] = v }
+            return RoomEvent(seq: seq, eventId: "t\(seq)", kind: kind, actor: ["kind": "gateway", "id": "x"], payload: .object(p),
+                             createdAt: Double(seq))
+        }
+        return (room, turn)
+    }
+
+    func testThisRoundTellsTheLatestRoundNewestFirst() throws {
+        let (room, turn) = try roundFixture()
+        var timeline = RoomTimeline()
+        timeline.apply(RoomLogPage(events: [
+            RoomEvent(seq: 1, eventId: "user:aaa", kind: "message.user", payload: ["text": "old", "thread_id": "main"], createdAt: 1),
+            RoomEvent(seq: 2, eventId: "t2", kind: "turn.settled", payload: ["member_id": "alice", "discussion_event_id": "user:aaa"], createdAt: 2),
+            RoomEvent(seq: 3, eventId: "user:bbb", kind: "message.user", payload: ["text": "hi", "thread_id": "main"], createdAt: 3),
+            turn(4, "turn.settled", "alice", [:]),
+            turn(5, "turn.settled", "m-bob", ["passed": true]),
+            turn(6, "turn.failed", "carol", ["error": "LLM request timed out"]),
+        ], cursor: 6, latestSeq: 6, hasMore: false))
+        let approval = RoomApproval(memberId: "m-bob", taskId: "k9", executionGeneration: 1, requestId: "r1", choices: ["once", "deny"],
+                                    command: "ls", description: nil)
+        let driver = RoomDriverStatus(working: true, pendingActions: [.approval(approval)])
+        let feed = ActivityPresentation.roundFeed(room: room, timeline: timeline, driver: driver)
+        XCTAssertEqual(feed.map(\.title), ["bob", "Round", "carol", "bob", "Alice", "Round"])
+        XCTAssertEqual(feed.map(\.status.label), ["needs approval", "working", "timed out", "passed", "replied", "queued"])
+        XCTAssertEqual(feed.first?.status.tone, .attention)
+        XCTAssertFalse(feed.contains { $0.id == "turn:2" }, "only the latest round")
+        let ribbon = RoomPresentation.memberStates(room: room, timeline: timeline, driver: driver)
+        XCTAssertEqual(ribbon["alice"].map { ActivityPresentation.status($0) }, feed.first { $0.memberId == "alice" }?.status,
+                       "the same mapping as the ribbon")
+        XCTAssertEqual(ActivityPresentation.roundFeed(room: room, timeline: timeline, driver: driver, limit: 2).count, 2)
+
+        timeline.apply(RoomLogPage(events: [
+            RoomEvent(seq: 7, eventId: "a7", kind: "room.activity",
+                      payload: ["status": "settled", "reason_code": "all_replied", "discussion_event_id": "user:bbb"], createdAt: 7),
+        ], cursor: 7, latestSeq: 7, hasMore: false))
+        let settled = ActivityPresentation.roundFeed(room: room, timeline: timeline, driver: RoomDriverStatus(working: false))
+        XCTAssertEqual(settled.first?.status.label, "settled")
+        XCTAssertFalse(settled.contains { $0.status.label == "working" }, "a settled round is not working")
+        XCTAssertTrue(ActivityPresentation.roundFeed(room: room, timeline: RoomTimeline(), driver: nil).isEmpty)
+    }
+
+    func testThisRoundIsCapped() throws {
+        let (room, turn) = try roundFixture()
+        var timeline = RoomTimeline()
+        var events = [RoomEvent(seq: 1, eventId: "user:bbb", kind: "message.user", payload: ["thread_id": "main"], createdAt: 1)]
+        events += (2...60).map { turn($0, "turn.deferred", "alice", [:]) }
+        timeline.apply(RoomLogPage(events: events, cursor: 60, latestSeq: 60, hasMore: false))
+        let feed = ActivityPresentation.roundFeed(room: room, timeline: timeline, driver: nil)
+        XCTAssertEqual(feed.count, ActivityPresentation.roundLimit)
+        XCTAssertEqual(feed.first?.id, "turn:60", "newest first")
+        XCTAssertEqual(feed.first?.status.label, "needs retry")
+    }
+
+    func testLiveChipsKeepTheTurnState() {
+        XCTAssertEqual(ActivityPresentation.chips(phase: .idle, current: nil, turn: .needsApproval).map(\.label),
+                       ["needs approval", "idle"], "live data never hides a pending approval")
+        XCTAssertEqual(ActivityPresentation.chips(phase: .running, current: nil, turn: .failed).map(\.label), ["failed", "working"])
+        XCTAssertEqual(ActivityPresentation.chips(phase: .running, current: nil, turn: .replied).map(\.label), ["working", "replied"])
+        XCTAssertEqual(ActivityPresentation.chips(phase: .waiting, current: nil, turn: .needsApproval).map(\.label),
+                       ["waiting for approval"], "one approval chip")
+        XCTAssertEqual(ActivityPresentation.chips(phase: .running, current: nil, turn: .waiting).map(\.label), ["working"])
+        XCTAssertEqual(ActivityPresentation.chips(phase: .idle, current: nil, turn: .waiting).map(\.label), ["idle", "waiting"])
+        XCTAssertEqual(ActivityPresentation.chips(phase: .idle, current: nil, turn: .idle).map(\.label), ["idle"])
+        XCTAssertEqual(ActivityPresentation.chips(phase: .idle, current: nil, turn: nil).map(\.label), ["idle"])
+    }
+
+    func testConfirmationsSayExactlyWhatHappens() {
+        let off = ActivityPresentation.turnOffConfirmation
+        XCTAssertTrue(off.contains("every bot profile"))
+        XCTAssertTrue(off.contains("stay on disk but inactive"))
+        XCTAssertTrue(off.contains("Enable Tracking turns them back on"))
+        XCTAssertTrue(ActivityPresentation.reinstallConfirmation.contains(String(BotActivityPluginManager.pinnedRef.prefix(7))))
     }
 
     func testEnableSheetLinksThePinnedCommit() {

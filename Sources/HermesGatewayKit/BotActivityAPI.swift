@@ -233,9 +233,20 @@ public struct BotActivityPluginManager: Sendable {
     public enum State: Sendable, Equatable {
         case notInstalled
         /// `status`: `enabled`, `disabled` or `not enabled` (`_plugin_status`, `hermes_cli/plugins_cmd.py:887-900`).
-        case installed(status: String, version: String, source: String)
+        /// `pinnedSHA`: the row's `pinned_sha`, the full commit a `--ref` install is pinned to
+        /// (`pinned_revision`, `hermes_cli/plugins_cmd_git.py:90-95`); nil for a manual/dev copy or an unpinned
+        /// install (no install record with `pinned: true`).
+        case installed(status: String, version: String, source: String, pinnedSHA: String?)
 
-        public var isEnabled: Bool { if case .installed(let s, _, _) = self { return s == "enabled" }; return false }
+        public var isEnabled: Bool { if case .installed(let s, _, _, _) = self { return s == "enabled" }; return false }
+
+        /// The installed copy is provably the reviewed commit: Hermes's install record pins it to `pinnedRef`.
+        /// A commit SHA fixes the whole tree, so the repository it was cloned from does not matter
+        /// (`plugins.manage list` does not report the clone URL).
+        public var isPinnedCopy: Bool {
+            if case .installed(_, _, _, let sha?) = self { return sha.lowercased() == BotActivityPluginManager.pinnedRef }
+            return false
+        }
     }
 
     public let client: GatewayClient
@@ -250,11 +261,13 @@ public struct BotActivityPluginManager: Sendable {
     public func botActivityState() async throws -> State { Self.state(fromRows: try await pluginsList()) }
 
     /// `plugins.manage {action: "install", repo, ref, enable: true}` (`_plugins_install`, `:1880-1893`).
+    /// `force: true` replaces an existing copy (`dashboard_install_plugin(force:)`, which install otherwise
+    /// refuses with "already exists"): "Reinstall Pinned Version" over a copy that is not the reviewed one.
     @discardableResult
-    public func installBotActivity() async throws -> JSONValue {
-        try await client.call("plugins.manage", ["action": "install", "repo": .string(Self.repository),
-                                                 "ref": .string(Self.pinnedRef), "enable": true],
-                              timeout: Self.installTimeout)
+    public func installBotActivity(force: Bool = false) async throws -> JSONValue {
+        var params: [String: JSONValue] = ["action": "install", "repo": .string(Self.repository), "ref": .string(Self.pinnedRef), "enable": true]
+        if force { params["force"] = true }
+        return try await client.call("plugins.manage", .object(params), timeout: Self.installTimeout)
     }
 
     /// `plugins.manage {action: "toggle", name, enable: true}` (`_plugins_toggle`, `:1860-1877`): turns on a copy
@@ -275,6 +288,68 @@ public struct BotActivityPluginManager: Sendable {
         let name = BotActivityAPI.pluginName
         guard let row = rows.first(where: { $0["name"]?.string == name || $0["key"]?.string == name }) else { return .notInstalled }
         return .installed(status: row["status"]?.string ?? (row["enabled"]?.bool == true ? "enabled" : "not enabled"),
-                          version: row["version"]?.string ?? "", source: row["source"]?.string ?? "")
+                          version: row["version"]?.string ?? "", source: row["source"]?.string ?? "",
+                          pinnedSHA: row["pinned_sha"]?.nonEmptyString)
+    }
+}
+
+/// Turns the plugin on or off in ONE bot profile with the Hermes CLI, `hermes -p <bot> plugins enable|disable
+/// bot-activity` (`cmd_enable`/`cmd_disable`, `hermes_cli/plugins_cmd.py:689-760`): the profile's
+/// `plugins.enabled`/`plugins.disabled` lists change, its copy stays on disk. Roll-out copies the plugin into
+/// every profile, so removing the root copy alone would leave every bot recording; and `POST /setup` skips a
+/// profile that lists the plugin in `plugins.disabled` (`installer.py:244-265`), so Enable turns those back on
+/// here first. The hermes binary passes the same checks as every hermes the app runs
+/// (`ServeProcess.trustedExecutable`); no shell, clean environment, always an explicit `-p` (without it the CLI
+/// follows the sticky active profile), a timeout.
+public struct BotActivityProfileSwitch: Sendable {
+    /// `ENABLE_TIMEOUT_S` (`installer.py:40`): enable waits for the live activation round trips.
+    public static let timeout: TimeInterval = 150
+
+    public struct Failure: Error, RedactionSafeError, Equatable {
+        public let description: String
+    }
+
+    public let home: URL
+    let environment: [String: String]
+    let runner: any CommandRunner
+
+    public init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                environment: [String: String] = ProcessInfo.processInfo.environment,
+                runner: any CommandRunner = ProcessCommandRunner()) {
+        self.home = home; self.environment = environment; self.runner = runner
+    }
+
+    /// `PROFILE_ID_RE` (`hermes_constants.py:320`). Anything else never reaches the command line.
+    public static func isProfileName(_ s: String) -> Bool {
+        s.range(of: "^[a-z0-9][a-z0-9_-]{0,63}$", options: .regularExpression) != nil
+    }
+
+    public static func arguments(bot: String, enable: Bool) -> [String] {
+        ["-p", bot, "plugins", enable ? "enable" : "disable", BotActivityAPI.pluginName]
+    }
+
+    /// Throws `Failure` (Redaction-safe) for a bad name, an untrusted/missing hermes, a launch error, a
+    /// non-zero exit or a timeout.
+    public func setEnabled(_ enable: Bool, bot: String) async throws {
+        guard Self.isProfileName(bot) else { throw Failure(description: "not a profile name") }
+        let hermes: String
+        switch ServeProcess.trustedExecutable(environment: environment, home: home, log: home.appendingPathComponent(".hermes/logs").path) {
+        case .success(let path): hermes = path
+        case .failure(let e): throw Failure(description: Redaction.scrub(e.description))
+        }
+        var env = ProcessCommandRunner.cleanEnvironment(environment)
+        env["HOME"] = home.path
+        env["HERMES_HOME"] = home.appendingPathComponent(".hermes").path
+        env["PATH"] = BackgroundServe.path(hermes: hermes, home: home.path)
+        let r: CommandResult
+        do { r = try await runner.run(hermes, Self.arguments(bot: bot, enable: enable), environment: env, timeout: Self.timeout) } catch {
+            throw Failure(description: Redaction.describe(error))
+        }
+        guard r.succeeded else {
+            if r.timedOut { throw Failure(description: "timed out") }
+            let last = Redaction.scrub(r.output).split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
+            let detail = last.trimmingCharacters(in: .whitespaces).prefix(200)
+            throw Failure(description: detail.isEmpty ? "hermes exited with \(r.status)" : String(detail))
+        }
     }
 }

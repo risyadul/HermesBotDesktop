@@ -9,17 +9,23 @@ import Foundation
 ///   cut at `limit`; when it is full, the cursor is the last rev received, so nothing past the cut is
 ///   skipped (`plugin_api.py:66-69`). Otherwise the server's `rev` (store max) is safe to jump to. The
 ///   cursor never moves backwards.
-/// - Memory: at most `capacity` rows per room id (rows without a room share one bucket); the rows with
-///   the oldest `updated` are dropped first.
+/// - Memory: at most `capacity` rows per room id (rows without a room share one bucket) and `totalCapacity`
+///   rows overall; the rows with the oldest `updated` are dropped first. A feed for one room drops rows of
+///   any other room on arrival (`apply(_:room:)`).
 public struct BotActivityFeed: Sendable, Equatable {
     public static let defaultCapacity = 500
+    public static let defaultTotalCapacity = 2000
 
     public let capacity: Int
+    public let totalCapacity: Int
     /// `since` for the next `activity(...)` call.
     public private(set) var cursor: Int = 0
     private var byKey: [String: BotActivityRow] = [:]
 
-    public init(capacity: Int = BotActivityFeed.defaultCapacity) { self.capacity = max(1, capacity) }
+    public init(capacity: Int = BotActivityFeed.defaultCapacity, totalCapacity: Int = BotActivityFeed.defaultTotalCapacity) {
+        self.capacity = max(1, capacity)
+        self.totalCapacity = max(1, totalCapacity)
+    }
 
     /// All kept rows, chronological (`ts`, then `rev`).
     public var rows: [BotActivityRow] {
@@ -28,8 +34,11 @@ public struct BotActivityFeed: Sendable, Equatable {
 
     public var isEmpty: Bool { byKey.isEmpty }
 
-    public mutating func apply(_ page: BotActivityPage) {
+    /// `room`: keep only rows of that room (a page asked with `room=` should hold nothing else; the cursor
+    /// still advances over the whole page).
+    public mutating func apply(_ page: BotActivityPage, room: String? = nil) {
         for row in page.rows {
+            if let room, row.roomId != room { continue }
             if let old = byKey[row.key], old.rev > row.rev { continue }
             byKey[row.key] = row
         }
@@ -44,6 +53,10 @@ public struct BotActivityFeed: Sendable, Equatable {
         let buckets = Dictionary(grouping: byKey.values, by: { $0.roomId ?? "" })
         for (_, rows) in buckets where rows.count > capacity {
             let drop = rows.sorted { ($0.updated, $0.rev) < ($1.updated, $1.rev) }.prefix(rows.count - capacity)
+            for r in drop { byKey[r.key] = nil }
+        }
+        if byKey.count > totalCapacity {
+            let drop = byKey.values.sorted { ($0.updated, $0.rev) < ($1.updated, $1.rev) }.prefix(byKey.count - totalCapacity)
             for r in drop { byKey[r.key] = nil }
         }
     }

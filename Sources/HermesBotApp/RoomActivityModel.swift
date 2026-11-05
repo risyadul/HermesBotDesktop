@@ -17,10 +17,17 @@ protocol BotActivitySource: Sendable {
 /// Installing and removing the plugin (`BotActivityPluginManager` over `plugins.manage` in production).
 protocol BotActivityInstaller: Sendable {
     func pluginState() async throws -> BotActivityPluginManager.State
-    func install() async throws
+    /// The pinned commit; `force` replaces a copy that is already there.
+    func install(force: Bool) async throws
     /// Turns on a copy that is installed but disabled.
     func turnOn() async throws
+    /// Removes the root copy (`<HERMES_HOME>/plugins/bot-activity`) only.
     func remove() async throws
+}
+
+/// Turning the plugin on/off in one bot profile (`BotActivityProfileSwitch`, the Hermes CLI, in production).
+protocol BotActivityProfileToggle: Sendable {
+    func setEnabled(_ enable: Bool, bot: String) async throws
 }
 
 extension BotActivityAPI: BotActivitySource {
@@ -31,9 +38,54 @@ extension BotActivityAPI: BotActivitySource {
 
 extension BotActivityPluginManager: BotActivityInstaller {
     func pluginState() async throws -> State { try await botActivityState() }
-    func install() async throws { try await installBotActivity() }
+    func install(force: Bool) async throws { try await installBotActivity(force: force) }
     func turnOn() async throws { try await enableBotActivity() }
     func remove() async throws { try await removeBotActivity() }
+}
+
+extension BotActivityProfileSwitch: BotActivityProfileToggle {}
+
+/// App-wide gate for the plugin actions (enable, roll-out, reinstall, turn off). They change Hermes for every
+/// room, so a request from a second room while one is in flight joins it (same progress, same outcome)
+/// instead of starting another.
+@MainActor
+final class BotActivityActionGate: ObservableObject {
+    enum Action: Equatable { case enable, rollOut, reinstall, turnOff }
+
+    struct Outcome: Equatable {
+        /// Redaction-safe, per-bot where it applies.
+        var error: String?
+        /// The root copy was removed: the panel falls back to turn status.
+        var removed = false
+        /// An installed, disabled copy is not the reviewed commit: nothing was turned on.
+        var unpinned = false
+        /// The pinned commit replaced a copy that was not (reinstall): the "not the reviewed version" warning is over.
+        var replaced = false
+    }
+
+    static let shared = BotActivityActionGate()
+
+    @Published private(set) var action: Action?
+    @Published var stage: RoomActivityModel.EnableStage?
+    private var task: Task<Outcome, Never>?
+
+    var isBusy: Bool { task != nil }
+
+    /// Runs `body` unless an action is already in flight, in which case it awaits that one's outcome.
+    func run(_ action: Action, _ body: @escaping @MainActor () async -> Outcome) async -> Outcome {
+        if let task { return await task.value }
+        self.action = action
+        let t = Task { @MainActor [weak self] in
+            let out = await body()
+            // Cleared before any waiter resumes, so a joined room's follow-up poll is not gated.
+            self?.task = nil
+            self?.action = nil
+            self?.stage = nil
+            return out
+        }
+        task = t
+        return await t.value
+    }
 }
 
 /// One room member's slice of the activity feed, ready for the panel.
@@ -59,6 +111,9 @@ final class RoomActivityModel: ObservableObject {
         case needsRollOut([String])
         /// The last poll failed for another reason (Redaction-safe text); the next success clears it.
         case error(String)
+        /// Enable found an installed, disabled copy that is not provably the reviewed commit (no install record
+        /// pinning it to `BotActivityPluginManager.pinnedRef`): nothing was toggled. Reinstall replaces it.
+        case unpinnedCopy
         case enabling
         case removing
 
@@ -73,7 +128,6 @@ final class RoomActivityModel: ObservableObject {
     let roomId: String
     @Published private(set) var members: [RoomMember]
     @Published private(set) var pluginState: PluginState = .unknown
-    @Published private(set) var enableStage: EnableStage?
     /// A failed enable / roll-out / remove, until the next action or `dismissActionError()`.
     @Published private(set) var actionError: String?
     @Published private(set) var memberActivity: [MemberActivity] = []
@@ -84,6 +138,8 @@ final class RoomActivityModel: ObservableObject {
 
     private let source: any BotActivitySource
     private let installer: any BotActivityInstaller
+    private let profiles: any BotActivityProfileToggle
+    let gate: BotActivityActionGate
     private let interval: Duration
     private(set) var feed = BotActivityFeed()
     /// Server clock minus local clock (the plugin's `now`), so freshness uses the server's notion of time.
@@ -98,14 +154,21 @@ final class RoomActivityModel: ObservableObject {
     private(set) var generation = 0
     private(set) var droppedStale = 0
     private var shutDown = false
+    /// The panel shows this room (`start()` … `stop()`).
+    private var wanted = false
+    /// The window is on screen and the app not hidden (`setVisible`).
+    private(set) var visible = true
 
     init(roomId: String, members: [RoomMember], source: any BotActivitySource, installer: any BotActivityInstaller,
+         profiles: any BotActivityProfileToggle, gate: BotActivityActionGate = .shared,
          interval: Duration = RoomActivityModel.pollInterval) {
         self.roomId = roomId; self.members = members; self.source = source; self.installer = installer
-        self.interval = interval
+        self.profiles = profiles; self.gate = gate; self.interval = interval
     }
 
     var isPolling: Bool { loop != nil }
+    /// What the enable in flight (this room's or one it joined) is doing.
+    var enableStage: EnableStage? { pluginState == .enabling ? gate.stage : nil }
     /// Server-adjusted epoch seconds.
     var now: Double { Date().timeIntervalSince1970 + clockSkew }
 
@@ -117,8 +180,26 @@ final class RoomActivityModel: ObservableObject {
 
     // MARK: polling
 
-    /// The panel is on screen for this room: poll now, then every `interval` (backing off on errors).
+    /// The panel is on screen for this room: poll now, then every `interval` (backing off on errors), while
+    /// the window is visible.
     func start() {
+        wanted = true
+        guard visible else { return }
+        startLoop()
+    }
+
+    /// The window was occluded / the app hidden (false), or is back (true): polling pauses and resumes.
+    func setVisible(_ v: Bool) {
+        guard v != visible else { return }
+        visible = v
+        if v {
+            if wanted { startLoop() }
+        } else {
+            halt()
+        }
+    }
+
+    private func startLoop() {
         guard loop == nil, !shutDown else { return }
         generation += 1
         let gen = generation
@@ -134,6 +215,11 @@ final class RoomActivityModel: ObservableObject {
 
     /// Panel hidden, room switched or connection lost: no poll result of the current loop is applied.
     func stop() {
+        wanted = false
+        halt()
+    }
+
+    private func halt() {
         generation += 1
         loop?.cancel()
         loop = nil
@@ -148,13 +234,13 @@ final class RoomActivityModel: ObservableObject {
     /// One `GET /activity` for the current generation; returns the wait before the next one.
     @discardableResult
     func poll() async -> Duration {
-        guard !pluginState.isBusy else { return interval }
+        guard !pluginState.isBusy, !gate.isBusy else { return interval }
         let gen = generation
         do {
             let page = try await source.page(room: roomId, since: feed.cursor)
             guard gen == generation else { droppedStale += 1; return interval }
             if let serverNow = page.now { clockSkew = serverNow - Date().timeIntervalSince1970 }
-            feed.apply(page)
+            feed.apply(page, room: roomId)
             loaded = true
             failures = 0
             if !setupChecked { await checkSetup(gen) }
@@ -167,7 +253,8 @@ final class RoomActivityModel: ObservableObject {
             failures += 1
             if !pluginState.isBusy {
                 if case PluginREST.Failure.pluginUnavailable = error {
-                    pluginState = .pluginMissing
+                    // Kept until an action or a working plugin replaces it: the plugin is missing either way.
+                    if pluginState != .unpinnedCopy { pluginState = .pluginMissing }
                     resetFeed()
                 } else {
                     pluginState = .error(Redaction.describe(error))
@@ -209,7 +296,7 @@ final class RoomActivityModel: ObservableObject {
         if built.members != memberActivity { memberActivity = built.members }
     }
 
-    // MARK: enable / roll out / remove
+    // MARK: enable / roll out / reinstall / turn off
 
     var canEnable: Bool {
         switch pluginState {
@@ -218,79 +305,137 @@ final class RoomActivityModel: ObservableObject {
         }
     }
 
-    /// Opt-in: install the pinned plugin (or turn on an installed-but-disabled copy), roll it out to every
-    /// bot profile with `POST /setup`, then poll again.
+    /// Opt-in: install the pinned plugin (or turn on an installed-but-disabled copy that is provably the pinned
+    /// one), turn it back on in profiles that have it disabled, roll it out to every bot with `POST /setup`,
+    /// then poll again.
     func enable() async {
-        guard !pluginState.isBusy else { return }
-        let before = pluginState
-        actionError = nil
-        pluginState = .enabling
-        enableStage = .installing
-        do {
-            switch try await installer.pluginState() {
-            case .notInstalled: try await installer.install()
-            case .installed(let status, _, _) where status != "enabled": try await installer.turnOn()
-            case .installed: break
+        let (source, installer, profiles, gate) = (source, installer, profiles, gate)
+        await perform(.enable) {
+            gate.stage = .installing
+            do {
+                let state = try await installer.pluginState()
+                switch state {
+                case .notInstalled: try await installer.install(force: false)
+                case .installed(let status, _, _, _) where status != "enabled":
+                    guard state.isPinnedCopy else { return .init(unpinned: true) }
+                    try await installer.turnOn()
+                case .installed: break
+                }
+                gate.stage = .rollingOut
+                return try await Self.rollOutEverywhere(source: source, profiles: profiles)
+            } catch {
+                return .init(error: "Couldn't enable activity tracking: \(Redaction.describe(error))")
             }
-            enableStage = .rollingOut
-            let r = try await source.rollOutAll()
-            if !r.ok { actionError = Self.rollOutFailure(r) }
-        } catch {
-            actionError = "Couldn't enable activity tracking: \(Redaction.describe(error))"
-            if case .enabling = pluginState { pluginState = before }
         }
-        await finishAction()
+    }
+
+    /// "Reinstall Pinned Version": replace the installed copy with the pinned commit (`force`), then the same
+    /// roll-out as `enable()`.
+    func reinstallPinned() async {
+        guard pluginState == .unpinnedCopy else { return }
+        let (source, installer, profiles, gate) = (source, installer, profiles, gate)
+        await perform(.reinstall) {
+            gate.stage = .installing
+            do { try await installer.install(force: true) } catch {
+                return .init(error: "Couldn't reinstall the Bot Activity plugin: \(Redaction.describe(error))")
+            }
+            gate.stage = .rollingOut
+            do {
+                var out = try await Self.rollOutEverywhere(source: source, profiles: profiles)
+                out.replaced = true
+                return out
+            } catch {
+                return .init(error: "Couldn't enable activity tracking: \(Redaction.describe(error))", replaced: true)
+            }
+        }
     }
 
     /// "Enable for N more bots": `POST /setup` for every untracked or outdated profile.
     func rollOut() async {
-        guard !pluginState.isBusy else { return }
-        let before = pluginState
-        actionError = nil
-        pluginState = .enabling
-        enableStage = .rollingOut
-        do {
-            let r = try await source.rollOutAll()
-            if !r.ok { actionError = Self.rollOutFailure(r) }
-        } catch {
-            actionError = "Couldn't turn activity tracking on for more bots: \(Redaction.describe(error))"
-            pluginState = before
+        let (source, gate) = (source, gate)
+        await perform(.rollOut) {
+            gate.stage = .rollingOut
+            do {
+                let r = try await source.rollOutAll()
+                return .init(error: r.ok ? nil : Self.rollOutFailure(r))
+            } catch {
+                return .init(error: "Couldn't turn activity tracking on for more bots: \(Redaction.describe(error))")
+            }
         }
-        await finishAction()
     }
 
-    /// "Turn off activity tracking": `plugins.manage remove`. The panel falls back to turn status.
+    /// "Turn off activity tracking": `hermes -p <bot> plugins disable bot-activity` for every profile that has a
+    /// copy (`GET /setup`), then `plugins.manage remove` of the root copy. Profile copies stay on disk, inactive;
+    /// Enable turns them back on. The panel falls back to turn status only when the root copy is gone.
     func turnOff() async {
-        guard !pluginState.isBusy else { return }
-        let before = pluginState
-        actionError = nil
-        pluginState = .removing
-        do {
-            try await installer.remove()
-            resetFeed()
-            pluginState = .pluginMissing
-        } catch {
-            actionError = "Couldn't turn off activity tracking: \(Redaction.describe(error))"
-            pluginState = before
+        let (source, installer, profiles) = (source, installer, profiles)
+        await perform(.turnOff) {
+            let setup: BotActivitySetup
+            do { setup = try await source.setup() } catch {
+                return .init(error: "Couldn't turn off activity tracking: couldn't list the bots: \(Redaction.describe(error))")
+            }
+            var failed: [(bot: String, error: String?)] = []
+            for p in setup.profiles where p.installed || p.tracked {
+                do { try await profiles.setEnabled(false, bot: p.bot) } catch { failed.append((p.bot, Redaction.describe(error))) }
+            }
+            do { try await installer.remove() } catch {
+                let partial = failed.isEmpty ? "" : " " + Self.botFailure("It also could not be turned off for", failed)
+                return .init(error: "Couldn't turn off activity tracking: \(Redaction.describe(error)).\(partial)")
+            }
+            return .init(error: failed.isEmpty ? nil : Self.botFailure("Activity tracking was removed, but could not be turned off for", failed),
+                         removed: true)
         }
-        enableStage = nil
     }
 
     func dismissActionError() { actionError = nil }
 
-    /// After enable/roll-out: setup is checked again and the panel re-polls at once.
-    private func finishAction() async {
-        enableStage = nil
-        setupChecked = false
-        if pluginState.isBusy { pluginState = .unknown }
-        await poll()
+    /// Runs `body` through the app-wide gate (or joins the action already in flight), then applies the outcome.
+    private func perform(_ action: BotActivityActionGate.Action,
+                         _ body: @escaping @MainActor () async -> BotActivityActionGate.Outcome) async {
+        guard !pluginState.isBusy else { return }
+        let before = pluginState
+        actionError = nil
+        pluginState = (gate.action ?? action) == .turnOff ? .removing : .enabling
+        let out = await gate.run(action, body)
+        actionError = out.error
+        if out.removed {
+            resetFeed()
+            pluginState = .pluginMissing
+        } else if out.unpinned {
+            resetFeed()
+            pluginState = .unpinnedCopy
+        } else {
+            pluginState = out.replaced ? .pluginMissing : before
+            setupChecked = false
+            await poll()
+        }
+    }
+
+    /// Profiles that list the plugin in `plugins.disabled` (opted out, e.g. by Turn Off) are skipped by
+    /// `POST /setup`, so they are turned back on with the CLI first; then `POST /setup` installs/refreshes the
+    /// rest. Failures are collected per bot.
+    nonisolated static func rollOutEverywhere(source: any BotActivitySource,
+                                              profiles: any BotActivityProfileToggle) async throws -> BotActivityActionGate.Outcome {
+        let setup = try await source.setup()
+        var failed: [(bot: String, error: String?)] = []
+        for bot in setup.optedOut {
+            do { try await profiles.setEnabled(true, bot: bot) } catch { failed.append((bot, Redaction.describe(error))) }
+        }
+        let r = try await source.rollOutAll()
+        failed += r.results.filter { !$0.ok }.map { ($0.bot, $0.error) }
+        if failed.isEmpty { return .init(error: r.ok ? nil : rollOutFailure(r)) }
+        return .init(error: botFailure("Activity tracking could not be turned on for", failed))
     }
 
     nonisolated static func rollOutFailure(_ r: BotActivityRollOut) -> String {
         let failed = r.results.filter { !$0.ok }
         guard !failed.isEmpty else { return "Activity tracking could not be turned on for every bot." }
-        let names = failed.map { r in r.error.map { "\(r.bot) (\($0))" } ?? r.bot }.joined(separator: ", ")
-        return "Activity tracking could not be turned on for: \(names)."
+        return botFailure("Activity tracking could not be turned on for", failed.map { ($0.bot, $0.error) })
+    }
+
+    /// "<lead>: bob (read-only profile), eve."
+    nonisolated static func botFailure(_ lead: String, _ failed: [(bot: String, error: String?)]) -> String {
+        "\(lead): " + failed.map { f in f.error.map { "\(f.bot) (\($0))" } ?? f.bot }.joined(separator: ", ") + "."
     }
 
     // MARK: mapping (pure)
@@ -337,7 +482,7 @@ extension AppModel {
         if let m = activityModels[room.id] { return m }
         guard let backend, let access = backend.sessionREST else { return nil }
         let m = RoomActivityModel(roomId: room.id, members: room.room.members, source: BotActivityAPI(access: access),
-                                  installer: BotActivityPluginManager(client: backend.client))
+                                  installer: BotActivityPluginManager(client: backend.client), profiles: BotActivityProfileSwitch())
         activityModels[room.id] = m
         return m
     }

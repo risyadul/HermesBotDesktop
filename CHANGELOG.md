@@ -7,9 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 - Group Chat Activity panel (⌥⌘I): what each bot in the room is doing right now, its recent tool calls with
-  arguments and results, its reasoning and errors. The detailed view uses the open-source Bot Activity Hermes
-  plugin; without it the panel shows each bot's turn status and offers to install it (pinned commit, enabled for
-  every bot), and it can be turned off again from the panel.
+  arguments and results, its reasoning and errors, with its turn status kept beside the live status. The
+  detailed view uses the open-source Bot Activity Hermes plugin; without it the panel shows each bot's turn
+  status and a "This round" list from the room log, and offers to install the plugin (pinned commit, enabled for
+  every bot, including bots where it was disabled). An installed copy that isn't pinned to the reviewed commit
+  is never switched on; the panel offers to reinstall the pinned version instead. Turning it off disables it in
+  every bot profile and removes it from Hermes (the bots' copies stay on disk, inactive, until Enable turns them
+  back on). Enable and Turn Off run once for the whole app, and polling pauses while the window is covered or
+  the app is hidden.
 - Kanban boards in the sidebar (Boards section, with running and blocked counts). A board shows its lanes and
   cards, refreshes every few seconds while open, and switches between boards. Cards open into a details
   panel (description, latest summary, dependencies, attachments, comments, runs, worker log); drag a card to
