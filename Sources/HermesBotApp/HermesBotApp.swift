@@ -30,6 +30,7 @@ struct HermesBotApp: App {
             .defaultSize(DS.Size.windowDefault)
             .windowToolbarStyle(.unified)
             .commands {
+                CommandGroup(after: .appInfo) { CheckForUpdatesCommand(checker: .shared) }  // E3 (Updates/)
                 CommandGroup(after: .sidebar) {
                     Toggle("Animate Interface Changes", isOn: $motion)
                 }
@@ -61,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             _ = AppModel.shared.notifications
             QuickLookController.shared.installKeyMonitor()  // D8: Space previews the file under the pointer
+            UpdateChecker.shared.startSchedule()  // E3: daily update check (packaged builds, Settings switch)
         }
         // `swift run` launches a bare executable: make it a regular foreground app with a window.
         NSApp.setActivationPolicy(.regular)
@@ -318,7 +320,7 @@ private struct MainWindowMarker: NSViewRepresentable {
 
 // MARK: - settings
 
-/// General (motion), Background (E1, SettingsSections.swift) and Kanban dispatcher (K8).
+/// General (motion), Background (E1, SettingsSections.swift), Kanban dispatcher (K8) and Updates (E3).
 struct SettingsView: View {
     @StateObject private var background = BackgroundServeSettingsModel()
     var body: some View { SettingsForm(background: background, dispatcher: AppModel.shared.kanban.dispatcher) }
@@ -329,6 +331,7 @@ struct SettingsView: View {
 struct SettingsForm: View {
     @ObservedObject var background: BackgroundServeSettingsModel
     let dispatcher: DispatcherStatusModel
+    var updates: UpdateChecker = .shared
     @AppStorage(DS.Motion.settingKey) private var motion = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -345,6 +348,7 @@ struct SettingsForm: View {
             VoiceSection()  // B17
             BackgroundServeSection(model: background)
             GatewaySection(model: dispatcher)
+            UpdatesSection(checker: updates)
         }
         .formStyle(.grouped)
         .scrollDisabled(true)

@@ -17,6 +17,19 @@ All notable changes to this project are documented here. The format follows
     turn), in the system voice. Code blocks, attachments, tool and Thought rows are skipped; Esc, sending a
     message or starting dictation stops it. **Settings → Voice → Read replies aloud automatically** (off by
     default) speaks new replies when they finish.
+- Distribution (E3):
+  - **Check for Updates…** in the app menu and a daily check (**Settings → Updates**, on by default): asks
+    GitHub's Releases API for the latest release (unauthenticated, no token), compares it with the app's version
+    and shows the release notes with **Download**, which opens the release page in the browser. Nothing is
+    downloaded or installed by the app. A release is shown once by the daily check; its failures stay quiet.
+  - Releases are **universal** (Apple silicon + Intel): `scripts/package-app.sh <version> --universal` builds both
+    architectures and joins them with `lipo`; the release asset is now `HermesBot-<version>-macos-universal.zip`
+    (was `-macos-arm64.zip`). The script also has `--dry-run` and `--help`.
+  - Developer ID signing (hardened runtime, `scripts/HermesBot.entitlements`) and notarization (`notarytool`,
+    stapled) when `DEVELOPER_ID_APPLICATION` / `NOTARY_PROFILE` are set; the release workflow uses them when the
+    repository secrets exist (docs/development.md, "Release process") and stays ad-hoc signed otherwise. Not yet
+    run for real: it needs the maintainer's Developer ID.
+  - CI runs the build and the tests on an Intel runner (`macos-15-intel`) as well.
 - Group Chat rooms can be pinned and reordered in the sidebar (C1.4): right-click a room for **Pin to Top** /
   **Unpin**, **Move Up** and **Move Down**, or drag it onto another room. Pinned rooms come first. Kept on this
   Mac only (UserDefaults), never sent to Hermes.

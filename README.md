@@ -9,8 +9,9 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 > **Independent project.** Not affiliated with or endorsed by Nous Research. "Hermes" refers to the
 > Hermes Agent backend this app connects to.
 
-**Status: early / pre-release.** Build from source, or download an ad-hoc signed (not notarized) zip from
-[GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases); see [Download / packaging](#download--packaging).
+**Status: early / pre-release.** Build from source, or download a universal (Apple silicon + Intel) zip from
+[GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases); releases are ad-hoc signed (not
+notarized) until the maintainer's Developer ID is set up. See [Download / packaging](#download--packaging).
 
 <p align="center">
   <img src="docs/screenshots/screenshot-dark.png" alt="Hermes Bot macOS Group Chat (Dark Mode)" width="700">
@@ -69,7 +70,7 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 
 | | |
 |---|---|
-| macOS | 14 or later (Apple Silicon tested; Intel untested) |
+| macOS | 14 or later. Apple silicon tested by hand; Intel (x86_64): the test suite passes as x86_64 under Rosetta and runs on an Intel CI runner; the app itself has not been tried on an Intel Mac |
 | Toolchain | Xcode 26 / Swift 6.3 (tested). Command Line Tools only: **untested** |
 | Hermes Agent | installed and configured with a model provider (see below) |
 | `hermes` binary | found automatically: `~/.local/bin/hermes`, the `$PATH` of the process that launched the app, then `/opt/homebrew/bin` and `/usr/local/bin`. `HERMES_BOT_APP_HERMES_BIN` (an absolute path) replaces that search. It must be a regular executable file, not group/world-writable, in a directory that is not group/world-writable (unless sticky) |
@@ -289,6 +290,18 @@ through the running Hermes backend.
   `notificationsEnabled` user default). Notifications need the packaged `HermesBot.app`; a bare `swift run`
   binary shows the Dock badge only.
 
+## Updates
+
+- **Hermes Bot → Check for Updates…** asks GitHub for the latest release and shows its notes. **Download** opens
+  the release page in your browser; the app never downloads or installs anything itself. Replace the app with the
+  new one from the zip (quit it first).
+- Once a day the app checks by itself and shows a new release once (not again every day). Turn this off in
+  **Settings → Updates → Check for updates automatically** (on by default). A failed daily check stays quiet and is
+  retried an hour later; Check for Updates… and **Check Now** say what went wrong.
+- The check is one unauthenticated request to `api.github.com` (no account, no token; the only thing sent besides
+  the request itself is the app version in the User-Agent). A copy built with `swift build` has no version and
+  never checks by itself.
+
 ## Using Group Chat
 
 - **Rename a room:** room menu (⋯) → **Rename…**. The new name shows at once; if Hermes refuses it, the old name
@@ -479,23 +492,38 @@ Developer/test variables are listed in [docs/development.md](docs/development.md
   confirm the chat it shows an error instead of starting a new one; press Try Again.
 - **"Running in another Hermes app":** another backend process holds that bot's chat. Use it in that app.
 - **PDF attachment fails:** PDFs are rendered with `pdftoppm` on the backend machine; install it (poppler).
+- **"HermesBot.app can't be opened" / "Apple could not verify…" on first launch:** the release is ad-hoc signed,
+  not notarized. Right-click the app → **Open** (macOS 15: System Settings → Privacy & Security → **Open
+  Anyway**), or run `xattr -dr com.apple.quarantine HermesBot.app`. A notarized release will not need this.
+- **"Couldn't check for updates":** the message says why. "limit for unauthenticated requests" means GitHub's
+  hourly limit for your network address was used up (shared networks hit it sooner); try again later or open the
+  [Releases page](https://github.com/risyadul/HermesBotDesktop/releases) yourself.
+- **Is my copy Intel or Apple silicon?** `lipo -archs /Applications/HermesBot.app/Contents/MacOS/HermesBotApp`
+  prints `x86_64 arm64` for the universal release.
 
 ## Download / packaging
 
-Tagged releases attach `HermesBot-<version>-macos-arm64.zip` on
-[GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases). To build the same bundle yourself:
+Tagged releases attach `HermesBot-<version>-macos-universal.zip` (one app for Apple silicon and Intel) and
+`SHA256SUMS.txt` on [GitHub Releases](https://github.com/risyadul/HermesBotDesktop/releases). To build the same
+bundle yourself:
 
 ```sh
-scripts/package-app.sh [version]    # writes dist/HermesBot.app and dist/HermesBot-<version>-macos-arm64.zip
+scripts/package-app.sh 0.2.0 --universal   # dist/HermesBot.app + dist/HermesBot-0.2.0-macos-universal.zip
+scripts/package-app.sh 0.2.0               # this Mac's architecture only: ...-macos-arm64.zip or -x86_64.zip
+scripts/package-app.sh 0.2.0 --universal --dry-run   # print the plan (architectures, signing) and stop
+scripts/package-app.sh --help
 ```
 
-The app is **ad-hoc signed, not notarized** (no Developer ID). On first launch macOS will refuse it:
-right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine HermesBot.app`. These
-packages have only been checked to build, sign and lint; launching them on a clean machine is untested.
+Without a Developer ID the app is **ad-hoc signed, not notarized**. On first launch macOS will refuse it:
+right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine HermesBot.app`. With
+`DEVELOPER_ID_APPLICATION` (and `NOTARY_PROFILE` for notarization) set, the script signs with the hardened
+runtime and notarizes and staples the app; see [docs/development.md](docs/development.md#release-process).
+Packages have only been checked to build, sign and lint; launching them on a clean machine is untested.
 
 ## Known limitations
 
-- macOS only; release builds are ad-hoc signed, not notarized.
+- macOS only; release builds are ad-hoc signed, not notarized, until a Developer ID is configured.
+- Updates are not installed automatically: the app tells you about a new release and opens its page.
 - Group Chat follows rooms by polling (the backend has no push for rooms yet).
 - No isolated mode for end users; always uses `~/.hermes`.
 
