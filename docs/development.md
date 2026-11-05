@@ -156,6 +156,15 @@ Sources/HermesBotApp/       SwiftUI app:
   RoomActivityModel.swift     per-room Activity inspector state: bot-activity polling, plugin enable/remove;
                               RoomActivityPresentation.swift (rows, chips, turn-state fallback),
                               RoomActivityPanel.swift (panel, enable sheet)
+  RoomSidebarOrder.swift      C1.4 RoomOrder (pinned first, then the user's order; Move Up/Down and drops stay
+                              inside a group) + RoomOrderStore (UserDefaults `hba.rooms.pinned` /
+                              `hba.rooms.arranged`) + the room row's menu and drag and drop
+  RoomPicture.swift           C1.8 RoomPictureStore (local picture: ProfileAvatar 256 px PNG in Application
+                              Support/HermesBotApp/Room Pictures, 0700/0600, removed on disband), RoomAvatar,
+                              RoomAvailability ("N of M available": bot exists, last turn not failed/deferred)
+  RoomAttachmentViews.swift   C2.1 Group Chat attachment tiles: Quick Look on click, Open / Reveal / Copy Path,
+                              deleted-copy note; MediaSafety rules as in MediaViews (own copies checked on appear,
+                              re-check on click, reveal-only formats never previewed)
   Onboarding.swift            E2 SetupIssue (from the spawn error / setup.runtime_check), which first-run screen
                               shows, the commands offered (never run); OnboardingView.swift: the screens, CommandRow;
                               AppModel+Onboarding.swift: checkSetup (once per connection) and Check Again
@@ -172,7 +181,8 @@ Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, Group
                             (ParityTestSupport: fakes)
 Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls), BotChatUIModel, MediaViews, RoomModel Group Chat
                             actions + RoomDigestHub + Change Members (RoomMemberChangeTests; with FakeRoomActions,
-                            no real room is created, sent to, renamed or disbanded); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
+                            no real room is created, sent to, renamed or disbanded), RoomOrder (C1.4),
+                            RoomPicture + availability (C1.8), RoomAttachmentViews (C2.1); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate; real-window suites are opt-in
@@ -256,6 +266,8 @@ Live tests run against a real `~/.hermes`, so they must clean up after themselve
   session-scoped (`--session` / no scope).
 - Routines and kanban workers are tested with fakes only (`FakeCron` records `cron.manage` params,
   `FakeKanbanService` the worker calls): tests never send a real `cron.manage` mutation, terminate or reclaim.
+  Room pins/order (`RoomOrderTests`) use a throwaway UserDefaults suite and room pictures (`RoomPictureTests`,
+  `RoomAttachmentLayoutTests`) a temp folder, never the app's preferences or Application Support.
   The same holds for K6/K7/K9: estimate, decompose, specify, the model override, board create / rename /
   archive / export / import and `PUT /orchestration` are exercised against `FakeKanbanService`
   (`KanbanAIActionsTests`, `KanbanBoardManagementTests`, `KanbanIntegrationTests`) and the in-process stub server

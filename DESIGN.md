@@ -477,7 +477,10 @@ toolbar. Minimum window 820 × 520.
   running. Footer: connection dot plus the backend in two or three words ("Hermes Desktop", "hermes
   serve", "Private hermes serve") so it never truncates at the 220 pt minimum; the full mode is the
   tooltip.
-- **Group Chat:** toolbar (room name + member count, Stop, room menu), turn ribbon, timeline, note bar,
+  Group Chats are ordered pinned first, then the user's order (Move Up / Move Down in the row menu, or drag a
+  row onto another in the same group: the target row gets a 2 pt `ring` outline while a room hovers over it).
+- **Group Chat:** toolbar (room picture or avatar stack, room name + "N of M available", Stop, room menu),
+  turn ribbon, timeline, note bar,
   composer. Member messages are not bubbled: avatar + coloured name + text at reading width (max
   720 pt), which keeps long answers comfortable. The user's messages are right-aligned soft bubbles (max
   520 pt). Action cards (approval, retry) start on the content edge and are capped at 560 pt. Room-level
@@ -598,11 +601,14 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `room-avatar-stack`: the first two members as 18 pt tiles in the 28 pt slot, the second offset 10 pt
   down-right. The back tile is cut out 1.5 pt around the front one (a real transparent gap, not a
   stroke in a guessed background colour), so it reads over the sidebar material and the toolbar and
-  neither tile is clipped.
+  neither tile is clipped. A room with a local picture (room menu → Choose Picture…) shows that instead: one
+  28 pt tile at the avatar radius with a hairline ring, in the toolbar and the sidebar row. Its tooltip in the
+  toolbar lists the members that are not available and why.
 - `sidebar-row`: avatar, title, subtitle; hover tint; the selection background is one shared shape that
   slides between rows. A room row puts the last message's age (caption, muted, `5m` / `3h` / `2d` / `Nov 3`)
   after its title and the last message ("Alpha: …", "You: …") as its subtitle, falling back to the members
-  before any message. Its trailing slot holds the `needs-you` badge, else the breathing round dot.
+  before any message. Its trailing slot holds the `needs-you` badge, else the breathing round dot; a pinned
+  room (or bot) shows a muted `pin.fill` before it.
 - `needs-you` badge: a small `attention` capsule (soft fill, hairline ring) with an SF Symbol: `at` when a bot
   wrote `@user` that the user has neither answered nor seen, `hand.raised.fill` when a bot waits on an
   approval. Never on the room that is on screen.
@@ -666,7 +672,10 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   Chat and Group Chat. Images show inline as a thumbnail (fits 320×240 pt, never upscaled, chip radius);
   other files show as a chip (kind symbol, file name, size; max width 320 pt). Nothing opens without a
   click, and every Open / Reveal re-checks the path (`MediaSafety`): a missing or refused file shows a
-  disabled chip with the reason. Context menu: Open, Reveal in Finder, Copy Path.
+  disabled chip with the reason. Context menu: Open, Reveal in Finder, Copy Path. Files the user sent in a
+  room (the app's own copies) use the same tiles, but a click opens Quick Look instead of the default app
+  (formats that can run code are still only revealed); the menu is Quick Look, Open, Reveal in Finder, Copy
+  Path; a deleted copy's chip reads "This copy was deleted, so the bots can no longer open it either."
 - `round-divider`: hairline, caption label, hairline; the two rules take equal widths so the label is
   centred on the timeline. Labels are plain words: "Discussion settled", "Discussion ended · round limit
   reached", "Stopped", "Renamed to …" (the backend `reason_code` stays in the log, not on screen).

@@ -113,10 +113,12 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **B17** Voice: dictation and read aloud (L)
 
 ### Group Chat
-- [ ] **C1.4** Pin and reorder rooms (local) (S)
-- [ ] **C1.8** Room availability ("N of M available"), local room picture (S)
-- [ ] **C2.1** Polish Group Chat attachments (already sent as file references) (S)
-- [ ] **C2.3** Spike: can room members' clarifying questions be answered from the app? (S)
+- [x] **C1.4** Pin and reorder rooms (local) (S)
+- [x] **C1.8** Room availability ("N of M available"), local room picture (S)
+- [x] **C2.1** Polish Group Chat attachments (already sent as file references) (S)
+- [x] **C2.3** Spike: can room members' clarifying questions be answered from the app? (S). Answer: no; no
+      `groups.*` event or method carries them ([groups-contract.md §8](groups-contract.md#8-clarifying-questions-from-room-members-c23-spike)).
+      Answering them needs a backend change (backlog).
 
 ### Kanban
 - [x] **K6** Kanban AI actions: estimate, decompose, specify, reassign (M)
@@ -159,6 +161,8 @@ Kept for reference; not planned.
 - **D11** Spotlight indexing of conversations (M)
 - **D14** Token and cost usage per bot (M)
 - **D16** Undo send in rooms (S)
+- **C2.4** Answer room members' clarifying questions in the room (needs a backend pending action and answer
+  method, see C2.3) (M)
 - **Group Chat features hosted rooms do not support:** holding/pausing individual bots (`@all stop` / resume),
   "this session" / "always" approvals, compressing a member's history. These would need either backend support or a
   second, client-orchestrated room mode (XL).
@@ -166,7 +170,6 @@ Kept for reference; not planned.
 ## Open questions
 
 - **B3**: which gateway RPC backs regenerate / edit / restore.
-- **C2.3**: whether room members' clarifying questions reach the app at all.
 - **K0 / C1.10**: whether plugin APIs (`/api/plugins/kanban/*`, `/api/plugins/bot-activity/*`) accept the session
   token the app already holds.
 - **C1.10**: bots created after the plugin is enabled need it too (hook into A7, or re-run `/setup`).

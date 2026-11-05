@@ -320,3 +320,36 @@ Codes from source, not triggered:
 - Backend restart recovery (lease takeover, `indeterminate` reconciliation), `replay_epoch` handling
   on reconnect.
 - Gated/remote auth (ticket subprotocol).
+
+## 8. Clarifying questions from room members (C2.3 spike)
+
+Question: can a room member's clarifying question (the `clarify` tool) be answered from the app?
+**Answer: no, not through any existing API.** Read from source against Hermes Agent `main` (`8a7a5a905fc`),
+2026-11-06 [src]; no live room was created for this.
+
+- `groups.state.driver_status.pending_actions` has two kinds only: `{kind:"retry", task_id}` and
+  `{kind:"approval", …}` (`tui_gateway/hosted_room_service.py` `status`). The room driver reports a member's
+  pending action from its hidden session's `info` (`tui_gateway/hosted_room_driver.py` `_report_pending_action`),
+  and `HostedRoomServerRPC.info` (`tui_gateway/hosted_room_server_rpc.py`) fills only `pending_approval`. A clarify
+  is never reported.
+- The only answer method in `groups.*` is `groups.approve`, which takes `choice ∈ {once, deny}` for a pending
+  approval (`hosted_room_service.py` `approve_room_task`). There is no `groups.answer` or equivalent, and
+  `groups.log` has no clarify event kind (the room log carries `message.*`, `turn.*`, `room.*` only).
+- What happens instead: a member turn runs in a hidden `bot_room` session (`room_plumbing`, no client transport).
+  If the member calls `clarify`, the session's callback (`tui_gateway/server.py` `_clarify_block`) opens a
+  server→client `clarify` request (`tui_gateway/server_requests.py` `send`). With no WebSocket client attached the
+  request counts as answerable, so it is registered and its frame goes to the backend's stdout like every other
+  frame of the hidden session (§5); nobody sees it. The turn then waits until the clarify timeout
+  (`clarify.timeout`, default 3600 s) or the room's turn deadline (`HERMES_AGENT_TIMEOUT` + 30 s, `turn.failed`
+  with `reason_code: turn_deadline_exceeded`), whichever comes first; on a timeout the tool gets
+  `outcome: timed_out` (or `undelivered`) with no answers.
+- The only way to reach that request would be to attach a client to the member's hidden session
+  (`session.resume` / `session.activate` replay `open_requests`) and send a JSON-RPC response to its `srq-…` id.
+  That is not a room API: it takes over room plumbing the room driver owns (lease, transport), bypasses the
+  fenced `groups.*` channel, and breaks the ground rule that Group Chat stays on `groups.*`. The app does not do it.
+
+Conclusion for the app: no answer card. A member that needs the user should write `@user` in its reply; the room
+row shows the "Needs you" badge for that (C1.5) and the user answers in the room. Answering real clarify requests
+needs a backend change (for example a `{kind:"clarify", questions}` pending action from
+`server_requests.open_requests` plus a `groups.answer` method, or turning the `clarify` toolset off for `bot_room`
+sessions as the API server's toolset does). That stays in the roadmap backlog.
