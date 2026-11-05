@@ -27,6 +27,20 @@ final class BotMetaModel: ObservableObject {
 
     func reset() { load([]) }
 
+    /// A re-listed roster of the same connection (after an edit, duplicate or delete): bots with a save in
+    /// flight keep their optimistic state, the rest take the server's, removed bots are dropped.
+    func refresh(_ bots: [Bot]) {
+        var next: [String: BotUIMeta] = [:]
+        for bot in bots { next[bot.name] = inFlight.contains(bot.name) ? (meta[bot.name] ?? bot.uiMeta) : bot.uiMeta }
+        meta = next
+    }
+
+    /// A deleted bot.
+    func forget(_ name: String) {
+        meta[name] = nil
+        inFlight.remove(name)
+    }
+
     subscript(name: String) -> BotUIMeta { meta[name] ?? BotUIMeta() }
 
     func isSaving(_ name: String) -> Bool { inFlight.contains(name) }

@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
     /// Activity panel models per room (`activityModel(for:)`, RoomActivityModel.swift).
     var activityModels: [String: RoomActivityModel] = [:]
     @Published var showCreateRoom = false
+    /// The Edit / Duplicate / Delete bot sheet on screen (AppModel+BotManagement.swift).
+    @Published var botSheet: BotSheet?
     /// `groups.capabilities` answered at connect. False on an older Hermes Agent without `groups.*`:
     /// Group Chat is off (no "+", a notice), Bot Chat still works.
     @Published private(set) var groupsAvailable = true

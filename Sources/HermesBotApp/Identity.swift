@@ -142,6 +142,11 @@ final class AvatarStore: ObservableObject {
         }
     }
 
+    /// A saved avatar (Edit sheet) shows at once; nil forgets it (removed, or the bot was deleted).
+    func replace(_ profile: String, data: Data?) {
+        images[profile] = data.flatMap(NSImage.init(data:))
+    }
+
     func identity(profile: String, title: String? = nil) -> BotIdentity {
         BotIdentity(profile: profile, title: title ?? profile, slot: slots[profile] ?? IdentityPalette.hashSlot(profile),
                     uniqueMonogram: monograms[profile])

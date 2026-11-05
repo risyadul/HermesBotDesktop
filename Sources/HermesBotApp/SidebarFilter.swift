@@ -71,10 +71,17 @@ struct BotRoster: Equatable {
 enum BotRowMenu {
     enum Item: Equatable {
         case open, pin, unpin, hide, unhide, copyHandle
+        /// A8/A9, A11, A12.
+        case edit, duplicate, delete
     }
 
     static func items(_ meta: BotUIMeta) -> [Item] {
         [.open, meta.pinned ? .unpin : .pin, meta.hidden ? .unhide : .hide, .copyHandle]
+    }
+
+    /// Edit…, Duplicate and Delete… (never for the default profile).
+    static func manageItems(_ bot: Bot) -> [Item] {
+        BotDeleteModel.canDelete(bot) ? [.edit, .duplicate, .delete] : [.edit, .duplicate]
     }
 
     static func title(_ item: Item) -> String {
@@ -85,6 +92,9 @@ enum BotRowMenu {
         case .hide: return "Hide Bot"
         case .unhide: return "Unhide Bot"
         case .copyHandle: return "Copy @handle"
+        case .edit: return "Edit…"
+        case .duplicate: return "Duplicate"
+        case .delete: return "Delete…"
         }
     }
 

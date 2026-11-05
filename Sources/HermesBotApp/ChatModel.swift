@@ -16,7 +16,8 @@ final class ChatModel: ObservableObject, Identifiable {
         case failed(String)
     }
 
-    let bot: Bot
+    /// Replaced when the roster is re-listed after an edit (title, description, model).
+    @Published var bot: Bot
     @Published private(set) var phase: Phase = .idle
     @Published var transcript = ChatTranscript()
     /// The composer text. Owned here so it survives switching bots, and so `/undo`-style prefill can set it.

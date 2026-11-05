@@ -144,7 +144,7 @@ struct SidebarView: View {
             .contextMenu { botMenu(bot) }
     }
 
-    /// A1: Open, Pin/Unpin, Hide/Unhide, Copy @handle (`BotRowMenu`).
+    /// A1: Open, Pin/Unpin, Hide/Unhide, Copy @handle; A8/A11/A12: Edit…, Duplicate, Delete… (`BotRowMenu`).
     @ViewBuilder private func botMenu(_ bot: Bot) -> some View {
         let meta = botMeta[bot.name]
         let saving = botMeta.isSaving(bot.name)
@@ -163,8 +163,22 @@ struct SidebarView: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(BotRowMenu.handle(bot), forType: .string)
                 }
+            default:
+                EmptyView()
             }
         }
+        Divider()
+        ForEach(BotRowMenu.manageItems(bot), id: \.self) { item in
+            switch item {
+            case .edit: Button(BotRowMenu.title(item)) { model.editBot(bot.name) }
+            case .duplicate: Button(BotRowMenu.title(item)) { model.duplicateBot(bot.name) }
+            case .delete:
+                Divider()
+                Button(BotRowMenu.title(item), role: .destructive) { model.deleteBot(bot.name) }
+            default: EmptyView()
+            }
+        }
+        .disabled(model.backend == nil || model.botSheet != nil)
     }
 
     private func sectionHeader<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {

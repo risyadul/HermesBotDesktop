@@ -154,6 +154,10 @@ struct RootView: View {
                            onCreate: { name, members in await model.createRoom(name: name, members: members) },
                            onClose: { model.showCreateRoom = false })
         }
+        .motionSheet(isPresented: Binding(get: { model.botSheet != nil }, set: { if !$0 { model.botSheet = nil } }),
+                     motion: motion) {
+            BotSheetContent(sheet: model.botSheet)
+        }
     }
 
     /// One pane at a time: the outgoing pane leaves in the same frame (the selection changes outside any

@@ -42,6 +42,14 @@ final class NotificationCoordinator {
         }
     }
 
+    /// A deleted bot: stop following its chat and withdraw what it posted.
+    func untrack(_ bot: String) {
+        subscriptions[bot] = nil
+        let ids = (chatRequests.removeValue(forKey: bot) ?? []).map { NotificationContent.requestId(bot: bot, request: $0.id) }
+        if !ids.isEmpty { poster?.remove(ids: ids) }
+        updateBadge()
+    }
+
     private func chatRequestsChanged(_ bot: Bot, _ requests: [ServerRequest]) {
         let before = chatRequests[bot.name] ?? []
         chatRequests[bot.name] = requests
