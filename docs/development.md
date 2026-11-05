@@ -95,7 +95,9 @@ Sources/SpikeHarness/       CLI: the M0 groups.* round trip (isolated home): Rou
                             (M0-only raw calls: profiles, create, disband, Member)
 Sources/GroupChatHarness/   CLI: Group Chat scenarios (multi/stop/retry/approve/cleanup/audit)
 Sources/HermesBotApp/       SwiftUI app:
-  HermesBotApp.swift          @main App, AppDelegate (signals, quit cleanup with deadline), RootView, Settings
+  HermesBotApp.swift          @main App: the scenes only (main window, detached panes, Settings, menu bar extra)
+  AppDelegate.swift           launch wiring, signals, quit cleanup with deadline, last-window / reopen policy
+  RootView.swift              the main window: split view, detail pane, sheets
   Updates/                    E3 update check: AppVersion (semver order), UpdatePolicy (GitHubRelease from
                               `releases/latest`, release-page allowlist, daily schedule, what is shown when),
                               UpdateChecker (fetch, hourly tick, NSAlert with notes + Download = open the page),
@@ -209,7 +211,7 @@ Sources/HermesBotApp/       SwiftUI app:
                               while no main window is on screen (setActive), dispatcher polling while a board shows
   DispatcherStatusModel.swift the one dispatcher status model (board chip + Settings), generation-guarded (K8)
   BackgroundServeSettingsModel.swift  Settings → Background: confirmations (path, env override, Switch Now /
-                              At Next Launch, turning off while attached); SettingsSections.swift: the views
+                              At Next Launch, turning off while attached); SettingsSections.swift: the Settings window (SettingsView, SettingsForm) and the views
   KanbanBoardModel.swift      one board: polling (suspendable), lanes, optimistic actions + rollback, details,
                               `.gone` when the board is deleted or archived while open (KanbanService)
   KanbanBoardView.swift       board pane: header, lanes, cards, card menus, dispatcher chip

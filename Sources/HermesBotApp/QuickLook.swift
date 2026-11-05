@@ -71,7 +71,7 @@ enum MediaDrag {
 }
 
 /// Owns what the shared Quick Look panel shows. The panel asks the responder chain for a controller; the app
-/// delegate answers for this one (HermesBotApp.swift), and `show` also sets it directly.
+/// delegate answers for this one (AppDelegate.swift), and `show` also sets it directly.
 @MainActor
 final class QuickLookController: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     static let shared = QuickLookController()

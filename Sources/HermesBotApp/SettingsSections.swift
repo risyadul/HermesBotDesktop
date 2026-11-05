@@ -254,3 +254,44 @@ struct GatewaySection: View {
         .task { await model.refresh() }
     }
 }
+
+// MARK: - Settings window
+
+/// General (motion), Background (E1, SettingsSections.swift), Kanban dispatcher (K8) and Updates (E3).
+struct SettingsView: View {
+    @StateObject private var background = BackgroundServeSettingsModel()
+    var body: some View { SettingsForm(background: background, dispatcher: AppModel.shared.kanban.dispatcher) }
+}
+
+/// The Settings window sizes to this form's full height (every section on screen, nothing below the fold)
+/// and follows it as rows come and go (SettingsLayoutTests).
+struct SettingsForm: View {
+    @ObservedObject var background: BackgroundServeSettingsModel
+    let dispatcher: DispatcherStatusModel
+    var updates: UpdateChecker = .shared
+    @AppStorage(DS.Motion.settingKey) private var motion = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        Form {
+            Section("General") {
+                Toggle("Animate interface changes", isOn: $motion)
+                Text(reduceMotion
+                     ? "Reduce Motion is on in System Settings, so animations stay off."
+                     : "New messages, turn status changes and approvals animate once. Reduce Motion in System Settings also turns this off.")
+                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            NotificationsSection()
+            VoiceSection()  // B17
+            MacIntegrationSection(hotKey: MacIntegration.shared.hotKey)  // D3, D4
+            BackgroundServeSection(model: background)
+            GatewaySection(model: dispatcher)
+            UpdatesSection(checker: updates)
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+        .tint(DS.Palette.primary)
+        .frame(width: DS.Size.settingsWidth)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
