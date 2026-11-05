@@ -264,13 +264,17 @@ struct SettingsView: View {
 }
 
 /// The Settings window sizes to this form's full height (every section on screen, nothing below the fold)
-/// and follows it as rows come and go (SettingsLayoutTests).
+/// and follows it as rows come and go (SettingsLayoutTests), up to the screen's visible height: a form taller
+/// than that (a small display, a larger text size) is capped there and scrolls.
 struct SettingsForm: View {
     @ObservedObject var background: BackgroundServeSettingsModel
     let dispatcher: DispatcherStatusModel
     var updates: UpdateChecker = .shared
+    /// The tallest the form may be (tests pass a small one).
+    var maxHeight: CGFloat = SettingsLayout.maxContentHeight(visibleHeight: NSScreen.main?.visibleFrame.height)
     @AppStorage(DS.Motion.settingKey) private var motion = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var height: CGFloat = 0
     var body: some View {
         Form {
             Section("General") {
@@ -289,9 +293,26 @@ struct SettingsForm: View {
             UpdatesSection(checker: updates)
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
+        // A form that fits never rubber-bands; one capped at the screen scrolls.
+        .scrollDisabled(!SettingsLayout.scrolls(height: height, limit: maxHeight))
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height = $0 }
         .tint(DS.Palette.primary)
         .frame(width: DS.Size.settingsWidth)
+        .frame(maxHeight: maxHeight)
         .fixedSize(horizontal: false, vertical: true)
     }
+}
+
+enum SettingsLayout {
+    /// The window's title bar, which the screen's visible frame must also hold.
+    static let titleBar: CGFloat = 32
+
+    /// The screen's visible height less the title bar (no screen: unbounded).
+    static func maxContentHeight(visibleHeight: CGFloat?) -> CGFloat {
+        guard let visibleHeight, visibleHeight > titleBar else { return .infinity }
+        return visibleHeight - titleBar
+    }
+
+    /// The form reached the cap, so its content may run past it: scrolling is on.
+    static func scrolls(height: CGFloat, limit: CGFloat) -> Bool { limit.isFinite && height >= limit - 1 }
 }
