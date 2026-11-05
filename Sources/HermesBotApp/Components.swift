@@ -254,6 +254,14 @@ struct MessageBody: View {
                 }
             }
         }
+        // Model text is untrusted: a rendered link opens only as a web page, never a file, share or app scheme.
+        .environment(\.openURL, OpenURLAction { url in Self.opensLink(url) ? .systemAction : .discarded })
+    }
+
+    /// Only http and https links in model output are opened (file:, smb:, custom schemes are dropped).
+    static func opensLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), url.host?.isEmpty == false else { return false }
+        return scheme == "http" || scheme == "https"
     }
 
     enum Block: Equatable { case prose(String), code(String) }

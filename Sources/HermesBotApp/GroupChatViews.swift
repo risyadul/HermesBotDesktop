@@ -78,10 +78,26 @@ final class RoomModel: ObservableObject, Identifiable {
     }
 
     private func syncFailed(_ error: Error) {
-        let msg = Redaction.describe(error)
-        note("sync failed: \(msg)")
-        if msg.contains("4114") || msg.contains("not found") { markDisbanded() }
-        if case GatewayClient.ClientError.closed = error { poller.stop() }
+        note("sync failed: \(Redaction.describe(error))")
+        switch Self.syncFailure(error) {
+        case .roomGone: markDisbanded()
+        case .connectionLost: poller.stop()  // the socket is gone: polling again cannot succeed
+        case .transient: break
+        }
+    }
+
+    enum SyncFailure: Equatable { case roomGone, connectionLost, transient }
+
+    /// Room-not-found is RPC code 4114 (docs/groups-contract.md); only that marks a room disbanded,
+    /// never a message text. A closed or failed socket ends polling; anything else (timeout, another
+    /// RPC error) is retried on the next poll.
+    nonisolated static func syncFailure(_ error: Error) -> SyncFailure {
+        switch error {
+        case let e as GatewayClient.RPCError: return e.code == 4114 ? .roomGone : .transient
+        case GatewayClient.ClientError.closed, GatewayClient.ClientError.transport, GatewayClient.ClientError.notConnected:
+            return .connectionLost
+        default: return .transient
+        }
     }
 
     private func markDisbanded() {

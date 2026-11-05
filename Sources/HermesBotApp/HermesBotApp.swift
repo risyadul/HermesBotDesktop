@@ -77,6 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// continuations of the async cleanup (and the SIGTERM source on the main queue) never ran,
     /// so a scripted quit hung until SIGKILL (evidence/m1/app-attach-console.log). Instead: cancel,
     /// clean up on the normal run loop, then terminate again.
+    ///
+    /// Cleanup has an overall deadline (`quitDeadline`): a stuck backend (an RPC that never answers)
+    /// must not hang ⌘Q, Ctrl+C or SIGTERM. Past it the app exits anyway; an owned backend is stopped
+    /// first, and live sessions are reaped by `close_on_disconnect`.
+    static let quitDeadline: TimeInterval = 5
     private var cleanupDone = false
     private var cleanupStarted = false
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -86,11 +91,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppModel.shared.log("quit requested: cleaning up before exit")
             Task { @MainActor in
                 await AppModel.shared.shutdown()
-                self.cleanupDone = true
-                NSApp.terminate(nil)
+                self.finishTermination()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.quitDeadline) {
+                MainActor.assumeIsolated {
+                    guard !self.cleanupDone else { return }
+                    AppModel.shared.abandonShutdown(after: Self.quitDeadline)
+                    self.finishTermination()
+                }
             }
         }
         return .terminateCancel
+    }
+
+    @MainActor private func finishTermination() {
+        guard !cleanupDone else { return }
+        cleanupDone = true
+        NSApp.terminate(nil)
     }
 }
 
@@ -103,6 +120,10 @@ final class ChatModel: ObservableObject, Identifiable {
     let bot: Bot
     @Published private(set) var transcript = ChatTranscript()
     private(set) var session: BotChatSession?
+    /// `BotChatSession.open` in flight: `close()` waits for it, so a session opened while the app quits
+    /// is still closed (and deleted) instead of outliving cleanup.
+    private var opening: Task<BotChatSession, Error>?
+    private var closed = false
     var onTurnEvent: ((String, ChatModel) -> Void)?
 
     var lines: [ChatLine] { transcript.lines }
@@ -125,7 +146,11 @@ final class ChatModel: ObservableObject, Identifiable {
     private func run(_ text: String, backend: Backend, title: String) async {
         do {
             if session == nil {
-                let s = try await BotChatSession.open(backend, bot: bot, title: title)
+                let open = Task { [bot] in try await BotChatSession.open(backend, bot: bot, title: title) }
+                opening = open
+                defer { opening = nil }
+                let s = try await open.value
+                guard !closed else { return }  // `close()` awaited `open` and closes this session
                 // FIFO onto the main actor: one Task per event would not guarantee delta order.
                 s.onEvent { [weak self] e in DispatchQueue.main.async { MainActor.assumeIsolated { self?.apply(e) } } }
                 session = s
@@ -155,8 +180,11 @@ final class ChatModel: ObservableObject, Identifiable {
     var streamingText: String { transcript.lastBotText }
 
     func close() async -> [String] {
-        guard let s = session else { return [] }
+        closed = true
+        var pending = session
         session = nil
+        if pending == nil, let open = opening { pending = try? await open.value }
+        guard let s = pending else { return [] }
         let keep = ProcessInfo.processInfo.environment["HERMES_BOT_APP_KEEP_SESSIONS"] == "1"
         return await s.close(deleteStored: !keep)
     }
@@ -174,10 +202,14 @@ final class AppModel: ObservableObject {
     @Published var rooms: [RoomSummary] = []
     @Published var roomModels: [String: RoomModel] = [:]
     @Published var showCreateRoom = false
+    /// `groups.capabilities` answered at connect. False on an older Hermes Agent without `groups.*`:
+    /// Group Chat is off (no "+", a notice), Bot Chat still works.
+    @Published private(set) var groupsAvailable = true
     /// Rooms this app run created (disbanded on quit only with HERMES_BOT_APP_DISBAND_ROOMS=1).
     private(set) var createdRooms: [String] = []
     var selectedBot: String? { if case .bot(let n)? = selection { return n }; return nil }
     private(set) var backend: Backend?
+    private var disconnectToken: UUID?
     private var connecting = false
     private let started = Date()
     private var uiLog: [JSONValue] = []
@@ -196,23 +228,29 @@ final class AppModel: ObservableObject {
         return c
     }
 
-    /// Also the Try Again action. A failed attempt keeps no connection (`ConnectFlow`), so calling this
-    /// again after `.failed` really reconnects; while an attempt runs, or once connected, it is a no-op.
+    /// Also the Try Again action. A failed attempt keeps no connection (`ConnectFlow`), and a lost
+    /// connection is dropped (`backendLost`), so calling this again after `.failed` really reconnects;
+    /// while an attempt runs, or once connected, it is a no-op.
     func connect() async {
         guard !connecting, backend == nil else { return }
         connecting = true
         defer { connecting = false }
         phase = .connecting
+        AvatarStore.shared.reset()  // retry avatars that failed on the previous connection
         do {
             _ = try await ConnectFlow.open(
                 connect: { try await Backend.connect(log: { line in Task { @MainActor in AppModel.shared.log(line) } }) },
                 load: { b in
                     self.backend = b
+                    self.disconnectToken = b.onDisconnect { [weak self] reason in
+                        Task { @MainActor in self?.backendLost(b, reason: reason) }
+                    }
                     self.modeText = b.mode.description
                     self.bots = try await Bot.list(b)
                     self.log("profiles.list → \(self.bots.map(\.name))")
                 },
                 release: { b in
+                    self.unsubscribeDisconnect(b)
                     self.backend = nil
                     self.bots = []
                     self.modeText = ""
@@ -221,7 +259,9 @@ final class AppModel: ObservableObject {
                     self.log(owned.map { "load failed: owned backend pid \($0.pid) stopped" }
                              ?? "load failed: socket closed, attached backend left running (not ours)")
                 })
-            await loadRooms()
+            await checkGroups()
+            if groupsAvailable { await loadRooms() }
+            guard backend != nil else { return }  // lost while loading: `backendLost` set `.failed`
             phase = .connected
             autochat()
             autoroom()
@@ -229,6 +269,40 @@ final class AppModel: ObservableObject {
             let msg = Redaction.describe(error)
             phase = .failed(msg)
             log("connect failed: \(msg)")
+        }
+    }
+
+    private func unsubscribeDisconnect(_ b: Backend) {
+        if let t = disconnectToken { b.unsubscribe(t) }
+        disconnectToken = nil
+    }
+
+    /// The gateway socket of the current backend is gone (backend quit or crashed, network drop):
+    /// stop every room poller, drop the connection and its chats, and show `.failed` with Try Again.
+    func backendLost(_ b: Backend, reason: String) {
+        guard backend === b else { return }  // a stale backend (already released or replaced)
+        log("backend disconnected: \(reason)")
+        unsubscribeDisconnect(b)
+        for m in roomModels.values { m.shutdown() }
+        roomModels = [:]
+        chats = [:]
+        rooms = []
+        bots = []
+        modeText = ""
+        backend = nil
+        Task.detached { b.shutdown() }  // stops an owned backend; an attached one is left running
+        phase = .failed("Lost the connection to Hermes (\(reason)).")
+    }
+
+    /// `groups.capabilities`: an older Hermes Agent has no `groups.*`, and Group Chat stays off.
+    private func checkGroups() async {
+        guard let groups else { return }
+        do {
+            _ = try await groups.capabilities()
+            groupsAvailable = true
+        } catch {
+            groupsAvailable = false
+            log("groups.capabilities failed, Group Chat off: \(Redaction.describe(error))")
         }
     }
 
@@ -292,6 +366,7 @@ final class AppModel: ObservableObject {
     }
 
     func shutdown() async {
+        if let b = backend { unsubscribeDisconnect(b) }  // our own close is not a lost connection
         for m in roomModels.values { m.shutdown() }
         if ProcessInfo.processInfo.environment["HERMES_BOT_APP_DISBAND_ROOMS"] == "1" {
             for id in createdRooms {
@@ -309,6 +384,18 @@ final class AppModel: ObservableObject {
             await Task.detached { b.shutdown() }.value
             if let owned { log("owned backend pid \(owned.pid) stopped, running=\(owned.isRunning)") }
             else { log("attached backend left running (not ours)") }
+            backend = nil
+        }
+        writeEvidence()
+    }
+
+    /// Quit deadline passed with `shutdown()` still waiting on the backend: stop an owned backend
+    /// directly (briefly) so it does not outlive the app; sessions are reaped by `close_on_disconnect`.
+    func abandonShutdown(after seconds: TimeInterval) {
+        log("cleanup still running after \(Int(seconds)) s: quitting anyway")
+        if let owned = backend?.owned {
+            owned.stop(grace: 1)
+            log("owned backend pid \(owned.pid) stopped, running=\(owned.isRunning)")
         }
         writeEvidence()
     }
@@ -559,10 +646,10 @@ struct RootView: View {
             .navigationTitle("Hermes Bot")
         case .connected:
             EmptyStateView(symbol: "bubble.left.and.bubble.right", title: "Pick a bot or a group chat",
-                           message: model.bots.count >= 2
+                           message: model.bots.count >= 2 && model.groupsAvailable
                                ? "Chat 1:1 with one bot, or put 2 to 6 bots in a group chat that answers in turns."
                                : "Chat 1:1 with a bot from the sidebar.") {
-                if model.bots.count >= 2 {
+                if model.bots.count >= 2 && model.groupsAvailable {
                     Button("New Group Chat") { model.showCreateRoom = true }
                         .buttonStyle(DSButtonStyle(kind: .secondary))
                 }
@@ -589,9 +676,14 @@ struct SidebarView: View {
                 VStack(alignment: .leading, spacing: DS.Space.s0) {
                     sectionHeader("Group Chats") {
                         IconButton(symbol: "plus", label: "New group chat") { model.showCreateRoom = true }
-                            .disabled(model.backend == nil || model.bots.count < 2)
+                            .disabled(model.backend == nil || model.bots.count < 2 || !model.groupsAvailable)
                     }
-                    if model.rooms.isEmpty {
+                    if !model.groupsAvailable {
+                        Text("Group Chat needs Hermes Agent v2026.9.14 or later.")
+                            .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
+                    } else if model.rooms.isEmpty {
                         Text(model.phase.isConnected ? "No group chats yet" : "Not loaded yet")
                             .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                             .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
@@ -850,7 +942,9 @@ struct BotChatView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: DS.Size.proseNarrow)
             }
-            Text("Separate from group chats. The session closes when the app quits.")
+            Text(ProcessInfo.processInfo.environment["HERMES_BOT_APP_KEEP_SESSIONS"] == "1"
+                 ? "Separate from group chats. The session is kept when the app quits."
+                 : "Separate from group chats. The session is deleted when the app quits.")
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: DS.Size.proseNarrow)
