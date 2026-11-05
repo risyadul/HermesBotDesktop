@@ -24,6 +24,11 @@ public enum ChatEvent: Sendable, Equatable {
     /// `session.info` reporting `running: false` (`server.py` `_session_info`): the backend has no turn
     /// running on this session. Settles a joined turn whose end this client missed.
     case idle
+    /// `session.info` with a model (`SessionInfoSnapshot`): the composer's model, effort and context gauge.
+    /// Delivered before the `.idle` / `.other("session.info")` of the same frame.
+    case info(SessionInfoSnapshot)
+    /// `session.usage {usage}`: a mid-turn context usage tick.
+    case usage(ContextUsage)
     case other(String)                             // anything else for this session_id
 }
 
@@ -45,12 +50,16 @@ public struct ChatCompletion: Sendable, Equatable {
     /// An output hook rewrote the final after streaming: it is the authoritative replacement even
     /// without a prefix relationship to what streamed (`prompt_turn.py:962-965`).
     public var responseTransformed: Bool
+    /// The turn's final context usage (`usage`), when the payload carries context figures.
+    public var usage: ContextUsage?
 
     public init(text: String?, status: String? = "complete", error: String? = nil,
-                responsePreviewed: Bool = false, responseReused: Bool = false, responseTransformed: Bool = false) {
+                responsePreviewed: Bool = false, responseReused: Bool = false, responseTransformed: Bool = false,
+                usage: ContextUsage? = nil) {
         self.text = text; self.status = status; self.error = error
         self.responsePreviewed = responsePreviewed; self.responseReused = responseReused
         self.responseTransformed = responseTransformed
+        self.usage = usage
     }
 
     init(payload p: JSONValue?) {
@@ -58,6 +67,7 @@ public struct ChatCompletion: Sendable, Equatable {
                   status: p?["status"]?.string, error: p?["error"]?.string,
                   responsePreviewed: p?["response_previewed"]?.bool ?? false,
                   responseReused: p?["response_reused"]?.bool ?? false,
-                  responseTransformed: p?["response_transformed"]?.bool ?? false)
+                  responseTransformed: p?["response_transformed"]?.bool ?? false,
+                  usage: ContextUsage(p?["usage"]))
     }
 }

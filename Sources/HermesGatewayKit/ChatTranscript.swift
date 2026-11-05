@@ -113,6 +113,9 @@ public struct ChatTranscript: Sendable, Equatable {
     private var unsentUserId: UUID?
     private var segments: [String] = []
     private var interimBoundary = 0
+    /// The latest `redirect`: its user line and the live bubble it sealed (reopened by `retract`).
+    private var redirectUser: UUID?
+    private var redirectSealed: UUID?
 
     public init() {}
 
@@ -140,6 +143,43 @@ public struct ChatTranscript: Sendable, Equatable {
         }
         unsentUserId = nil
         fail(message)
+    }
+
+    /// A correction for the running turn (`session.redirect`), recorded before the RPC goes out because the
+    /// redirect aborts the model request and its events can race the reply (Desktop `use-prompt-actions`):
+    /// what streamed so far is sealed as its own segment, the user's line goes below it, and the turn's next
+    /// output lands below that. The turn stays busy. Returns the line's id (`retract` takes it back when the
+    /// backend refused), nil when no turn runs or the text is blank.
+    public mutating func redirect(_ raw: String) -> UUID? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard busy, !text.isEmpty else { return nil }
+        sealThought()
+        let sealed = liveIndex.map { lines[$0].id }
+        flushLiveAsSegment()
+        draftingTool = nil
+        let line = ChatLine(role: .user, text: text)
+        redirectUser = line.id
+        redirectSealed = sealed.flatMap { id in lines.contains { $0.id == id } ? id : nil }
+        lines.append(line)
+        turnStart = lines.count
+        return line.id
+    }
+
+    /// Removes a line added by `redirect` whose correction never reached the turn. When nothing arrived
+    /// after it, the bubble the redirect sealed becomes live again, so the reply keeps growing in one piece.
+    public mutating func retract(_ id: UUID) {
+        guard let i = lines.firstIndex(where: { $0.id == id }) else { return }
+        let sealedBot = redirectUser == id ? redirectSealed : nil
+        if redirectUser == id { redirectUser = nil; redirectSealed = nil }
+        let wasLast = i == lines.count - 1
+        removeLine(at: i)
+        if turnStart > i { turnStart -= 1 }
+        guard busy, wasLast, liveIndex == nil, thoughtIndex == nil, let bot = sealedBot, let b = lines.indices.last,
+              lines[b].id == bot, segments.last == lines[b].text.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        segments.removeLast()
+        interimBoundary = min(interimBoundary, segments.count)
+        lines[b].streaming = true
+        liveIndex = b
     }
 
     /// Ends a running turn this client gave up waiting on (Stop sent, no settling event arrived) with a
@@ -266,7 +306,7 @@ public struct ChatTranscript: Sendable, Equatable {
         case .reasoningAvailable(let text):
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, busy || liveIndex != nil else { return }
             replaceReasoning(text)
-        case .status, .other, .request, .requestCancelled, .approvalsCancelled, .resumed:
+        case .status, .other, .request, .requestCancelled, .approvalsCancelled, .resumed, .info, .usage:
             break
         }
     }

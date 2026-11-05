@@ -132,6 +132,8 @@ do {
         case .other(let type): box.add(["t": .number(t), "type": .string(type)])
         case .idle: box.add(["t": .number(t), "type": "session.info", "running": false])
         case .resumed: box.add(["t": .number(t), "type": "session.resumed"])
+        case .info: box.add(["t": .number(t), "type": "session.info"])
+        case .usage: box.add(["t": .number(t), "type": "session.usage"])
         case .toolGenerating, .toolStarted, .toolCompleted, .request, .requestCancelled, .approvalsCancelled:
             box.add(["t": .number(t), "type": "kit.parity-event"])
         }
