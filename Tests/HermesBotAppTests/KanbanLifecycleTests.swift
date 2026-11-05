@@ -154,6 +154,21 @@ final class KanbanLifecycleTests: XCTestCase {
                        "only Settings on screen (the main window minimised): paused")
     }
 
+    /// Regression (live UI test): an app launched behind other windows connected while off screen and the
+    /// Boards section said "Not loaded yet" forever. The first list loads anyway; only refreshes pause.
+    func testConnectingWhileOffScreenStillLoadsTheFirstList() async throws {
+        let api = fake()
+        let hub = KanbanHub(sleep: Self.fast)
+        hub.setActive(false)
+        hub.connect(api: api)
+        try await waitUntil { hub.availability == .available }
+        XCTAssertEqual(api.count("boards"), 1)
+        XCTAssertFalse(hub.isPolling, "no periodic refresh while off screen")
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(api.count("boards"), 1, "still one fetch while hidden")
+        hub.disconnect()
+    }
+
     func testInactiveHubPausesTheListBoardsAndDispatcherAndResumes() async throws {
         let api = fake()
         let hub = KanbanHub(sleep: Self.fast)

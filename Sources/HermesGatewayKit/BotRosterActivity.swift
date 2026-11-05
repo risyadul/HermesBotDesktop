@@ -99,7 +99,10 @@ public struct BotPreview: Sendable, Equatable {
     public init(text: String, fromBot: String? = nil) { self.text = text; self.fromBot = fromBot }
 
     public init?(_ raw: String) {
-        var flat = raw.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        // MEDIA:<path> tags are file sends, not words: a row shows the file's name, never its local path.
+        let (spoken, media) = MediaTags.split(raw)
+        let files = media.map { "📎 " + URL(fileURLWithPath: $0.path).lastPathComponent }.joined(separator: " ")
+        var flat = (spoken + " " + files).split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
         guard !flat.isEmpty else { return nil }
         var sender: String?
         if let m = flat.firstMatch(of: Self.a2a) {

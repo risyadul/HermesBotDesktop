@@ -47,6 +47,9 @@ final class BotRosterActivityTests: XCTestCase {
         XCTAssertEqual(BotPreview("Message from 🤖 Scout (@scout): found it"), BotPreview(text: "found it", fromBot: "scout"))
         XCTAssertEqual(BotPreview("message from agent 'Planner': plan\nready"), BotPreview(text: "plan ready", fromBot: "planner"))
         XCTAssertEqual(BotPreview("**Done** with `make`"), BotPreview(text: "Done with make"))
+        // Regression (live UI test): a file send showed its raw local path ("MEDIA:/Users/…") in the row.
+        XCTAssertEqual(BotPreview("MEDIA:/Users/someone/shots/login.png"), BotPreview(text: "📎 login.png"))
+        XCTAssertEqual(BotPreview("Here it is\nMEDIA:/tmp/report.pdf"), BotPreview(text: "Here it is 📎 report.pdf"))
         XCTAssertEqual(BotPreview("## Heading"), BotPreview(text: "Heading"))
         XCTAssertEqual(BotPreview("Message from 🤖 Scout (@scout):")?.text, "…")
         let long = BotPreview(String(repeating: "a", count: 500))

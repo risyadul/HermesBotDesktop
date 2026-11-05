@@ -13,6 +13,21 @@ final class MacIntegrationTests: XCTestCase {
     private var suite = ""
     private var defaults: UserDefaults!
 
+    /// Regression: binding the menu bar extra's `isInserted` straight to @AppStorage looped at 100% CPU,
+    /// because AppKit writes the same value back on every menu bar update. Only real changes may be stored.
+    func testMenuBarInsertionStoresOnlyRealChanges() {
+        var stored = true
+        var writes = 0
+        let binding = MenuBarScene.insertion(get: { stored }, set: { stored = $0; writes += 1 })
+        for _ in 0..<5 { binding.wrappedValue = true }
+        XCTAssertEqual(writes, 0, "same-value writes from AppKit must not touch the setting")
+        binding.wrappedValue = false
+        XCTAssertEqual(writes, 1)
+        XCTAssertFalse(stored)
+        binding.wrappedValue = false
+        XCTAssertEqual(writes, 1)
+    }
+
     override func setUp() async throws {
         suite = "hba-macint-test-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite)

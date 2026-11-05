@@ -111,12 +111,21 @@ struct MenuBarScene: Scene {
     @AppStorage(MenuBarScene.settingKey) private var shown = true
 
     var body: some Scene {
-        MenuBarExtra(isInserted: $shown) {
+        // Not `$shown`: AppKit writes `isInserted` back on every menu bar update, and each write to the
+        // @AppStorage key re-evaluates the App body, which updates the menu bar extras again: a main-thread
+        // loop at 100% CPU that kept the app from ever connecting. Only a real change is stored.
+        MenuBarExtra(isInserted: Self.insertion(get: { shown }, set: { shown = $0 })) {
             MenuBarContent(app: AppModel.shared)
         } label: {
             MenuBarLabel(badge: MenuBarBadge.shared)
         }
         .menuBarExtraStyle(.window)
+    }
+
+    /// A binding that forwards only changed values, so repeated same-value writes from AppKit never touch the
+    /// stored setting (and never re-render the scene).
+    static func insertion(get: @escaping () -> Bool, set: @escaping (Bool) -> Void) -> Binding<Bool> {
+        Binding(get: get, set: { value in if value != get() { set(value) } })
     }
 }
 

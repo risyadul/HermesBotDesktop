@@ -132,7 +132,13 @@ final class KanbanHub: ObservableObject {
             return
         }
         cardWatcher.start(api: api)
-        if isActive { startLoop() }
+        if isActive {
+            startLoop()
+        } else {
+            // Off screen (e.g. launched behind other windows): pausing stops the periodic refresh, but the
+            // sidebar still gets its first list, or it would say "Not loaded yet" until the window shows.
+            Task { [weak self] in await self?.refreshBoards() }
+        }
     }
 
     /// Connection lost or app quitting: every board stops polling and the list empties.
