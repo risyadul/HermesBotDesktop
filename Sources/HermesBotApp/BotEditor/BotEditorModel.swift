@@ -72,6 +72,16 @@ final class BotEditorModel: ObservableObject, Identifiable {
         description = openedDescription
     }
 
+    /// The Title field's placeholder while no Bot Mode title is set: the name the bot shows now, the profile's
+    /// `display_name` or else its name. `profiles.list` sends `display_name: ""` for a profile without one, and
+    /// that empty prompt left the field blank (live UI test 2026-11-06, round 2).
+    var titlePlaceholder: String { Self.titlePlaceholder(bot) }
+
+    nonisolated static func titlePlaceholder(_ bot: Bot) -> String {
+        let display = bot.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return display.isEmpty ? bot.name : display
+    }
+
     // MARK: dirty fields
 
     var dirtyFields: Set<Field> {

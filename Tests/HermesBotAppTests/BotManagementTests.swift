@@ -528,4 +528,16 @@ final class BotManagementTests: XCTestCase {
         app.presentDuplicate(bot("alpha"), service: s)
         guard case .duplicate? = app.botSheet else { return XCTFail("no duplicate sheet") }
     }
+
+    /// Live UI test 2026-11-06 (round 2): a bot with no Bot Mode title showed an empty Title field with no
+    /// placeholder, because `profiles.list` sends `display_name: ""`.
+    func testTitlePlaceholderIsTheNameTheBotShowsNow() {
+        let s = FakeService()
+        let empty = BotEditorModel(bot: Bot(["name": "generalist", "display_name": ""])!, service: s, hadAvatar: false)
+        XCTAssertEqual(empty.title, "", "no title set: the field starts empty")
+        XCTAssertEqual(empty.titlePlaceholder, "generalist", "an empty display_name falls back to the name")
+        XCTAssertEqual(BotEditorModel.titlePlaceholder(Bot(["name": "alpha"])!), "alpha", "no display_name at all")
+        XCTAssertEqual(BotEditorModel.titlePlaceholder(Bot(["name": "alpha", "display_name": "  "])!), "alpha")
+        XCTAssertEqual(BotEditorModel.titlePlaceholder(Bot(["name": "alpha", "display_name": "Alpha Bot"])!), "Alpha Bot")
+    }
 }
