@@ -26,6 +26,11 @@ protocol KanbanService: Sendable {
                           uploadedBy: String) async throws -> KanbanAttachment?
     func downloadAttachment(_ id: Int, board: String?) async throws -> Data
     func deleteAttachment(_ id: Int, board: String?) async throws
+    // K5 workers (KanbanWorkers.swift in HermesGatewayKit; KanbanWorkersModel.swift)
+    func activeWorkers(board: String?) async throws -> KanbanActiveWorkers
+    func run(_ runId: Int, board: String?) async throws -> KanbanRun
+    func inspectRun(_ runId: Int, board: String?) async throws -> KanbanRunProcess
+    func terminateRun(_ runId: Int, board: String?, reason: String?) async throws
 }
 
 extension KanbanAPI: KanbanService {}
@@ -249,6 +254,8 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     @Published private(set) var lastSync: Date?
     @Published private(set) var serverNow: Int?
     @Published private(set) var assignees: [KanbanAssignee] = []
+    /// "Show archived" (K4): the board is fetched with `include_archived` and the archived lane shows.
+    @Published private(set) var includeArchived = false
 
     @Published private(set) var selectedTaskId: String?
     @Published private(set) var detail: KanbanTaskDetail?
@@ -297,8 +304,19 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         self.slug = slug; self.api = api; self.sleep = sleep
     }
 
-    /// Lanes on screen: server lanes with the pending actions drawn over them, empty archive hidden.
-    var lanes: [KanbanLane] { KanbanColumns.visible(Self.overlay(serverLanes, pending)) }
+    /// Lanes on screen: server lanes with the pending actions drawn over them, empty archive hidden (kept
+    /// while "Show archived" is on).
+    var lanes: [KanbanLane] {
+        let all = Self.overlay(serverLanes, pending)
+        return includeArchived ? all : KanbanColumns.visible(all)
+    }
+
+    /// Turns "Show archived" on or off and fetches the board again at once.
+    func setIncludeArchived(_ on: Bool) {
+        guard on != includeArchived else { return }
+        includeArchived = on
+        Task { await refresh() }
+    }
     var isPolling: Bool { loop != nil }
     var selectedTask: KanbanTask? {
         guard let id = selectedTaskId else { return nil }
@@ -401,7 +419,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         let mine = fetchSeq, actionsAtStart = actionsDone
         pollCount += 1
         do {
-            let board = try await api.board(slug, includeArchived: false, tenant: nil)
+            let board = try await api.board(slug, includeArchived: includeArchived, tenant: nil)
             guard gen == generation, mine > appliedFetch else { droppedStale += 1; return .dropped }
             guard actionsAtStart == actionsDone else { droppedStale += 1; return .stale }
             appliedFetch = mine
@@ -500,7 +518,7 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
             pending.removeAll { $0.seq == p.seq }
             actionsDone += 1
             // Keep the change on screen until the next poll confirms it.
-            if let updated { serverLanes = Self.place(updated, in: serverLanes) } else { serverLanes = Self.overlay(serverLanes, [p]) }
+            if let updated { serverLanes = Self.place(updated, in: serverLanes, keepArchived: includeArchived) } else { serverLanes = Self.overlay(serverLanes, [p]) }
             if selectedTaskId == taskId { Task { await loadDetail() } }
             refreshIfPolling()
             return true
@@ -733,11 +751,14 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     }
 
     /// `task` removed from every lane and inserted into the lane named by its status (dropped when that lane
-    /// is not on the board, and always when archived: the board is fetched without archived cards).
-    static func place(_ task: KanbanTask, in lanes: [KanbanLane]) -> [KanbanLane] {
+    /// is not on the board, and when archived unless `keepArchived`: "Show archived" is off, so the board is
+    /// fetched without archived cards).
+    static func place(_ task: KanbanTask, in lanes: [KanbanLane], keepArchived: Bool = false) -> [KanbanLane] {
         lanes.map { lane in
             let rest = lane.tasks.filter { $0.id != task.id }
-            guard lane.name == task.status, task.status != KanbanColumns.archived else { return KanbanLane(name: lane.name, tasks: rest) }
+            guard lane.name == task.status, keepArchived || task.status != KanbanColumns.archived else {
+                return KanbanLane(name: lane.name, tasks: rest)
+            }
             // Same lane: keep its slot unless the order key changed.
             if let i = lane.tasks.firstIndex(where: { $0.id == task.id }), lane.tasks[i].priority == task.priority {
                 var same = lane.tasks
