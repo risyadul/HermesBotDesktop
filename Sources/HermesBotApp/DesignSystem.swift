@@ -167,6 +167,9 @@ enum DS {
         /// Composer text field vertical inset so one line sits centred on the 28 pt Send button.
         static let fieldInset: CGFloat = 5
         static let composerLines = 1...6
+        /// The Bot Chat composer's text field never gets narrower than this: a narrow row moves the mic, then
+        /// Stop, from the field row to the row below (`ComposerFieldLayout`).
+        static let composerFieldMin: CGFloat = 140
         /// Bot Chat composer controls: model menu label cap, context gauge bar, queue panel height cap,
         /// hover copy buttons on messages.
         static let controlLabelMax: CGFloat = 150

@@ -209,6 +209,32 @@ final class ChatComposerFeaturesTests: XCTestCase {
         XCTAssertTrue(PromptHistory.caretAllows(up: false, caret: NSRange(location: 0, length: 0), length: 0))
     }
 
+    // MARK: narrow composer
+
+    /// At the 820 pt window with the inspector open the field row is about 264 pt: with the mic (B17) beside
+    /// Send the field fell to 84-116 pt. The mic moves to the row below first, then Stop; wide rows keep both.
+    func testANarrowFieldRowMovesTheMicThenStopBelow() {
+        let wide = ComposerFieldLayout(rowWidth: 600, busy: true)
+        XCTAssertTrue(wide.micInRow)
+        XCTAssertTrue(wide.stopInRow)
+
+        let minimum = ComposerFieldLayout(rowWidth: 264, busy: false)
+        XCTAssertFalse(minimum.micInRow, "the mic leaves the row so the field keeps its width")
+        let minimumBusy = ComposerFieldLayout(rowWidth: 264, busy: true)
+        XCTAssertFalse(minimumBusy.micInRow)
+        XCTAssertFalse(minimumBusy.stopInRow, "and Stop, while a reply runs")
+
+        // Just enough for one extra: Stop keeps its place next to Send, the mic goes.
+        let roomForOne = 28 + 72 + 16 + DS.Size.composerFieldMin + 36
+        let busy = ComposerFieldLayout(rowWidth: roomForOne, busy: true)
+        XCTAssertTrue(busy.stopInRow)
+        XCTAssertFalse(busy.micInRow)
+        XCTAssertTrue(ComposerFieldLayout(rowWidth: roomForOne, busy: false).micInRow, "idle: the mic fits")
+
+        // A wider paperclip menu than its icon counts too.
+        XCTAssertFalse(ComposerFieldLayout(rowWidth: roomForOne, busy: false, attachWidth: 44).micInRow)
+    }
+
     // MARK: B12 drafts
 
     func testDraftsPersistPerBotAcrossModels() async throws {

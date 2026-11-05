@@ -20,7 +20,16 @@ struct ChatComposer: View {
     @State private var paste = AttachmentPasteMonitor()
     /// B17: the mic button's dictation (Voice/Dictation.swift).
     @StateObject private var dictation = DictationController()
+    /// The field row's width (`ComposerFieldLayout` decides what stays in it).
+    @State private var fieldRowWidth: CGFloat = .infinity
+    /// The paperclip menu's and the primary button's rendered widths (their own content, not the row's).
+    @State private var attachWidth = ComposerFieldLayout.iconWidth
+    @State private var primaryWidth = ComposerFieldLayout.primaryWidth
     @Environment(\.motionEnabled) private var motion
+
+    private var fieldLayout: ComposerFieldLayout {
+        ComposerFieldLayout(rowWidth: fieldRowWidth, busy: chat.busy, attachWidth: attachWidth, primaryWidth: primaryWidth)
+    }
 
     private var menuItems: [SlashCommand] {
         menu.isOpen(chat.draft, catalog: chat.catalog) ? SlashMenuState.items(chat.draft, catalog: chat.catalog) : []
@@ -86,8 +95,10 @@ struct ChatComposer: View {
             if !chat.pending.isEmpty {
                 AttachmentChips(items: chat.pending) { chat.removeAttachment($0) }
             }
-            HStack(alignment: .bottom, spacing: DS.Space.s2) {
+            let layout = fieldLayout
+            HStack(alignment: .bottom, spacing: ComposerFieldLayout.spacing) {
                 attachMenu
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { attachWidth = $0 }
                 TextField(placeholder, text: $chat.draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(DS.Typeface.body)
@@ -105,25 +116,26 @@ struct ChatComposer: View {
                         return .handled
                     }
                     .accessibilityLabel("Message \(chat.bot.title)")
-                DictationButton(dictation: dictation, text: $chat.draft)  // B17
-                    .disabled(!chat.isReady)
-                if chat.busy {
-                    IconButton(symbol: "stop.circle", label: "Stop the reply") { chat.stop() }
-                }
+                if layout.micInRow { micButton }
+                if chat.busy && layout.stopInRow { stopButton }
                 Button(Self.primaryLabel(chat.composerAction), action: send)
                     .buttonStyle(DSButtonStyle(kind: .primary))
                     .disabled(!canSend)
                     .keyboardShortcut(chat.busy ? nil : KeyboardShortcut(.return, modifiers: .command))
                     .help(Self.primaryHelp(chat.composerAction))
-                if chat.busy {
-                    // ⌘Return while a reply runs: queue the draft (an invisible button keeps the shortcut
-                    // working wherever focus is, like Send's).
-                    Button("Queue message") { chat.queueOrSend() }
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .frame(width: 0, height: 0).opacity(0)
-                        .accessibilityHidden(true)
-                }
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { primaryWidth = $0 }
+                    .background {
+                        if chat.busy {
+                            // ⌘Return while a reply runs: queue the draft (an invisible button keeps the shortcut
+                            // working wherever focus is, like Send's; in the background it takes no row space).
+                            Button("Queue message") { chat.queueOrSend() }
+                                .keyboardShortcut(.return, modifiers: .command)
+                                .frame(width: 0, height: 0).opacity(0)
+                                .accessibilityHidden(true)
+                        }
+                    }
             }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { fieldRowWidth = $0 }
         }
         .padding(.leading, DS.Space.s2).padding(.trailing, DS.Space.s2).padding(.vertical, DS.Space.s2)
         .composerSurface(focused: focused)
@@ -142,8 +154,20 @@ struct ChatComposer: View {
         .animation(motion ? DS.Motion.ease : nil, value: chat.compacting)
     }
 
+    /// B17 dictation; in the field row, or leading the row below when the field row is narrow.
+    private var micButton: some View {
+        DictationButton(dictation: dictation, text: $chat.draft).disabled(!chat.isReady)
+    }
+
+    private var stopButton: some View {
+        IconButton(symbol: "stop.circle", label: "Stop the reply") { chat.stop() }
+    }
+
     private func statusLine(compact: Bool, hints showHints: Bool) -> some View {
-        HStack(spacing: DS.Space.s3) {
+        let layout = fieldLayout
+        return HStack(spacing: DS.Space.s3) {
+            if chat.busy && !layout.stopInRow { stopButton }
+            if !layout.micInRow { micButton }
             ComposerControls(chat: chat, compact: compact)
             if showHints { hints }
             Spacer(minLength: 0)
@@ -304,5 +328,32 @@ struct ChatComposer: View {
     private func pickFiles() {
         let chat = chat
         pickAttachments(message: "Attach files to your message to \(chat.bot.title)") { chat.addAttachments($0) }
+    }
+}
+
+/// What the Bot Chat composer's field row holds at its width: paperclip, field, mic, Stop (while a reply runs)
+/// and the primary button. The field keeps at least `DS.Size.composerFieldMin`; when the row is too narrow
+/// for that (the 820 pt window with the inspector open) the mic moves to the row below first, then Stop.
+struct ComposerFieldLayout: Equatable {
+    static let spacing = DS.Space.s2
+    /// Paperclip, the mic and Stop are icon buttons of the control height; the primary button is at least
+    /// `buttonMinWidth`.
+    static let iconWidth = DS.Size.controlHeight
+    static let primaryWidth = DS.Size.buttonMinWidth
+
+    let micInRow: Bool
+    let stopInRow: Bool
+
+    init(rowWidth: CGFloat, busy: Bool, attachWidth: CGFloat = iconWidth, primaryWidth: CGFloat = primaryWidth,
+         fieldMin: CGFloat = DS.Size.composerFieldMin) {
+        func field(extras: Int) -> CGFloat {
+            rowWidth - attachWidth - primaryWidth - 2 * Self.spacing - CGFloat(extras) * (Self.iconWidth + Self.spacing)
+        }
+        // The mic leaves first; Stop (only there while a reply runs) matters more and leaves last.
+        var mic = true, stop = busy
+        if field(extras: (mic ? 1 : 0) + (stop ? 1 : 0)) < fieldMin { mic = false }
+        if stop, field(extras: 1) < fieldMin { stop = false }
+        micInRow = mic
+        stopInRow = stop || !busy
     }
 }

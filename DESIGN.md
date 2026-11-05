@@ -772,7 +772,10 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   (`arrow.clockwise`) to the hover plate; the user's own message adds **Edit Message…** (`pencil`). The context
   menu lists them with **Restore from Here…** (user message) and **Branch into New Chat** (both; not inside a
   branch), after a divider. All of them are disabled while a reply runs.
-- `dictation` (B17): a mic icon button between the text and Send in both composers. While listening it is
+- `dictation` (B17): a mic icon button between the text and Send in both composers. In Bot Chat the field
+  keeps at least 140 pt (`composerFieldMin`): on a narrower field row (the 820 pt window with the inspector
+  open) the mic moves to the start of the row below, and while a reply runs Stop follows it only when even
+  that is not enough (`ComposerFieldLayout`). While listening it is
   `mic.fill` in the pressed state and pulses (motion on). Words stream in at the caret. A problem shows as a
   danger `meta` line inside the composer box above the field (`mic.slash`, the reason, Open System Settings as
   `button-secondary` when a privacy pane fixes it, and a Dismiss icon button).
