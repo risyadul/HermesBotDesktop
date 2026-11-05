@@ -53,6 +53,8 @@ struct MessageCopyActions: ViewModifier {
     var onCreateTask: (() -> Void)?
     /// B5: when the message landed, shown on hover before the buttons (the full date is its tooltip).
     var time: Date?
+    /// B17: Read Aloud for a finished bot reply (nil: not offered).
+    var readAloud: ReadAloudItem?
     @State private var hovering = false
 
     func body(content: Content) -> some View {
@@ -73,6 +75,7 @@ struct MessageCopyActions: ViewModifier {
                                 ChatCopy.copy(fullResponse)
                             }
                         }
+                        if let readAloud { ReadAloudButton(item: readAloud) }
                     }
                     .background(DS.Palette.window, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
@@ -83,13 +86,16 @@ struct MessageCopyActions: ViewModifier {
             .contextMenu {
                 Button("Copy Message") { ChatCopy.copy(text) }
                 if let fullResponse { Button("Copy Full Response") { ChatCopy.copy(fullResponse) } }
+                if let readAloud { Divider(); ReadAloudMenuItems(item: readAloud) }
                 if let onCreateTask { Divider(); Button("Create Task from Message…", action: onCreateTask) }
             }
     }
 }
 
 extension View {
-    func messageCopyActions(_ line: ChatLine, fullResponse: String?, onCreateTask: (() -> Void)? = nil) -> some View {
-        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse, onCreateTask: onCreateTask, time: line.at))
+    func messageCopyActions(_ line: ChatLine, fullResponse: String?, onCreateTask: (() -> Void)? = nil,
+                            readAloud: ReadAloudItem? = nil) -> some View {
+        modifier(MessageCopyActions(text: line.text, fullResponse: fullResponse, onCreateTask: onCreateTask, time: line.at,
+                                    readAloud: readAloud))
     }
 }

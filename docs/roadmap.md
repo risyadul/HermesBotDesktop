@@ -110,7 +110,7 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [ ] **B3** Regenerate, edit a sent message, restore from a message (backing RPC to be confirmed) (M–L)
 - [ ] **B4** Branch into a new chat (`session.branch`) (M)
 - [ ] **B16** Changed-files card (M)
-- [ ] **B17** Voice: dictation and read aloud (L)
+- [x] **B17** Voice: dictation and read aloud (L)
 
 ### Group Chat
 - [x] **C1.4** Pin and reorder rooms (local) (S)

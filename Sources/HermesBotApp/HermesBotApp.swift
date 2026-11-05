@@ -342,6 +342,7 @@ struct SettingsForm: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             NotificationsSection()
+            VoiceSection()  // B17
             BackgroundServeSection(model: background)
             GatewaySection(model: dispatcher)
         }

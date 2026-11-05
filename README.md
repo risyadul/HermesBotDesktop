@@ -133,6 +133,14 @@ have **not been tested** with this app yet.
   needs `pdftoppm` on the backend machine) and other files. Files over a limit are refused with a message.
 - **Files from bots:** images show inline and other files as chips (Bot Chat and Group Chat). A file opens
   only when you click it, after a safety check that refuses credentials and system locations.
+- **Voice:** the **mic** button in the composer (Bot Chat and Group Chat) dictates into the message at the
+  caret with macOS speech recognition, on this Mac when your language supports it. It stops after about two
+  seconds of silence, when you click it again, or when you send. The first use asks for microphone and speech
+  recognition access; if you said no, the composer explains and links to System Settings. Dictation needs the
+  packaged `HermesBot.app`. **Read Aloud** (hover a finished reply, or right-click it) speaks it in the system
+  voice; Shift-click reads the whole turn. Code blocks, tool activity and Thought rows are skipped; Esc or sending
+  a message stops it. **Settings → Voice → Read replies aloud automatically** (off by default) speaks each new
+  Bot Chat reply when it finishes. Hermes's own TTS/STT backends are not used.
 - **Quick Look and drag out:** click an image to preview it in Quick Look, press Space while the pointer is over
   a file or image (not while typing), or choose **Quick Look** from its right-click menu; Space or Esc closes the
   preview. Drag a file or image out of the chat to copy it to Finder or another app. Both re-run the safety check
