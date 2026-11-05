@@ -86,6 +86,11 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
     /// tap shows id + method only, like server→client request frames and every `respond` result.
     static let redactedParamMethods: Set<String> = ["clarify.lock", "approval.respond"]
 
+    /// Largest frame accepted. `session.resume` returns a whole Bot Chat history (tool output included) in
+    /// one frame. URLSessionWebSocketTask's default limit of 1 MiB failed long histories with EMSGSIZE
+    /// ("Message too long") and dropped the connection.
+    static let maximumMessageBytes = 128 * 1_048_576
+
     /// Optional wire tap (direction, compact JSON) for evidence logs. Tokens never appear in frames.
     public var onWire: (@Sendable (_ outbound: Bool, _ line: String) -> Void)? {
         get { lock.withLock { _onWire } }
@@ -119,6 +124,7 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
             if let terminalError { throw terminalError }
             let t = offeredProtocols.isEmpty ? session.webSocketTask(with: url)
                 : session.webSocketTask(with: url, protocols: offeredProtocols)
+            t.maximumMessageSize = Self.maximumMessageBytes
             task = t
             return t
         }

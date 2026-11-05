@@ -75,6 +75,21 @@ final class GatewayHardeningTests: XCTestCase {
         XCTAssertEqual(methods(gw), ["groups.list"])
     }
 
+    // MARK: - frame size
+
+    func testReplyLargerThanOneMebibyteIsReceived() async throws {
+        // A long Bot Chat history comes back in one `session.resume` frame. URLSessionWebSocketTask's
+        // default 1 MiB limit failed it with EMSGSIZE ("Message too long") and dropped the connection.
+        let gw = try await FakeGateway.start()
+        defer { gw.stop() }
+        let big = String(repeating: "x", count: 3 * 1_048_576)
+        gw.responder = { method, _ in method == "session.resume" ? ["session_id": "rt-1", "blob": .string(big)] : nil }
+        let backend = try await connectBackend(gw)
+        defer { backend.client.close() }
+        let reply = try await backend.client.call("session.resume", ["session_id": "st-1"], timeout: 20)
+        XCTAssertEqual(reply["blob"]?.string?.count, big.count)
+    }
+
     // MARK: - terminal client state
 
     func testCallsAfterCloseFailFastWithClosed() async throws {

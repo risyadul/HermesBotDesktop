@@ -77,5 +77,7 @@ All notable changes to this project are documented here. The format follows
 - A reply that was already running when the Bot Chat opened can no longer show twice or keep the chat
   blocked; Stop always unblocks it.
 - A message that failed to send is no longer shown twice when you send it again.
+- Opening a bot with a long Bot Chat history no longer drops the connection with "Message too long": the app
+  accepts backend messages up to 128 MB instead of 1 MB.
 - Opening a Group Chat with long messages no longer shows an empty timeline until you scroll, and opens
   without a noticeable pause; Bot Chat transcripts use the same layout.
