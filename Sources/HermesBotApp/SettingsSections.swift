@@ -87,6 +87,7 @@ struct NotificationsSection: View {
     var body: some View {
         Section {
             Toggle("Show notifications", isOn: $enabled)
+                .accessibilityLabel("Show notifications")
             if !available {
                 Label(Self.unavailableNote, systemImage: "info.circle")
                     .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
@@ -111,6 +112,7 @@ struct BackgroundServeSection: View {
                 get: { model.isOn },
                 set: { on in Task { await model.setEnabled(on) } }))
                 .disabled(!model.canToggle)
+                .accessibilityLabel("Keep Hermes running in the background")
             SettingsStatusRow(title: model.summary.title, tone: model.summary.tone,
                               busy: model.busy && model.status != nil)
             if let detail = model.detail {
@@ -279,6 +281,7 @@ struct SettingsForm: View {
         Form {
             Section("General") {
                 Toggle("Animate interface changes", isOn: $motion)
+                    .accessibilityLabel("Animate interface changes")
                 Text(reduceMotion
                      ? "Reduce Motion is on in System Settings, so animations stay off."
                      : "New messages, turn status changes and approvals animate once. Reduce Motion in System Settings also turns this off.")

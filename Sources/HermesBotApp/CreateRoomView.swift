@@ -131,6 +131,7 @@ struct CreateRoomView: View {
             }
         }
         .toggleStyle(.checkbox)
+        .accessibilityLabel("\(bot.title), @\(bot.name)")
         .padding(.horizontal, DS.Space.s2).frame(maxWidth: .infinity, minHeight: DS.Size.memberToggleHeight, alignment: .leading)
         .background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)

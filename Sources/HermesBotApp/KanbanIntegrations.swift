@@ -282,6 +282,7 @@ struct KanbanWatchToggle: View {
 
     var body: some View {
         Toggle("Notify When Done or Blocked", isOn: Binding(get: { watches.contains(slug, task.id) }, set: { onChange($0) }))
+            .accessibilityLabel("Notify When Done or Blocked")
     }
 }
 

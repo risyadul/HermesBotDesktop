@@ -105,6 +105,7 @@ struct VoiceSection: View {
     var body: some View {
         Section {
             Toggle("Read replies aloud automatically", isOn: $autoRead)
+                .accessibilityLabel("Read replies aloud automatically")
         } header: {
             Text("Voice")
         } footer: {

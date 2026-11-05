@@ -192,6 +192,7 @@ struct BotAvatarPickerView: View {
                 ForEach(BotAvatarPickerModel.Tab.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented).labelsHidden()
+            .accessibilityLabel("Avatar source")
             switch picker.tab {
             case .shape: shapeTab
             case .upload: uploadTab

@@ -275,6 +275,7 @@ struct MenuBarContent: View {
                     ForEach(app.bots) { bot in Text(bot.title).tag(Optional(bot.name)) }
                 }
                 .labelsHidden()
+                .accessibilityLabel("Bot")
                 .frame(maxWidth: 110)
                 TextField("Message", text: $quick.text)
                     .textFieldStyle(.roundedBorder)

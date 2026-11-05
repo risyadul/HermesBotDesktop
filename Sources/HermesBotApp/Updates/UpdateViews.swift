@@ -36,6 +36,7 @@ struct UpdatesSection: View {
     var body: some View {
         Section {
             Toggle("Check for updates automatically", isOn: $autoCheck)
+                .accessibilityLabel("Check for updates automatically")
             LabeledContent("Last checked") {
                 HStack(spacing: DS.Space.s2) {
                     if checker.isChecking {

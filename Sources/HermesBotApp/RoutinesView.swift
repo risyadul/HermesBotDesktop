@@ -215,6 +215,7 @@ struct RoutineRow: View {
                 if model.busy.contains(job.id) { ProgressView().controlSize(.small) }
                 Toggle("Active", isOn: Binding(get: { active }, set: { on in Task { await model.setActive(job, on) } }))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                    .accessibilityLabel("\(Routines.title(job.name)) active")
                     .disabled(model.busy.contains(job.id) || legacy)
                     .help(active ? "Pause" : "Resume")
                 IconButton(symbol: "trash", label: "Delete") { onDelete() }
@@ -329,10 +330,12 @@ struct RoutineCreateForm: View {
                             Text("\(botTitle)’s chat (bot responds)").tag(true)
                         }
                         .labelsHidden()
+                        .accessibilityLabel("Send results to")
                     }
                     Toggle("Continuity: each run sees the previous run’s output (dedupe, continue where it left off)",
                            isOn: $draft.continuity)
                         .toggleStyle(.checkbox).font(DS.Typeface.meta)
+                        .accessibilityLabel("Continuity: each run sees the previous run’s output")
                 }
             }
             if let error {
@@ -385,11 +388,13 @@ struct RoutineSchedulePicker: View {
                     ForEach(RoutineSchedule.Frequency.allCases) { Text($0.label).tag($0) }
                 }
                 .labelsHidden()
+                .accessibilityLabel("Frequency")
                 if schedule.needsTime {
                     Picker("Time", selection: $schedule.time) {
                         ForEach(RoutineSchedule.times, id: \.id) { Text(RoutineSchedule.timeLabel($0.id)).tag($0.id) }
                     }
                     .labelsHidden()
+                    .accessibilityLabel("Time")
                 }
             }
             switch schedule.frequency {
@@ -403,6 +408,7 @@ struct RoutineSchedulePicker: View {
                     ForEach(RoutineSchedule.weekdays, id: \.id) { Text($0.label).tag($0.id) }
                 }
                 .labelsHidden()
+                .accessibilityLabel("Day")
             case .monthly:
                 HStack(spacing: DS.Space.s2) {
                     Text("Day of month").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
@@ -444,6 +450,7 @@ struct RoutineSchedulePicker: View {
             ForEach(RoutineSchedule.Unit.allCases) { Text(fromNow ? $0.fromNow : $0.word).tag($0) }
         }
         .labelsHidden()
+        .accessibilityLabel("Unit")
         .fixedSize()
     }
 }

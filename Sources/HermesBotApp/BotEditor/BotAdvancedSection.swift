@@ -130,6 +130,7 @@ struct BotAdvancedSection: View {
             Text(label).font(DS.Typeface.meta).foregroundStyle(DS.Palette.ink).lineLimit(1).truncationMode(.middle)
         }
         .toggleStyle(.checkbox)
+        .accessibilityLabel(label)
         .help(help)
     }
 

@@ -59,6 +59,7 @@ struct BotCreateView: View {
             }
             Toggle("Say hello when its Bot Chat opens", isOn: $model.sayHello)
                 .toggleStyle(.checkbox).font(DS.Typeface.meta)
+                .accessibilityLabel("Say hello when its Bot Chat opens")
                 .help("Sends “\(BotCreate.kickoff)” so the bot introduces itself.")
             Button { model.toggleAdvanced() } label: {
                 HStack(spacing: DS.Space.s1) {
@@ -109,6 +110,7 @@ struct BotCreateView: View {
                     ForEach(model.cloneSources, id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden()
+                .accessibilityLabel("Clone from")
                 Text("A clone starts with that profile's settings, keys and skills; memory and chats start empty.")
                     .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).fixedSize(horizontal: false, vertical: true)
             }
@@ -135,11 +137,13 @@ struct BotCreateView: View {
             VStack(alignment: .leading, spacing: DS.Space.s1) {
                 Toggle("Share keys & accounts with the main profile", isOn: $model.shareKeys)
                     .toggleStyle(.checkbox).font(DS.Typeface.meta)
+                    .accessibilityLabel("Share keys & accounts with the main profile")
                 Text("Subscriptions, OAuth logins and API keys stay shared (not copied), so token refreshes never invalidate each other. Uncheck for an isolated copy.")
                     .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, DS.Space.s5)
                 Toggle("Create empty (skip bundled skills)", isOn: $model.skipBundledSkills)
                     .toggleStyle(.checkbox).font(DS.Typeface.meta)
+                    .accessibilityLabel("Create empty (skip bundled skills)")
                     .disabled(model.cloneFrom != nil)
                     .help(model.cloneFrom != nil ? "Only for a fresh profile: a clone copies its source's skills." : "")
             }

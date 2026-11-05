@@ -174,6 +174,7 @@ struct RoomCatchUpSheet: View {
             Picker("Ask", selection: $model.bot) {
                 ForEach(model.bots) { bot in Text(bot.title).tag(Optional(bot.name)) }
             }
+            .accessibilityLabel("Ask")
             .disabled(model.turn != nil)
             if let error = model.error {
                 Label(error, systemImage: "exclamationmark.triangle")

@@ -218,6 +218,8 @@ Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes
 - Bots created or deleted in Hermes Desktop or the CLI appear in or leave the sidebar within seconds.
 - A legacy routine whose pause keeps failing is retried with a backoff, not on every refresh.
 - The Routines toolbar button opens its sheet again.
+- VoiceOver reads every Settings switch by its title (they were unlabeled "checkbox"es), and every other toggle
+  and picker in sheets (New Bot, Routines, Kanban, Change Members, Quick Ask) names itself too.
 - Kanban: the board actions menu reads "Board" next to its ••• symbol (the bare symbol looked like a remove
   button) and sits at the right end of the board header.
 - New Bot and Edit bot sheets are as tall as their content (no empty gap above Cancel / Create with Advanced

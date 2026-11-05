@@ -45,6 +45,7 @@ private struct OldRoomChoiceView: View {
                     Text("Disband it").tag(RoomMemberChange.OldRoom.disband)
                 }
                 .pickerStyle(.radioGroup).labelsHidden()
+                .accessibilityLabel("Previous room")
                 .disabled(busy)
                 switch change.choice {
                 case .keep:
@@ -52,6 +53,7 @@ private struct OldRoomChoiceView: View {
                         Text("Rename it to \u{201C}\(change.oldName)\u{201D}").lineLimit(2).truncationMode(.middle)
                     }
                     .toggleStyle(.checkbox).font(DS.Typeface.meta)
+                    .accessibilityLabel("Rename it to \u{201C}\(change.oldName)\u{201D}")
                     .help(change.oldName)
                     .disabled(busy)
                 case .disband:

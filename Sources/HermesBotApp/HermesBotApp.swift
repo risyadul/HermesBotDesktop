@@ -36,6 +36,7 @@ struct HermesBotApp: App {
                 CommandGroup(after: .appInfo) { CheckForUpdatesCommand(checker: .shared) }  // E3 (Updates/)
                 CommandGroup(after: .sidebar) {
                     Toggle("Animate Interface Changes", isOn: $motion)
+                        .accessibilityLabel("Animate Interface Changes")
                 }
                 CommandGroup(after: .newItem) {
                     NewBotCommand(model: AppModel.shared)

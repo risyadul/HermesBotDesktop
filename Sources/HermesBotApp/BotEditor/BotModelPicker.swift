@@ -78,12 +78,14 @@ struct BotModelPicker<M: BotModelChoosing>: View {
                 ForEach(model.providers) { p in Text(p.label).tag(p.slug) }
                 Text("Enter manually…").tag(BotModelTag.manual)
             }
+            .accessibilityLabel("Provider")
             if let active = model.activeProvider, !active.models.isEmpty {
                 Picker("Model", selection: $model.model) {
                     if model.model.isEmpty { Text("Choose a model").tag("") }
                     ForEach(active.models, id: \.self) { Text($0).tag($0) }
                     if !model.model.isEmpty && !active.models.contains(model.model) { Text(model.model).tag(model.model) }
                 }
+                .accessibilityLabel("Model")
             } else if model.activeProvider != nil {
                 TextField("Model", text: $model.model, prompt: Text("Model name")).textFieldStyle(.roundedBorder)
             }

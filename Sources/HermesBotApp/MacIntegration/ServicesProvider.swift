@@ -186,6 +186,7 @@ struct SendChooserView: View {
                     }
                 }
             }
+            .accessibilityLabel("To")
             TextEditor(text: $model.text)
                 .font(DS.Typeface.body)
                 .frame(minHeight: 90, maxHeight: 220)

@@ -887,6 +887,10 @@ counts for the room, not which member is generating, so the working indicator is
   guess.
 - Do give every list a loading, empty and error state.
 - Do check new colours against both window colours (4.5:1 text, 3:1 large text).
+- Do give every Toggle and Picker an `.accessibilityLabel` (its title, or what it chooses when the label is
+  hidden): grouped-form switches otherwise reach VoiceOver as a bare "checkbox" (AccessibilityLabelTests).
+- Do present a sheet, popover or alert from the pane, never from inside ToolbarItem content: it does not open
+  there (ToolbarPresentationTests).
 - Don't add a second translucent surface; the sidebar is the one.
 - Don't tint body text, buttons or icons with bot colours.
 - Don't bundle avatar images; fetch them with `profiles.get_asset` and fall back to the monogram.

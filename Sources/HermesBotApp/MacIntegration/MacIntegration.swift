@@ -51,8 +51,10 @@ struct MacIntegrationSection: View {
     var body: some View {
         Section {
             Toggle("Show in menu bar", isOn: $menuBar)
+                .accessibilityLabel("Show in menu bar")
                 .onChange(of: menuBar) { _, shown in MenuBarBadge.shared.setShown(shown) }
             Toggle("Quick Ask shortcut", isOn: Binding(get: { hotKey.enabled }, set: { hotKey.setEnabled($0) }))
+                .accessibilityLabel("Quick Ask shortcut")
             if hotKey.enabled {
                 LabeledContent("Shortcut") {
                     HStack(spacing: DS.Space.s2) {

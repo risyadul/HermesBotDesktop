@@ -456,7 +456,7 @@ struct KanbanNewTaskSheet: View {
                     Picker("Board", selection: board) {
                         ForEach(boards) { Text($0.name).tag($0.slug) }
                     }
-                    .labelsHidden()
+                    .labelsHidden().accessibilityLabel("Board")
                 }
             }
             labeled("Title") {
@@ -478,21 +478,21 @@ struct KanbanNewTaskSheet: View {
                         Text("Unassigned").tag("")
                         ForEach(assignees, id: \.self) { Text("@\($0)").tag($0) }
                     }
-                    .labelsHidden()
+                    .labelsHidden().accessibilityLabel("Assignee")
                 }
                 labeled("Lane") {
                     Picker("Lane", selection: $column) {
                         Text("Automatic").tag("")
                         ForEach(KanbanColumns.createTargets(lanes), id: \.self) { Text(KanbanColumns.label($0)).tag($0) }
                     }
-                    .labelsHidden()
+                    .labelsHidden().accessibilityLabel("Lane")
                 }
             }
             labeled("Priority") {
                 Picker("Priority", selection: $priority) {
                     ForEach(KanbanBoardModel.defaultPriorities, id: \.self) { Text($0 == 0 ? "Normal" : "\($0)").tag($0) }
                 }
-                .pickerStyle(.segmented).labelsHidden()
+                .pickerStyle(.segmented).labelsHidden().accessibilityLabel("Priority")
             }
             Text(column.isEmpty ? "Ready when it has an assignee and no open dependencies, else Todo." : (KanbanColumns.help(column) ?? ""))
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).fixedSize(horizontal: false, vertical: true)

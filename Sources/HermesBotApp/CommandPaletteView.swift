@@ -49,6 +49,7 @@ struct CommandPaletteView: View {
                     ForEach(PaletteMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .accessibilityLabel("Scope")
                 .help("Tab switches between Go to and Messages")
             }
             .padding(.horizontal, DS.Space.s4).padding(.vertical, DS.Space.s3)

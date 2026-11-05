@@ -251,6 +251,7 @@ struct KanbanOrchestrationSheet: View {
                 ForEach(KanbanOrchestrationModel.choices(model.profiles, current: value), id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden()
+            .accessibilityLabel(label)
             .disabled(model.saving)
             Text(help).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).fixedSize(horizontal: false, vertical: true)
         }
@@ -259,6 +260,7 @@ struct KanbanOrchestrationSheet: View {
     private func toggle(_ label: String, isOn: Bool, help: String, patch: @escaping (Bool) -> KanbanOrchestrationPatch) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.s0) {
             Toggle(label, isOn: Binding(get: { isOn }, set: { new in Task { await model.save(patch(new)) } }))
+                .accessibilityLabel(label)
                 .disabled(model.saving)
             Text(help).font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).fixedSize(horizontal: false, vertical: true)
         }

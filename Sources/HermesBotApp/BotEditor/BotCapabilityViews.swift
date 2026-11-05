@@ -118,6 +118,7 @@ struct BotMcpSection: View {
                         .lineLimit(1).truncationMode(.middle)
                 }
                 .toggleStyle(.checkbox)
+                .accessibilityLabel("MCP server \(m.name)")
                 .help(m.name)
                 Spacer(minLength: DS.Space.s1)
                 if let info, mcp.phase == .loaded { actions(info) }
@@ -184,6 +185,7 @@ struct BotMcpSection: View {
                 ForEach(BotMcpModel.AddKind.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 200)
+            .accessibilityLabel("Server type")
             TextField("Name", text: $mcp.addName, prompt: Text("Name, e.g. github")).textFieldStyle(.roundedBorder)
             if mcp.addKind == .url {
                 TextField("URL", text: $mcp.addURL, prompt: Text("https://example.com/mcp")).textFieldStyle(.roundedBorder)

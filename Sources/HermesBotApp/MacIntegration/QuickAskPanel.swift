@@ -117,6 +117,7 @@ struct QuickAskView: View {
                     ForEach(model.bots) { bot in Text(bot.title).tag(Optional(bot.name)) }
                 }
                 .labelsHidden()
+                .accessibilityLabel("Bot")
                 .fixedSize()
                 .onChange(of: model.bot) { _, _ in model.botChanged() }
                 TextField("Ask a bot…", text: $model.text, axis: .vertical)
