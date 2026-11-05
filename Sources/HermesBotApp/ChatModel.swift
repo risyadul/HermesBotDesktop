@@ -10,6 +10,8 @@ import SwiftUI
 /// on in Hermes (no `session.close` / `session.delete`).
 /// Slash commands: ChatModel+Slash.swift. Attachments and server requests: ChatModel+Requests.swift.
 /// Queue and steering (B8): ChatModel+Queue.swift. Model, effort and context usage (B7, B9): ChatModel+Controls.swift.
+/// Regenerate / edit / restore, branches and error cards (B3, B4, B10): ChatModel+Rewind.swift. URL, folder and
+/// long-paste attachments, approval mode (B11, B14): ChatModel+Attachments.swift.
 @MainActor
 final class ChatModel: ObservableObject, Identifiable {
     enum Phase: Equatable {
@@ -77,6 +79,26 @@ final class ChatModel: ObservableObject, Identifiable {
     @Published var compacting = false
     /// The Routines sheet (A15) is open. The toolbar button sets it; `BotChatView` presents the sheet.
     @Published var routinesShown = false
+
+    /// B3: a rewind waiting for the user's confirmation (Restore always; Regenerate / Edit when the cut
+    /// archives later turns).
+    @Published var rewindConfirm: RewindConfirm?
+    /// B3: the sent message being edited (the edit sheet is open while set).
+    @Published var editing: MessageEdit?
+    /// B4: the side chat a branch opened (shown in a sheet beside this chat; never the canonical Bot Chat).
+    @Published var branch: ChatModel?
+    /// B4: a branch is being created.
+    @Published var branching = false
+    /// B10: "Switch provider" on an error card opens the composer's model picker.
+    @Published var modelPickerShown = false
+    /// B14: the bot profile's approval mode (`approvals.mode`); nil until read.
+    @Published var approvalMode: ApprovalMode?
+    /// B11: the Attach URL dialog is open.
+    @Published var urlDialogShown = false
+    /// B4: this model shows a branch (side session), not the bot's canonical Bot Chat.
+    var isBranch = false
+    /// B4: the branch's title (`session.branch` `title`).
+    var branchTitle: String?
 
     private(set) var session: (any ChatSessionLink)?
     private let opener: ChatOpener
@@ -152,11 +174,14 @@ final class ChatModel: ObservableObject, Identifiable {
         for r in s.openRequests { receive(r) }
         modelInfo = s.openInfo
         contextUsage = s.openInfo?.usage
+        if let mode = s.openInfo?.approvalMode { approvalMode = mode }
+        if isBranch { branchTitle = s.title }
         phase = .ready
         log("bot chat opened: profile=\(bot.name) session_id=\(s.sessionId) stored=\(s.storedSessionId) "
             + "history=\(s.history.count) open_requests=\(s.openRequests.count) running=\(s.inflight != nil)")
         loadCatalog()
         loadModelOptions()
+        loadApprovalMode()
         if contextUsage == nil { primeUsage() }
         drainQueue()
     }
@@ -171,6 +196,7 @@ final class ChatModel: ObservableObject, Identifiable {
         catalogTask?.cancel()
         usageTask?.cancel()
         drainTask?.cancel()
+        closeBranch()
         session?.detach()
         session = nil
         // Chips are local (never staged before a send); only pasted image files need cleaning up, including
@@ -224,21 +250,33 @@ final class ChatModel: ObservableObject, Identifiable {
         let chips = pending.filter(\.isReady)
         let files = chips.compactMap(\.checked)
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard transcript.beginTurn(Self.displayText(text, names: chips.map(\.name))) != nil else { return false }
+        let prompt = promptText(text, chips: chips)
+        guard transcript.beginTurn(Self.displayText(text, names: chips.map(\.name)), prompt: prompt) != nil else { return false }
         let typed = draft
-        let prompt = modelText(text)
         draft = ""
         history.reset()
         setChips(chips.map(\.id)) { _ in .sending }
         Task {
             do {
                 let r = try await s.submit(prompt, files: files)
+                self.bindUserRow(r)
                 self.sent(chips, status: r["status"]?.string)
             } catch {
                 self.sendFailed(error, chips: chips, draft: typed)
             }
         }
         return true
+    }
+
+    /// The model-facing prompt: `@url:` / `@folder:` lines of context-ref chips first (B11), then the text with
+    /// its @mention note (B1). File refs are added by the kit's `submit` when it stages the files.
+    func promptText(_ text: String, chips: [PendingAttachment]) -> String {
+        ContextRef.prompt(chips.compactMap(\.contextRef), text: modelText(text))
+    }
+
+    /// B3: the durable row id `prompt.submit` gave the turn just sent (`user_row_id`), so it can be rewound.
+    func bindUserRow(_ reply: JSONValue) {
+        if let id = reply["user_row_id"]?.int { transcript.bindSentUser(rowId: id) }
     }
 
     /// The user line for a turn: the text, plus the attached file names (attachments carry no text of
@@ -257,13 +295,14 @@ final class ChatModel: ObservableObject, Identifiable {
             transcript.appendSystem("The Bot Chat is reconnecting; run the command again in a moment.")
             return
         }
-        guard transcript.beginTurn(display) != nil else {
+        guard transcript.beginTurn(display, prompt: message) != nil else {
             transcript.appendSystem("A reply is still running; run the command again when it finishes.")
             return
         }
         Task {
             do {
                 let r = try await s.submit(message, files: [])
+                self.bindUserRow(r)
                 self.noteSubmitStatus(r["status"]?.string)
             } catch { self.failSend(error) }
         }
@@ -381,6 +420,7 @@ final class ChatModel: ObservableObject, Identifiable {
         case .info(let info):
             modelInfo = info
             if let u = info.usage { contextUsage = u }
+            if let mode = info.approvalMode { approvalMode = mode }
         case .usage(let u):
             contextUsage = u
         case .status(let kind, _) where kind == "compacted" || kind == "ready":

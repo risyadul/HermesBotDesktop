@@ -103,13 +103,14 @@ Sizes are rough: **S** ≈ a day or less, **M** ≈ a few days, **L** ≈ a week
 - [x] **B12** Composer prompt history (↑/↓) and per-bot drafts (S)
 - [x] **B15** Export a conversation (S)
 - [x] **B1** @mention other bots from Bot Chat, with autocomplete (M)
-- [ ] **B10** Actionable error cards: Retry, Switch provider, Copy diagnostics (M)
-- [ ] **B11** More attachment types: URL, folder, long paste as a file, image zoom (S–M)
+- [x] **B10** Actionable error cards: Retry, Switch provider, Copy diagnostics (M)
+- [x] **B11** More attachment types: URL, folder, long paste as a file, image zoom (S–M)
 - [x] **B13** Find in chat (⌘F) (M)
-- [ ] **B14** Approval mode menu (S–M)
-- [ ] **B3** Regenerate, edit a sent message, restore from a message (backing RPC to be confirmed) (M–L)
-- [ ] **B4** Branch into a new chat (`session.branch`) (M)
-- [ ] **B16** Changed-files card (M)
+- [x] **B14** Approval mode menu (S–M). Per bot profile (`approvals.mode`), as Hermes Desktop's menu
+- [x] **B3** Regenerate, edit a sent message, restore from a message: `prompt.submit` with
+      `truncate_before_row_id` + `confirm_truncate`, as Hermes Desktop ([gateway-contract.md §16.1](gateway-contract.md)) (M–L)
+- [x] **B4** Branch into a new chat (`session.branch`) (M)
+- [x] **B16** Changed-files card (M)
 - [x] **B17** Voice: dictation and read aloud (L)
 
 ### Group Chat
@@ -182,7 +183,15 @@ Kept for reference; not planned.
 
 ## Open questions
 
-- **B3**: which gateway RPC backs regenerate / edit / restore.
+- **B3** (answered): regenerate / edit / restore are one `prompt.submit` with a truncation address
+  (`truncate_before_row_id`, `confirm_truncate`, `confirm_empty_truncate`, `confirm_deep_truncate`), the same
+  call Hermes Desktop makes, also in a bot's Bot Chat. Not yet exercised against a live backend.
+- **B4**: whether a fresh branch shows up as the bot's `last_session` in `profiles.list {include_sessions}` (and so
+  under Open Recent Session) right away; read from source (`_persist_branch` writes the row at once), not run.
+- **B14**: Hermes Desktop's approval mode menu is per profile (`approvals.mode`); the gateway has no per-session
+  approvals mode RPC (only the session `/yolo` toggle), so the app's menu is per bot as well.
+- **B16**: history rows carry no tool results or diffs, so the changed-files card cannot be rebuilt for turns
+  that ran before the chat was opened here.
 - **K0 / C1.10**: whether plugin APIs (`/api/plugins/kanban/*`, `/api/plugins/bot-activity/*`) accept the session
   token the app already holds.
 - **C1.10**: bots created after the plugin is enabled need it too (hook into A7, or re-run `/setup`).

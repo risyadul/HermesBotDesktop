@@ -752,7 +752,8 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   (a reply runs that this chat cannot steer, or files are attached) or Save (a queued message is being
   edited). The row below leads with the chat's controls in `caption`, muted, hover tint: the model
   (name truncates in the middle, 150 pt cap), the reasoning effort (brain symbol + level, symbol only on a
-  narrow row) and the context gauge (28 × 4 pt ink bar on a hairline track + percentage, `~` when
+  narrow row), the approval mode (B14: `bolt` symbol, `bolt.fill` for Off, + Manual / Smart / Off; the menu
+  lists each with Desktop's one-line description) and the context gauge (28 × 4 pt ink bar on a hairline track + percentage, `~` when
   estimated; click for the breakdown popover). Key hints drop first when the row is narrow. Status on the
   right: an action in flight, then "Compacting the conversation…", then "<bot> is replying".
 - `queue-panel` (Bot Chat): above the composer, `surface` fill, card radius: a caption header ("2 queued",
@@ -765,10 +766,44 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
   aloud (`speaker.wave.2`; Shift-click reads the whole turn), which becomes Stop reading (`stop.circle`) while
   that reply is spoken; the context menu adds Read Aloud, Read Turn Aloud (a reply in several parts) and Stop
   Reading.
+  Bot Chat: a settled reply also adds **Regenerate**
+  (`arrow.clockwise`) to the hover plate; the user's own message adds **Edit Message…** (`pencil`). The context
+  menu lists them with **Restore from Here…** (user message) and **Branch into New Chat** (both; not inside a
+  branch), after a divider. All of them are disabled while a reply runs.
 - `dictation` (B17): a mic icon button between the text and Send in both composers. While listening it is
   `mic.fill` in the pressed state and pulses (motion on). Words stream in at the caret. A problem shows as a
   danger `meta` line inside the composer box above the field (`mic.slash`, the reason, Open System Settings as
   `button-secondary` when a privacy pane fixes it, and a Dismiss icon button).
+- `rewind-confirm` (Bot Chat, B3): a system alert, Hermes Desktop's checkpoint copy: "Restore to this
+  checkpoint?" / "Everything after this prompt is removed from the conversation, and the prompt runs again from
+  here." plus "N later messages are removed with it."; the confirm button is destructive ("Restore & Rerun", or
+  "Send Edit"). Restore always asks; Regenerate and Edit ask only when later messages would go.
+- `edit-sheet` (Bot Chat, B3): sheet 460 pt wide: `title-pane` "Edit Message", the rewind sentence in meta muted,
+  a `surface` text editor (min 120 pt), "Attachments of the original message are not sent again." when it had
+  some, Cancel (`button-secondary`) and Send Edit (`button-primary`, ⌘Return).
+- `branch-sheet` (B4): 680 × 600 pt sheet over the Bot Chat: header (avatar 28, the branch title in
+  `title-pane`, "Branch of <bot>'s Bot Chat · kept in Hermes under Open Recent Session" in meta muted, Close),
+  hairline, the transcript in the Bot Chat grammar (request cards included), hairline, the full composer.
+- `error-card` (Bot Chat, B10): replaces the plain error line. `danger-soft` fill, `danger-ring` hairline, card
+  radius, max width 560, inset like bot text: a danger triangle, the headline in `body-medium` (Desktop's
+  layer wording for auth / billing / provider / streaming / disk failures, else the error), an × icon button
+  (Dismiss), a "Details" disclosure with the raw error in `code` muted, then Retry (`button-primary`, only when
+  rerunning can help), Switch Provider (`button-secondary`, provider/endpoint/auth/billing failures; opens a
+  model list popover under the composer's model pill) and Copy Diagnostics (`button-secondary`, "Copied" after).
+- `changed-files-card` (Bot Chat, B16): under the last line of a finished turn that edited files, inset like bot
+  text, max width 560, `surface` fill, hairline, card radius: header (`doc.badge.ellipsis`, "3 files changed" in
+  `body-strong`, the summed `+12 −3` right-aligned), then one row per file separated by hairlines: chevron, file
+  name (middle-truncated; full path as tooltip), `+n −m` (caption, tabular; added in `status-ok`, removed in
+  `danger`) and a folder icon button (Reveal in Finder; disabled with a tooltip for a relative path). A row
+  expands to its diffs in `code` on a `window` plate, `+` lines `status-ok`, `-` lines `danger`, capped at 400
+  lines. A refused reveal shows the reason under the row in meta danger.
+- `image-zoom` (Bot Chat, B11): clicking an image attachment opens a 760 × 560 pt sheet: a toolbar (file name,
+  zoom out, percentage in caption tabular, zoom in, reset, Open, Close) over a `surface` canvas. 1×–8× in steps
+  of 1.5 or by pinch; drag pans while zoomed; double-click resets. The picture is a Quick Look rendition, never
+  decoded in the app.
+- `attach-url` (B11): sheet 460 pt: "Attach URL" with a globe, one sentence, a URL field, a hint when the text is
+  not `http(s)://…`, Cancel and Attach (disabled until valid). Context chips use the attachment chip grammar with
+  `link` / `folder` symbols and "Web page" / "Folder" as detail; a long paste reads "Pasted content (4.2 KB)".
 - `turn-duration` (Bot Chat): under the last reply text of a turn watched from its start, a `timer` symbol and
   the duration ("12s", "2:05") in caption, muted. Not shown for history or a turn joined mid-way.
 - `mention-suggestions` (Bot Chat): typing `@` lists the other bots (avatar 22, title, the `@tag` that will be

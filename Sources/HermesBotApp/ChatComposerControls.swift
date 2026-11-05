@@ -12,6 +12,7 @@ struct ComposerControls: View {
         HStack(spacing: DS.Space.s1) {
             ModelMenu(chat: chat)
             if chat.showsReasoning { ReasoningMenu(chat: chat, compact: compact) }
+            if let mode = chat.approvalMode { ApprovalModeMenu(chat: chat, mode: mode, compact: compact) }
             if let usage = chat.contextUsage { ContextGauge(chat: chat, usage: usage) }
         }
         .disabled(!chat.canChangeControls)
@@ -88,6 +89,8 @@ struct ModelMenu: View {
         .buttonStyle(ComposerControlStyle())
         .help(Self.help(chat))
         .accessibilityLabel("Model: \(chat.currentModel.isEmpty ? "unknown" : chat.currentModel)")
+        // B10: an error card's Switch Provider opens the same choices beside the pill.
+        .popover(isPresented: $chat.modelPickerShown, arrowEdge: .top) { ModelPickerList(chat: chat) }
     }
 
     private static func isCurrent(_ m: String, provider: String, chat: ChatModel) -> Bool {
@@ -97,6 +100,79 @@ struct ModelMenu: View {
     static func help(_ chat: ChatModel) -> String {
         let provider = chat.currentProvider.isEmpty ? "" : " · \(chat.currentProvider)"
         return "Model for this chat: \(chat.currentModel)\(provider). Changing it affects this chat only."
+    }
+}
+
+/// B10: the model choices as a list (Switch Provider on an error card); a pick closes it.
+struct ModelPickerList: View {
+    @ObservedObject var chat: ChatModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s1) {
+                Text("Switch model for this chat").font(DS.Typeface.captionStrong).foregroundStyle(DS.Palette.muted)
+                let providers = chat.modelCatalog?.providers ?? []
+                if providers.isEmpty {
+                    Text(chat.modelCatalog == nil ? "Loading models…" : "No models available")
+                        .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                }
+                ForEach(providers) { p in
+                    Text(p.name).font(DS.Typeface.captionStrong).foregroundStyle(DS.Palette.ink).padding(.top, DS.Space.s1)
+                    ForEach(p.models, id: \.self) { m in
+                        Button {
+                            chat.modelPickerShown = false
+                            chat.selectModel(provider: p.slug, model: m)
+                        } label: {
+                            HStack {
+                                Text(m).font(DS.Typeface.body).lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: 0)
+                                if m == chat.currentModel && chat.modelCatalog?.row(for: chat.currentProvider)?.slug == p.slug {
+                                    Image(systemName: "checkmark").font(DS.Typeface.iconSmall)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(ComposerControlStyle())
+                    }
+                }
+            }
+            .padding(DS.Space.s3)
+        }
+        .frame(width: DS.Size.popoverWidth)
+        .frame(maxHeight: DS.Size.commandMaxHeight * 2)
+    }
+}
+
+/// B14: the bot's approval mode (`approvals.mode` of its profile), as Hermes Desktop's status bar menu:
+/// Manual (ask before actions that need approval), Smart (assess and ask when needed), Off (no prompts).
+struct ApprovalModeMenu: View {
+    @ObservedObject var chat: ChatModel
+    let mode: ApprovalMode
+    var compact = false
+
+    var body: some View {
+        Menu {
+            Section("Approval mode") {
+                ForEach(ApprovalMode.allCases, id: \.self) { m in
+                    Button {
+                        chat.selectApprovalMode(m)
+                    } label: {
+                        if m == mode { Label("\(m.label): \(m.detail)", systemImage: "checkmark") } else { Text("\(m.label): \(m.detail)") }
+                    }
+                }
+            }
+        } label: {
+            MenuLabel(symbol: mode == .off ? "bolt.fill" : "bolt", text: mode.label, showsText: !compact)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(ComposerControlStyle())
+        .help(Self.help(mode))
+        .accessibilityLabel(Self.help(mode))
+    }
+
+    nonisolated static func help(_ mode: ApprovalMode) -> String {
+        "Approval mode: \(mode.label). \(mode.detail). Applies to every chat of this bot."
     }
 }
 

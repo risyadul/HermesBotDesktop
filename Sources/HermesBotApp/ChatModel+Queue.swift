@@ -143,13 +143,14 @@ extension ChatModel {
         guard isReady, !reconnecting, !busy, !queueParked, activity == nil, let s = session,
               let entry = queue.first(where: { $0.id != editingQueueId }) else { return }
         let display = Self.displayText(entry.text, names: entry.attachments.map(\.name))
-        guard transcript.beginTurn(display) != nil else { return }
+        let prompt = promptText(entry.text, chips: entry.attachments)
+        guard transcript.beginTurn(display, prompt: prompt) != nil else { return }
         queue.removeAll { $0.id == entry.id }
         let files = entry.attachments.compactMap(\.checked)
-        let prompt = modelText(entry.text)
         Task {
             do {
                 let r = try await s.submit(prompt, files: files)
+                self.bindUserRow(r)
                 self.sent(entry.attachments, status: r["status"]?.string)
             } catch {
                 // Back to the head of the queue, paused, so a failing send cannot loop.

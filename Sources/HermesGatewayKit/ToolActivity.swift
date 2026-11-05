@@ -88,11 +88,15 @@ public struct ChatHistoryMessage: Sendable, Equatable {
     /// When the row was written (`timestamp`, Unix seconds, `session_history.py` "authoring time"); nil when
     /// the backend sent none.
     public let timestamp: Date?
+    /// The durable `state.db` row id (`row_id`, `session_history.py` `_history_to_messages`): how a rewind
+    /// addresses a persisted turn (`truncate_before_row_id`, B3). nil when the backend sent no stamp.
+    public let rowId: Int?
 
     public init(role: Role, text: String, toolName: String? = nil, toolContext: String? = nil, reasoning: String? = nil,
-                toolArgs: JSONValue? = nil, toolLabel: String? = nil, timestamp: Date? = nil) {
+                toolArgs: JSONValue? = nil, toolLabel: String? = nil, timestamp: Date? = nil, rowId: Int? = nil) {
         self.role = role; self.text = text; self.toolName = toolName; self.toolContext = toolContext
         self.reasoning = reasoning; self.toolArgs = toolArgs; self.toolLabel = toolLabel; self.timestamp = timestamp
+        self.rowId = rowId
     }
 
     init?(_ v: JSONValue) {
@@ -106,7 +110,8 @@ public struct ChatHistoryMessage: Sendable, Equatable {
                   toolContext: tool ? v["context"]?.string : nil, reasoning: reasoning,
                   toolArgs: tool ? v["args"].flatMap { $0 == .null ? JSONValue?.none : $0 } : nil,
                   toolLabel: tool ? ToolStart.labelText(v) : nil,
-                  timestamp: v["timestamp"]?.double.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil })
+                  timestamp: v["timestamp"]?.double.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil },
+                  rowId: v["row_id"]?.int)
     }
 
     /// `reasoning`, else `reasoning_content`, when it is non-blank text.

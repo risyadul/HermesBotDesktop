@@ -1460,3 +1460,88 @@ Kit: `ChatControls.swift`; app: `ChatModel+Queue.swift`, `ChatModel+Controls.swi
 - **Compacting (B9):** `status.update` `compacting` (auto) / `compressing` (manual) starts it; `compacted` /
   `ready`, the first model output or tool start after it, the turn's end, an error, a disconnect or
   `session.info running:false` ends it (Desktop `store/compaction.ts`).
+
+## 16. Bot Chat P3 (B3, B4, B10, B11, B14, B16)
+
+Kit: `ChatRewind.swift`, `ChatRecovery.swift`, `ContextRefs.swift`, `ChatApprovalMode.swift`, `ChangedFiles.swift`;
+app: `ChatModel+Rewind.swift`, `ChatModel+Attachments.swift`. All [src + test] against `tui_gateway` and Hermes
+Desktop (`apps/desktop/src`); none proven against a live backend (tests use `FakeGateway` / `FakeChatLink`; no
+prompt was sent and no real session was rewound or branched).
+
+### 16.1 Rewind: regenerate, edit, restore (B3) [src + test]
+
+There is no separate rewind RPC. Desktop's rewind core (`use-prompt-actions/rewind.ts` `runRewindSubmit`) sends
+ONE `prompt.submit` that carries a truncation address; the gateway cuts the transcript before that user turn,
+archives what it drops and runs `text` as the new turn (`methods_prompt.py` `_parse_truncation_params`,
+`_resolve_truncation_ordinal`, `_truncate_history_for_submit`). Desktop does this in every chat surface,
+including a bot's canonical Bot Chat (the same core serves the primary chat and tiles), so the app rewinds the
+canonical chat in place: it is cut back, never closed, deleted or reset.
+
+- **Payload (durable-row mode, what the app sends):** `{session_id, text, confirm_truncate: true,
+  truncate_before_row_id: <row>, confirm_empty_truncate: true, [confirm_deep_truncate: true],
+  [rebind_survivor_row_ids: [...]]}`. `confirm_truncate` marks the submit as a rewind (without it the gateway
+  answers `4029`); `confirm_empty_truncate` lets the durable target be the first turn (`4028` otherwise);
+  `confirm_deep_truncate` only after the user agreed to archive later user turns (`4033` when missing; the
+  current backend logs and allows it for old clients, the next refuses). Ordinal-only cuts are refused on a
+  durable session (`4004`), so `truncate_before_user_ordinal` is never sent; renderer ids are never sent as
+  `truncate_before_message_id`.
+- **Row ids:** history rows carry `row_id` (`session_history.py` `_history_to_messages`); `prompt.submit`
+  answers `user_row_id` for the turn it staged; a resume reply may lack stamps, so a missing id is resolved by
+  content in `session.history {session_id}` (stamped, `include_row_ids=True`) exactly as Desktop's
+  `resolveDurableRowId`: a unique text match, or the last match when the target is the newest turn. Unresolved:
+  the prompt is resubmitted plainly (no truncation fields) and the transcript shows it as a new turn plus a note.
+- **Survivors:** the reply's `survivor_row_id_map {old: new|null}` (or legacy `survivor_user_row_ids`) rebinds
+  the kept rows' cached ids (Desktop `rebindSurvivorRowIds`).
+- **Confirmations (app):** Restore always asks (Desktop's checkpoint dialog); Regenerate and Edit ask when the cut
+  archives later user turns; a `4033` reply re-asks and reruns with `confirm_deep_truncate`. A confirmed plan is
+  re-made against the current transcript and dropped if the target or the later-turn count changed.
+- **App rules:** only while the chat is idle (Desktop interrupts a live turn first; the app does not interrupt
+  another client's turn on the shared chat). `4018` (stale target), `4030`, `4009` and other errors put the
+  transcript back and say so. Edit sends only the edited text (attachments are not resent, as in Desktop).
+
+### 16.2 Branch into a new chat (B4) [src + test]
+
+`session.branch {session_id, idempotency_key, count}` (`methods_session_branch.py` `_branch_live`, Desktop
+`branchLoadedSession` / `forkBranch`): a NEW stored session in the same profile holding the first `count`
+visible user/assistant rows (rows with text, hidden ones included), with its own live runtime. Reply:
+`{session_id, stored_session_id, title, parent, message_count, info, messages}`. `count` follows Desktop's
+`selectBranchMessages`: the target is found in `session.history` by `row_id`, else by role + text ordinal; without
+a match, the transcript's own visible user/bot lines up to it are counted. `idempotency_key` is
+`branch-<ms>-<random>` per attempt. The app opens the reply as a non-canonical `BotChatSession` (history from
+`messages`, model from `info`) in a side sheet; closing it detaches only. The branch is persisted at once
+(`_persist_branch`), so it becomes the bot's newest non-canonical session, which the sidebar's **Open Recent
+Session** (A17, `profiles.list` `last_session`) shows; the sidebar keeps one Bot Chat per bot.
+
+### 16.3 Error cards (B10) [src + test]
+
+`message.complete {status: "error", error, error_surface: {layer, code, retryable, provider?, model?}}`
+(`session_auto_continue.py`, `prompt_turn.py`, `agent/error_surface.py`). Buttons per Desktop
+`errorRecoveryPlan`: Retry unless `retryable: false` (kept for the `auth` layer); Switch Provider for `auth`,
+`billing`, `endpoint`, `provider` (opens the composer's model list; picks are `--session` as in §15). Retry =
+regenerate of that turn (§16.1). Copy Diagnostics = Desktop's `formatErrorDiagnostics` lines, each passed through
+`Redaction.scrub` plus provider-key patterns (`ErrorDiagnostics.redact`). Dismiss removes the line locally.
+
+### 16.4 Attachments: URL, folder, long paste, zoom (B11) [src + test]
+
+- **URL / folder:** no RPC. As Desktop's `addContextRefAttachment`, the prompt gets `@url:<url>` /
+  `@folder:<path>` lines first (quoted with Desktop's `formatRefValue` rule), then the text; the gateway expands
+  the directives when the turn runs. File chips still stage with §12.1 (`file.attach` refs are added by the kit).
+- **Long paste:** over 3,000 characters (Desktop `LARGE_PASTE_ATTACHMENT_THRESHOLD`, UTF-16 length), the text is
+  written to `pasted_content_<stamp>_<hex>.txt` in the app's paste folder and sent as a file chip (§12.1).
+- **Image zoom:** client-only; the click re-checks the path (`MediaSafety`, §13.6) and a Quick Look rendition is
+  shown.
+
+### 16.5 Approval mode (B14) [src + test]
+
+Desktop's status-bar menu (`approval-mode-menu.tsx`, `store/approval-mode.ts`) is per PROFILE, not per session:
+`config.get {key: "approvals.mode", profile}` and `config.set {key: "approvals.mode", value: manual|smart|off,
+profile}` (`methods_config.py`, `methods_config_set.py`; a blank profile is omitted). The write re-emits
+`session.info` (`approval_mode`) to every live session, which the app also reads. Unknown values read as
+`manual`.
+
+### 16.6 Changed files (B16) [src + test]
+
+From live `tool.complete` events only (history has no results or diffs): tools `edit_file`, `patch`,
+`write_file` that finished with a diff (`inline_diff`, else `result.inline_diff` / `result.diff`); path from
+`args.path|file|filepath`, else `result.path|file|filepath|resolved_path` (Desktop `deriveChangedFiles`,
+`fileEditPath`, `countDiffLineStats`). Reveal in Finder runs `MediaSafety` at click time (§13.5).

@@ -62,6 +62,24 @@ All notable changes to this project are documented here. The format follows
   secure field; stored in the bot's `.env`, never logged: the wire tap omits these params), **Test** and **Sign
   In** (OAuth: the sign-in page opens in the browser and the app waits for Hermes to report it approved; closing
   the sheet cancels it).
+- Bot Chat (B3, B4, B10, B11, B14, B16):
+  - **Regenerate**, **Edit Message** and **Restore from Here** on messages. Like Hermes Desktop, each is one
+    `prompt.submit` that cuts the chat back to that message (`truncate_before_row_id`, `confirm_truncate`);
+    Hermes archives what comes after, in this app and in Hermes Desktop. Restore always asks, Regenerate and
+    Edit ask when later messages would go. Idle chats only. A message Hermes cannot find is sent again as a new
+    message and nothing is removed.
+  - **Branch into New Chat** from a message (`session.branch`): a new session of the bot with the conversation up
+    to there, opened read-write in a sheet over the Bot Chat (which is not changed); it stays in Hermes as the
+    bot's **Open Recent Session**.
+  - **Error cards** for failed replies: Retry, Switch Provider (provider, key and billing failures; opens the
+    chat's model list), Copy Diagnostics (keys and tokens removed) and Dismiss.
+  - **Attach Folder…** and **Attach URL…** (sent as `@folder:` / `@url:` references, nothing uploaded; dropped
+    folders too), a paste over 3,000 characters becomes a text attachment, and images in replies open in a
+    **zoom and pan** window.
+  - **Approval mode** menu under the composer (Manual, Smart, Off): the bot profile's `approvals.mode`, as in
+    Hermes Desktop.
+  - **Changed files** card under a reply that edited files: +/− counts per file, the diffs, Reveal in Finder
+    (after the usual safety check).
 - Group Chat rooms can be pinned and reordered in the sidebar (C1.4): right-click a room for **Pin to Top** /
   **Unpin**, **Move Up** and **Move Down**, or drag it onto another room. Pinned rooms come first. Kept on this
   Mac only (UserDefaults), never sent to Hermes.

@@ -35,9 +35,25 @@ protocol ChatSessionLink: AnyObject, Sendable {
     func setReasoning(_ effort: String) async throws -> String
     func usage() async throws -> ContextUsage?
     func contextBreakdown() async throws -> ContextBreakdown
+
+    /// B3 / B4 (ChatRewind.swift): the stored transcript with row ids, a rewind's truncating submit, and a
+    /// branch into a new side session (attached, not canonical).
+    func historyRows() async throws -> [HistoryRow]
+    func rewind(text: String, rowId: Int?, confirmDeep: Bool, rebind: [Int]) async throws -> RewindReceipt
+    func branchSession(count: Int, idempotencyKey: String) async throws -> any ChatSessionLink
+    /// The session's own title when its open reply named one (a branch).
+    var title: String? { get }
+
+    /// B14 (ChatApprovalMode.swift): the bot profile's `approvals.mode`.
+    func approvalMode() async throws -> ApprovalMode
+    func setApprovalMode(_ mode: ApprovalMode) async throws -> ApprovalMode
 }
 
-extension BotChatSession: ChatSessionLink {}
+extension BotChatSession: ChatSessionLink {
+    func branchSession(count: Int, idempotencyKey: String) async throws -> any ChatSessionLink {
+        try await branch(count: count, idempotencyKey: idempotencyKey)
+    }
+}
 
 /// Opens a bot's chat. Production: `BotChatSession.openCanonical` on the connected backend.
 typealias ChatOpener = @Sendable (Bot) async throws -> any ChatSessionLink

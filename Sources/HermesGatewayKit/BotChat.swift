@@ -249,6 +249,8 @@ public final class BotChatSession: @unchecked Sendable {
 
     /// `session.title` result when a title was set at open (`{title, pending}`).
     public private(set) var titleResult: JSONValue?
+    /// The session's title when its open reply named one (a branch, `session.branch` `title`).
+    public internal(set) var title: String?
 
     /// Sets the one consumer and flushes what arrived since `attach()`, in order, under the lock (so a
     /// concurrent `emit` waits and lands after the flush). `h` must not call back into this session
