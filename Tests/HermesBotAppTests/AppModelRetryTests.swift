@@ -48,11 +48,17 @@ final class AppModelRetryTests: XCTestCase {
         XCTAssertNotNil(model.backend)
 
         await model.connect()  // connected: no-op
+
+        await model.stopOwnedBackend(reason: "test")  // attached, not owned: never stopped
+        XCTAssertNotNil(model.backend)
+        await model.reconnect(reason: "test", waitForAttach: 2)  // Settings → Background: drop and attach again
+        guard case .connected = model.phase else { return XCTFail("reconnect should attach again, got \(model.phase)") }
+        XCTAssertEqual(model.bots.map(\.name), ["fixture"])
         await model.shutdown()
 
         let seen = try JSONSerialization.jsonObject(with: Data(contentsOf: calls)) as? [String] ?? []
-        XCTAssertEqual(seen.filter { $0 == "profiles.list" }.count, 2, "calls: \(seen)")
-        XCTAssertEqual(seen.filter { $0 == "groups.list" }.count, 1, "rooms load once, after the successful list")
+        XCTAssertEqual(seen.filter { $0 == "profiles.list" }.count, 3, "calls: \(seen)")
+        XCTAssertEqual(seen.filter { $0 == "groups.list" }.count, 2, "rooms load after each successful list")
     }
 
     /// Identity probe + `/api/ws` JSON-RPC. profiles.list #1 → RPC 5000, #2 → one profile.

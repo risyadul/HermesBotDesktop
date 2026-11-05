@@ -87,12 +87,12 @@ struct BackgroundServeSection: View {
                 }
             }
             if model.canStart {
-                actionRow("Start", hint: "Loads the installed LaunchAgent into launchd again.") {
+                actionRow("Start", hint: "Starts the installed LaunchAgent again.") {
                     await model.start()
                 }
             }
             if model.pendingNextLaunch {
-                Label("Takes effect next launch: the app will attach to the background Hermes.", systemImage: "info.circle")
+                Label("Starts the next time you open the app (or at login); the app will then attach to it.", systemImage: "info.circle")
                     .font(DS.Typeface.meta)
                     .foregroundStyle(DS.Palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
@@ -109,7 +109,28 @@ struct BackgroundServeSection: View {
                 """)
         }
         .task { await model.load() }
+        .confirmationDialog(promptTitle, isPresented: Binding(get: { model.prompt != nil }, set: { if !$0 { model.cancelPrompt() } }),
+                            titleVisibility: .visible) {
+            switch model.prompt {
+            case .enable(let hermes, _, let offerSwitch)?:
+                if offerSwitch {
+                    Button("Switch Now") { Task { await model.confirmEnable(.switchNow, hermes: hermes) } }
+                    Button("At Next Launch") { Task { await model.confirmEnable(.atNextLaunch, hermes: hermes) } }
+                } else {
+                    Button("Turn On") { Task { await model.confirmEnable(.now, hermes: hermes) } }
+                }
+            case .disableWhileAttached?:
+                Button("Turn Off", role: .destructive) { Task { await model.confirmDisable() } }
+            case nil:
+                EmptyView()
+            }
+            Button("Cancel", role: .cancel) { model.cancelPrompt() }
+        } message: {
+            Text(verbatim: model.prompt.map { BackgroundServeSettingsModel.promptText($0).message } ?? "")
+        }
     }
+
+    private var promptTitle: String { model.prompt.map { BackgroundServeSettingsModel.promptText($0).title } ?? "" }
 
     private func actionRow(_ title: String, hint: String, _ action: @escaping () async -> Void) -> some View {
         HStack(spacing: DS.Space.s3) {

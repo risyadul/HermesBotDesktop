@@ -129,7 +129,7 @@ struct RootView: View {
         }
         .frame(minWidth: DS.Size.windowMinWidth, minHeight: DS.Size.windowMinHeight)
         .tint(DS.Palette.primary)
-        .task { await model.connect() }
+        .task { await model.connectAtLaunch() }
         .task(id: model.bots.map(\.name)) { AvatarStore.shared.load(bots: model.bots, backend: model.backend) }
         // Not `.sheet`: its slide and dimmer fade ignore the motion gate (MotionSheet.swift).
         .motionSheet(isPresented: $model.showCreateRoom, motion: motion) {

@@ -23,10 +23,15 @@ public struct BackgroundServe: Sendable {
     public static let launchctl = "/bin/launchctl"
     public static let commandTimeout: TimeInterval = 30
 
+    /// `HERMES_BOT_APP_HERMES_BIN`: replaces the hermes search (`ServeProcess.Configuration.executableCandidates`).
+    public static let hermesOverride = "HERMES_BOT_APP_HERMES_BIN"
+
     public enum Status: Sendable, Equatable {
         case notInstalled
-        /// Plist present and the job is known to launchd.
+        /// Plist present and the job runs (launchd reports `state = running`).
         case loaded(executable: String)
+        /// Plist present and launchd has the job, but it is not running (exited, crash-throttled).
+        case loadedNotRunning(executable: String)
         /// Plist present but launchd does not have the job (e.g. booted out, or not yet logged in again).
         case installedNotLoaded(executable: String)
         /// Plist present but its program is gone or no longer executable (hermes moved/uninstalled).
@@ -35,6 +40,22 @@ public struct BackgroundServe: Sendable {
         case unreadable(String)
 
         public var isInstalled: Bool { self != .notInstalled }
+    }
+
+    /// What launchd says about the job.
+    public enum Job: Sendable, Equatable {
+        case notLoaded
+        /// `pid` when launchd reports one.
+        case running(pid: Int32?)
+        case loadedNotRunning
+    }
+
+    /// The hermes executable an install would record.
+    public struct ResolvedHermes: Sendable, Equatable {
+        public let path: String
+        /// Chosen by `HERMES_BOT_APP_HERMES_BIN`, not the usual search.
+        public let fromEnvironment: Bool
+        public init(path: String, fromEnvironment: Bool) { self.path = path; self.fromEnvironment = fromEnvironment }
     }
 
     public enum Failure: Error, RedactionSafeError, Equatable {
@@ -123,47 +144,119 @@ public struct BackgroundServe: Sendable {
             return .unreadable("plist was not written by this app")
         }
         guard ServeProcess.isExecutableFile(program) else { return .binaryMissing(path: program) }
-        return await isLoaded() ? .loaded(executable: program) : .installedNotLoaded(executable: program)
+        switch await job() {
+        case .notLoaded: return .installedNotLoaded(executable: program)
+        case .running: return .loaded(executable: program)
+        case .loadedNotRunning: return .loadedNotRunning(executable: program)
+        }
     }
 
-    /// Writes the plist (atomically, 0644) and bootstraps it into `gui/<uid>`. A job already loaded is booted
-    /// out first, so the new plist takes effect. Throws before touching launchd when hermes fails the checks.
-    public func install() async throws {
-        let hermes: String
+    /// The hermes executable `install()` would record now, and whether `HERMES_BOT_APP_HERMES_BIN` chose it
+    /// (instead of the usual search). Same checks as the install itself.
+    public func resolveHermes() throws -> ResolvedHermes {
         switch ServeProcess.trustedExecutable(environment: environment, home: home, log: logFile.path) {
-        case .success(let path): hermes = path
+        case .success(let path):
+            let override = environment[Self.hermesOverride].map { !$0.isEmpty } ?? false
+            return ResolvedHermes(path: path, fromEnvironment: override)
         case .failure(let e): throw Failure.hermes(e.description)
         }
-        let data = try Self.plistData(hermes: hermes, hermesHome: hermesHome.path, logFile: logFile.path, home: home.path)
-        let fm = FileManager.default
-        do {
-            try fm.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                   attributes: [.posixPermissions: 0o755])
-            try fm.createDirectory(at: logFile.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                   attributes: [.posixPermissions: 0o700])
-        } catch {
-            throw Failure.filesystem("cannot create directories: \(Redaction.describe(error))")
+    }
+
+    /// Writes the plist (atomically, 0644) and, with `bootstrap`, bootstraps it into `gui/<uid>` (RunAtLoad
+    /// starts it at once). A job already loaded is booted out first, so the new plist takes effect. Without
+    /// `bootstrap` only the plist is written: launchd loads it at the next login (or `start()` does).
+    /// `expecting`: the path the user confirmed; refused (before anything is written) when the hermes found
+    /// now differs. Throws before touching launchd when hermes fails the checks.
+    public func install(bootstrap: Bool = true, expecting confirmed: String? = nil) async throws {
+        let hermes = try resolveHermes().path
+        if let confirmed, confirmed != hermes {
+            throw Failure.hermes("the hermes found now (\(hermes)) is not the one you confirmed (\(confirmed)); try again")
         }
-        if await isLoaded() { try await launchctl(["bootout", serviceTarget]) }
+        let data = try Self.plistData(hermes: hermes, hermesHome: hermesHome.path, logFile: logFile.path, home: home.path)
+        try prepareDirectories()
+        if await job() != .notLoaded { try await launchctl(["bootout", serviceTarget]) }
         try writeAtomically(data)
-        try await launchctl(["bootstrap", domain, plistURL.path])
+        if bootstrap { try await launchctl(["bootstrap", domain, plistURL.path]) }
+    }
+
+    /// Starts the installed agent as written (no new hermes lookup): bootstrap when launchd does not have the
+    /// job, `kickstart` when it is loaded but not running, nothing when it runs.
+    public func start() async throws {
+        guard HostRendezvous.lstatInfo(plistURL) != nil else { throw Failure.filesystem("the LaunchAgent is not installed") }
+        switch await job() {
+        case .notLoaded:
+            try prepareDirectories()
+            try await launchctl(["bootstrap", domain, plistURL.path])
+        case .loadedNotRunning: try await launchctl(["kickstart", serviceTarget])
+        case .running: return
+        }
     }
 
     /// Boots the job out of launchd (if loaded) and deletes the plist. Not installed: no-op.
     public func uninstall() async throws {
-        if await isLoaded() { try await launchctl(["bootout", serviceTarget]) }
+        if await job() != .notLoaded { try await launchctl(["bootout", serviceTarget]) }
         guard HostRendezvous.lstatInfo(plistURL) != nil else { return }
         do { try FileManager.default.removeItem(at: plistURL) } catch {
             throw Failure.filesystem("cannot remove \(plistURL.path): \(Redaction.describe(error))")
         }
     }
 
+    /// The pid launchd reports for the running job, or nil (not loaded, not running, or not reported).
+    public func jobPID() async -> Int32? {
+        if case .running(let pid) = await job() { return pid }
+        return nil
+    }
+
     // MARK: - helpers
 
-    /// `launchctl print gui/<uid>/<label>` exits 0 only for a job launchd knows.
-    func isLoaded() async -> Bool {
-        let r = try? await runner.run(Self.launchctl, ["print", serviceTarget], environment: nil, timeout: Self.commandTimeout)
-        return r?.succeeded ?? false
+    /// `launchctl print gui/<uid>/<label>`: a non-zero exit means launchd does not know the job; otherwise
+    /// its `state` / `pid` lines say whether it runs (exit 0 alone does not: a crashed or throttled job is
+    /// still loaded).
+    public func job() async -> Job {
+        guard let r = try? await runner.run(Self.launchctl, ["print", serviceTarget], environment: nil, timeout: Self.commandTimeout),
+              r.succeeded else { return .notLoaded }
+        return Self.parseJob(r.output)
+    }
+
+    /// Reads the job's own `state = …` and `pid = …` from `launchctl print` output. The job's properties are
+    /// indented by one tab; nested dictionaries (endpoints, event triggers…) by more, so the shallowest
+    /// occurrence wins.
+    static func parseJob(_ output: String) -> Job {
+        func value(_ key: String) -> String? {
+            var best: (depth: Int, value: String)?
+            for line in output.split(whereSeparator: \.isNewline) {
+                let depth = line.prefix(while: { $0 == "\t" || $0 == " " }).count
+                let text = line.dropFirst(depth)
+                guard text.hasPrefix(key + " = ") else { continue }
+                let v = text.dropFirst(key.count + 3).trimmingCharacters(in: .whitespaces)
+                if best == nil || depth < best!.depth { best = (depth, v) }
+            }
+            return best?.value
+        }
+        let pid = value("pid").flatMap { Int32($0) }.flatMap { $0 > 0 ? $0 : nil }
+        if value("state") == "running" || (value("state") == nil && pid != nil) { return .running(pid: pid) }
+        return .loadedNotRunning
+    }
+
+    /// LaunchAgents dir 0755; log dir 0700 (re-applied: `createDirectory` leaves an existing dir as it is,
+    /// and honours the umask for a new one); the log file pre-created 0600, so launchd (which would create it
+    /// with the default umask) never makes a world-readable log.
+    func prepareDirectories() throws {
+        let fm = FileManager.default
+        let logDir = logFile.deletingLastPathComponent()
+        do {
+            try fm.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                   attributes: [.posixPermissions: 0o755])
+            try fm.createDirectory(at: logDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        } catch {
+            throw Failure.filesystem("cannot create directories: \(Redaction.describe(error))")
+        }
+        chmod(logDir.path, 0o700)
+        if HostRendezvous.lstatInfo(logFile) == nil {
+            let fd = open(logFile.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+            if fd >= 0 { close(fd) }
+        }
+        chmod(logFile.path, 0o600)
     }
 
     func launchctl(_ args: [String]) async throws {
