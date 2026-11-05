@@ -12,8 +12,15 @@ public struct Bot: Sendable, Identifiable, Hashable {
     public let skillCount: Int?
     /// Pin / Hide as stored in `ui_meta["hermes-bots"]` when the roster was listed (BotUIMeta.swift).
     public let uiMeta: BotUIMeta
+    /// The Bot Mode title Hermes Desktop edits (`ui_meta["hermes-bots"].title`), nil when unset.
+    public let metaTitle: String?
+    /// The profile directory (`path`), named by the Delete confirmation.
+    public let path: String?
 
-    public var title: String { (displayName?.isEmpty == false ? displayName : nil) ?? name }
+    /// Desktop's `displayName` order: the Bot Mode title, then the profile's display name, then its name.
+    public var title: String {
+        (metaTitle?.isEmpty == false ? metaTitle : nil) ?? (displayName?.isEmpty == false ? displayName : nil) ?? name
+    }
 
     init?(_ v: JSONValue) {
         guard let name = v["name"]?.string else { return nil }
@@ -25,6 +32,8 @@ public struct Bot: Sendable, Identifiable, Hashable {
         isDefault = v["is_default"]?.bool ?? false
         skillCount = v["skill_count"]?.int
         uiMeta = BotUIMeta(row: v)
+        metaTitle = v["ui_meta"]?[BotMetaSync.namespace]?["title"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+        path = v["path"]?.string
     }
 
     /// `profiles.list {include_sessions: false}` → bots in server order.
