@@ -111,19 +111,23 @@ private struct MarkdownList: View {
 }
 
 /// GFM table: header row in the strong face, hairline rules between rows, columns sized to their content,
-/// cells wrap within the message width (no horizontal scroll, as in Hermes Desktop).
+/// cells wrap within the message width (no horizontal scroll, as in Hermes Desktop). Laid out by
+/// `MarkdownTableLayout`, not `Grid`: Grid measured wrapped cells at other widths than it placed them at, so a
+/// table could draw taller than it reported and the next row of the timeline overlapped its end.
 private struct MarkdownTableView: View {
     let table: MarkdownTable
     @Environment(\.mentionHandles) private var mentions
 
+    private var columns: Int { max(table.alignments.count, table.header.count, table.rows.map(\.count).max() ?? 0) }
+
     var body: some View {
-        Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-            if !table.header.isEmpty {
-                row(table.header, header: true)
-            }
-            ForEach(Array(table.rows.enumerated()), id: \.offset) { _, cells in
-                Rectangle().fill(DS.Palette.hairline).frame(height: DS.Stroke.hairline).gridCellUnsizedAxes(.horizontal)
-                row(cells, header: false)
+        let rows = (table.header.isEmpty ? [] : [table.header]) + table.rows
+        MarkdownTableLayout(columns: columns) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { r, cells in
+                let header = r == 0 && !table.header.isEmpty
+                ForEach(0..<columns, id: \.self) { c in
+                    cell(c < cells.count ? cells[c] : AttributedString(), column: c, header: header, ruled: r > 0)
+                }
             }
         }
         .background(DS.Palette.window)
@@ -132,19 +136,18 @@ private struct MarkdownTableView: View {
             .strokeBorder(DS.Palette.hairline, lineWidth: DS.Stroke.ring))
     }
 
-    private func row(_ cells: [AttributedString], header: Bool) -> some View {
-        GridRow {
-            ForEach(Array(cells.enumerated()), id: \.offset) { column, cell in
-                Text(MarkdownView.styled(cell, mentions: mentions))
-                    .font(header ? DS.Typeface.bodyStrong : DS.Typeface.body)
-                    .foregroundStyle(DS.Palette.ink)
-                    .multilineTextAlignment(textAlignment(column))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.s2)
-                    .gridColumnAlignment(horizontalAlignment(column))
+    /// One cell, filling its slot (so the rule above it spans the column) with the text at the top.
+    private func cell(_ text: AttributedString, column: Int, header: Bool, ruled: Bool) -> some View {
+        Text(MarkdownView.styled(text, mentions: mentions))
+            .font(header ? DS.Typeface.bodyStrong : DS.Typeface.body)
+            .foregroundStyle(DS.Palette.ink)
+            .multilineTextAlignment(textAlignment(column))
+            .textSelection(.enabled)
+            .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.s2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: frameAlignment(column))
+            .overlay(alignment: .top) {
+                if ruled { Rectangle().fill(DS.Palette.hairline).frame(height: DS.Stroke.hairline) }
             }
-        }
     }
 
     private func alignment(_ column: Int) -> MarkdownTable.Alignment {
@@ -159,11 +162,87 @@ private struct MarkdownTableView: View {
         }
     }
 
-    private func horizontalAlignment(_ column: Int) -> HorizontalAlignment {
+    private func frameAlignment(_ column: Int) -> Alignment {
         switch alignment(column) {
-        case .leading: return .leading
-        case .center: return .center
-        case .trailing: return .trailing
+        case .leading: return .topLeading
+        case .center: return .top
+        case .trailing: return .topTrailing
+        }
+    }
+}
+
+/// Row-major table layout with one rule for column widths, used both to measure and to place: each column
+/// gets its content's ideal width when everything fits; otherwise columns narrower than an even share keep
+/// their ideal width and the rest of the width goes to the wide columns in proportion to their ideal widths.
+/// Row heights are measured at exactly those widths, so the reported height is the drawn height.
+struct MarkdownTableLayout: Layout {
+    let columns: Int
+
+    struct Cache {
+        var ideal: [CGFloat] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        var ideal = Array(repeating: CGFloat(0), count: columns)
+        for (i, v) in subviews.enumerated() where columns > 0 {
+            ideal[i % columns] = max(ideal[i % columns], ceil(v.sizeThatFits(.unspecified).width))
+        }
+        return Cache(ideal: ideal)
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = makeCache(subviews: subviews) }
+
+    /// Column widths for an available width (`nil`: unconstrained).
+    static func widths(ideal: [CGFloat], available: CGFloat?) -> [CGFloat] {
+        guard let available, ideal.reduce(0, +) > available, !ideal.isEmpty else { return ideal }
+        var fixed = Set<Int>()
+        while true {
+            let open = ideal.indices.filter { !fixed.contains($0) }
+            guard !open.isEmpty else { break }
+            let left = available - fixed.reduce(0) { $0 + ideal[$1] }
+            let share = left / CGFloat(open.count)
+            let narrow = open.filter { ideal[$0] <= share }
+            if narrow.isEmpty {
+                let total = open.reduce(0) { $0 + ideal[$1] }
+                var out = ideal
+                for c in open { out[c] = max(0, floor(left * ideal[c] / total)) }
+                return out
+            }
+            fixed.formUnion(narrow)
+        }
+        return ideal
+    }
+
+    private func rowHeights(_ widths: [CGFloat], subviews: Subviews) -> [CGFloat] {
+        guard columns > 0 else { return [] }
+        let rows = (subviews.count + columns - 1) / columns
+        var heights = Array(repeating: CGFloat(0), count: rows)
+        for (i, v) in subviews.enumerated() {
+            let h = v.sizeThatFits(ProposedViewSize(width: widths[i % columns], height: nil)).height
+            heights[i / columns] = max(heights[i / columns], ceil(h))
+        }
+        return heights
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let widths = Self.widths(ideal: cache.ideal, available: proposal.width)
+        return CGSize(width: widths.reduce(0, +), height: rowHeights(widths, subviews: subviews).reduce(0, +))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let widths = Self.widths(ideal: cache.ideal, available: bounds.width)
+        let heights = rowHeights(widths, subviews: subviews)
+        var y = bounds.minY
+        for r in heights.indices {
+            var x = bounds.minX
+            for c in 0..<columns {
+                let i = r * columns + c
+                guard i < subviews.count else { break }
+                subviews[i].place(at: CGPoint(x: x, y: y), anchor: .topLeading,
+                                  proposal: ProposedViewSize(width: widths[c], height: heights[r]))
+                x += widths[c]
+            }
+            y += heights[r]
         }
     }
 }
