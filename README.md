@@ -61,6 +61,10 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 - **Routines are real.** Routines you create, pause, resume or delete change that bot's Hermes cron jobs, the
   same ones Hermes Desktop's Routines and `hermes cron` show. When it lists a bot's routines, the app pauses
   any old-style delegated routine Hermes Desktop marks unsafe, as Hermes Desktop does.
+- **Quick sends are real messages.** The menu bar's quick send, Quick Ask, the **Send to Hermes Bot** service,
+  the Shortcuts actions and **Summarize** send a prompt to a bot's Bot Chat (or, for the service and **Send to
+  Group Chat**, a message to a room) only when you press Send or run the shortcut. Nothing is sent on its own,
+  and Summarize never posts into the room. See [Mac integration](#mac-integration).
 - **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
   elsewhere is rejected.
 - Setting `HERMES_HOME` does **not** isolate the app today; it always uses `~/.hermes`.
@@ -261,6 +265,32 @@ through the running Hermes backend.
 - Turn notifications off in **Settings → Notifications → Show notifications** (on by default; it is the
   `notificationsEnabled` user default). Notifications need the packaged `HermesBot.app`; a bare `swift run`
   binary shows the Dock badge only.
+
+## Mac integration
+
+- **Menu bar:** the speech-bubble icon in the menu bar shows how many approvals and questions wait on you. Click
+  it for every bot and group chat with its state (**Needs you**, **Working**, **Idle**; needs-you first) and a
+  **Quick send** field: pick a bot, type, Return. The message goes to that bot's Bot Chat (refused while it is
+  still replying) and the reply lands there. Click a row to open it in the main window. Turn the icon off in
+  **Settings → Mac Integration → Show in menu bar** (on by default).
+- **Quick Ask (⌃⌥Space):** from any app, the shortcut opens a floating panel: pick a bot, type, Return. The reply
+  streams in below and stays in the bot's Bot Chat (**Open in Bot Chat**). Esc or the shortcut again hides it.
+  Change or turn off the shortcut in **Settings → Mac Integration** (click the shortcut, then press the new keys;
+  it needs ⌘, ⌃ or ⌥). It uses the system hot key API, so no Accessibility permission is asked for; if another
+  app already holds the keys, Settings says so.
+- **Services → Send to Hermes Bot:** select text in any app (or files in Finder), then the app menu → Services →
+  **Send to Hermes Bot**. A small window opens with the text: pick a bot or a group chat, edit, then **Send**, or
+  **Open in Composer** to put the text (and the files, as attachments) into that chat's composer and send from
+  there. Nothing is sent until you press a button. Needs the packaged `HermesBot.app`; macOS may only list the
+  service after the app was launched once (or after logging out and in).
+- **Shortcuts:** the **Ask Bot** action sends a message to a bot's Bot Chat and returns its reply as text (it
+  gives up after the timeout, 120 s by default; the reply then continues in the Bot Chat). **Send to Group Chat**
+  posts a message to a room. Both run through the app: **Hermes Bot must be running and connected** (Shortcuts
+  launches it if needed and the action waits up to 20 s for the connection). Needs the packaged `HermesBot.app`.
+- **Summarize since I left:** in a group chat, the **Summarize** toolbar button collects the messages that came
+  in since you last had the room open (up to the newest 80) and asks a bot of your choice (a room member by
+  default) for a short summary, in that bot's Bot Chat. The summary streams into the sheet; **Open Bot Chat**
+  shows it there. Nothing is posted into the room.
 
 ## Using Group Chat
 

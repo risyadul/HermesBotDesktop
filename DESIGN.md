@@ -741,6 +741,25 @@ sender is 4, pointing at who spoke), sheets 14. Nothing is pill-shaped except th
 - `find-bar` (Bot Chat, ⌘F): a `surface` strip above the transcript with a hairline below: magnifier, the query
   field, "3 of 12" / "No results" (caption, muted, tabular), previous and next icon buttons and Done
   (`button-secondary`). Slides down from the top with `ease`.
+- `menu-bar-extra` (D3): the status item is the `bubble.left.and.bubble.right` symbol (filled, with the count
+  beside it, while something waits on the user). Its window (320 pt, system menu-bar window): header ("Hermes
+  Bot", then "N waiting on you" in attention or "Nothing waiting" muted), Bots and Group Chats as plain rows
+  (status dot: attention = needs you, breathing graphite = working, hairline = idle; title in body; state in
+  meta), needs-you rows first; then Quick send (bot menu, rounded text field, Send) with one meta note under it;
+  then link buttons (Open Hermes Bot, Quick Ask, Quit).
+- `quick-ask-panel` (D4): a 560 pt floating panel, `window` fill (no second material), hidden title bar, moved by
+  its background. One row: bot menu, then a borderless field in `title-pane` ("Ask a bot…", up to 4 lines).
+  The reply follows under a hairline: spinner + "<bot> is thinking…", breathing dot + "<bot> is replying",
+  then the bot's title in `meta-strong` and the text (body, selectable, scrolls past 260 pt); failures in
+  danger. "Open in Bot Chat" is `button-secondary`. Esc hides it.
+- `send-chooser` (D6, Services): a 460 pt floating window: `title-pane` "Send to Hermes Bot", a To menu (Bots,
+  Group Chats sections), the editable text (hairline box, control radius), files as meta rows with a remove
+  button and the note that they go to the composer, then Cancel · Open in Composer · Send (default).
+- `catch-up-sheet` (D12): the room toolbar's Summarize button (`text.badge.star`, disabled while nothing is
+  unseen; the tooltip counts the messages) opens a sheet: `title-pane`, "N new messages in <room>." in body, the
+  "Nothing is posted in the group chat." note in meta muted, an Ask menu, then the streaming reply
+  (`quick-ask-panel`'s reply block, 320 pt) and Close · Summarize (`button-primary`) / Open Bot Chat
+  (`button-secondary`).
 - `empty-state`: SF Symbol (28 pt, muted), `title-state`, one sentence, optional primary action.
   Variants: connecting (with step list), connection failed (Try again), nothing selected, empty room,
   new 1:1 chat. The new 1:1 chat puts the bot's own face (96 pt) where the symbol goes, its name as the title,

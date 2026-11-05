@@ -35,6 +35,8 @@ struct HermesBotApp: App {
                 CommandGroup(after: .newItem) { DesktopImportCommand(model: AppModel.shared) }
             }
         Settings { SettingsView() }
+        // D3: menu bar extra (MacIntegration/MenuBarExtra.swift).
+        MenuBarScene()
     }
 }
 
@@ -49,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Notifications (D1): the UserNotifications delegate must be in place before a click that launched the
         // app is delivered. Nothing is requested from the user until the first notification (lazy authorization).
         MainActor.assumeIsolated { _ = AppModel.shared.notifications }
+        // D4 Quick Ask shortcut + D6 Services provider (MacIntegration/MacIntegration.swift).
+        MainActor.assumeIsolated { MacIntegration.shared.install() }
         // `swift run` launches a bare executable: make it a regular foreground app with a window.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -302,6 +306,7 @@ struct SettingsForm: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             NotificationsSection()
+            MacIntegrationSection(hotKey: MacIntegration.shared.hotKey)  // D3, D4
             BackgroundServeSection(model: background)
             GatewaySection(model: dispatcher)
         }

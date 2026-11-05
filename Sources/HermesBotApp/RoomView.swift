@@ -166,6 +166,8 @@ struct RoomView: View {
                 .help("Room actions")
                 .disabled(!model.composer.isOpen)
         }
+        // D12: Summarize Since You Left (MacIntegration/RoomCatchUp.swift).
+        ToolbarItem(placement: .primaryAction) { RoomCatchUpButton(model: model, digests: AppModel.shared.roomDigests) }
         ToolbarItem(placement: .primaryAction) {
             // ⌥⌘I as in Bot Chat: the two panes are never on screen together. System inspector animation with
             // motion on; a no-animation transaction with it off.
