@@ -401,14 +401,16 @@ private struct MemberActivitySection: View {
                 }
                 .accessibilityLabel("Now: \(ActivityPresentation.currentLabel(current))")
             }
-            if activity.items.isEmpty {
+            // Runs of finished turns with nothing between them read as one separator.
+            let items = ActivityPresentation.collapsingTurns(activity.items)
+            if items.isEmpty {
                 Text("No activity yet").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
             } else {
                 VStack(alignment: .leading, spacing: DS.Space.s1) {
-                    ForEach(activity.items.prefix(limit)) { item in ActivityItemRow(item: item) }
+                    ForEach(items.prefix(limit)) { item in ActivityItemRow(item: item) }
                 }
-                if activity.items.count > limit {
-                    Button("Show More (\(activity.items.count - limit))") { limit += ActivityMemberList.pageSize }
+                if items.count > limit {
+                    Button("Show More (\(items.count - limit))") { limit += ActivityMemberList.pageSize }
                         .buttonStyle(.link)
                         .font(DS.Typeface.meta)
                         .accessibilityHint("Shows older activity of \(title)")
@@ -461,7 +463,9 @@ private struct ActivityStatusChip: View {
 
 // MARK: - rows
 
-/// "Turn finished · 4.2s" between two hairlines. The label never shrinks: the trailing rule gives way.
+/// "Turn finished · 4.2s" between two hairlines, or "3 turns finished · 4.3–15s" for a run of finished turns
+/// with nothing between them (`ActivityPresentation.collapsingTurns`). The label never shrinks: the trailing
+/// rule gives way.
 struct ActivityTurnDivider: View {
     /// Tool titles in the narrow panel wrap to this many lines (ToolActivityRow `titleLines`).
     static let toolTitleLines = 2
@@ -469,15 +473,18 @@ struct ActivityTurnDivider: View {
     let title: String?
     let finished: Bool
     let duration: String?
+    /// Finished turns this separator stands for.
+    var count = 1
 
-    static func label(finished: Bool, duration: String?) -> String {
-        finished ? "Turn finished" + (duration.map { " · \($0)" } ?? "") : "Turn started"
+    static func label(finished: Bool, duration: String?, count: Int = 1) -> String {
+        guard finished else { return "Turn started" }
+        return (count > 1 ? "\(count) turns finished" : "Turn finished") + (duration.map { " · \($0)" } ?? "")
     }
 
     var body: some View {
         HStack(spacing: DS.Space.s2) {
             Hairline().frame(width: DS.Space.s3)
-            Text(Self.label(finished: finished, duration: duration))
+            Text(Self.label(finished: finished, duration: duration, count: count))
                 .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted).lineLimit(1)
                 .fixedSize()
             Hairline()
@@ -485,7 +492,7 @@ struct ActivityTurnDivider: View {
         .padding(.vertical, DS.Space.s1)
         .help(title ?? "")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.label(finished: finished, duration: duration))
+        .accessibilityLabel(Self.label(finished: finished, duration: duration, count: count))
     }
 }
 
@@ -513,6 +520,8 @@ private struct ActivityItemRow: View {
             .accessibilityLabel((streaming ? "Writing: " : "Wrote: ") + text)
         case .turn(let title, let finished, let duration):
             ActivityTurnDivider(title: title, finished: finished, duration: duration)
+        case .turns(let count, let duration):
+            ActivityTurnDivider(title: nil, finished: true, duration: duration, count: count)
         case .error(let title, let detail):
             VStack(alignment: .leading, spacing: DS.Space.s0) {
                 Label(title, systemImage: "exclamationmark.triangle.fill").font(DS.Typeface.metaStrong)

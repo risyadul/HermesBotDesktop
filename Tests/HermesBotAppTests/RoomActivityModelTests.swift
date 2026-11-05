@@ -709,6 +709,33 @@ final class RoomActivityModelTests: XCTestCase {
         XCTAssertEqual(running.line?.tool?.result, .string("raw text"), "a non-JSON result stays the raw string")
     }
 
+    /// Live UI test 2026-11-06 (round 2): long runs of "Turn finished · Ns" separators with nothing between
+    /// them. A run of two or more finished turns reads as one "3 turns finished · 4.3–15s" separator.
+    func testConsecutiveFinishedTurnsFoldIntoOneSeparator() {
+        func turn(_ key: String, _ ms: Int?, status: String = "done") -> ActivityItem {
+            ActivityPresentation.item(row(key, rev: 1, ts: 100, kind: "turn", status: status, title: "t", durationMs: ms), now: 200)
+        }
+        let tool = ActivityPresentation.item(row("tool:1", rev: 1), now: 200)
+        // Newest first, as the panel lists them.
+        let items = [turn("u6", 4300), turn("u5", 15_000), turn("u4", 6000), tool, turn("u3", 5100), tool,
+                     turn("u2", 16_000), turn("u1", nil)]
+        let folded = ActivityPresentation.collapsingTurns(items)
+        XCTAssertEqual(folded.map(\.kind), [.turns(count: 3, duration: "4.3–15s"), tool.kind,
+                                            .turn(title: "t", finished: true, duration: "5.1s"), tool.kind,
+                                            .turns(count: 2, duration: "16s")])
+        XCTAssertEqual(folded.first?.id, "turns:u4", "keyed by the run's oldest turn, stable while newer turns join")
+        XCTAssertEqual(ActivityPresentation.collapsingTurns([turn("u7", 900)] + items).first?.id, "turns:u4")
+        XCTAssertEqual(ActivityTurnDivider.label(finished: true, duration: "4.3–15s", count: 3), "3 turns finished · 4.3–15s")
+
+        let running = turn("u9", nil, status: "running")
+        XCTAssertEqual(ActivityPresentation.collapsingTurns([running, turn("u8", 2000)]).count, 2, "a started turn is never folded")
+        XCTAssertEqual(ActivityPresentation.collapsingTurns([tool]), [tool])
+
+        XCTAssertEqual(ActivityPresentation.durationRange([65, 130]), "1m 05s–2m 10s")
+        XCTAssertEqual(ActivityPresentation.durationRange([2, 2]), "2.0s")
+        XCTAssertNil(ActivityPresentation.durationRange([]))
+    }
+
     func testOtherKindsBecomePanelRows() {
         let thinking = ActivityPresentation.item(row("r", rev: 1, ts: 190, updated: 195, kind: "reasoning", status: "streaming",
                                                      title: "reasoning", text: "  hmm  "), now: 200)

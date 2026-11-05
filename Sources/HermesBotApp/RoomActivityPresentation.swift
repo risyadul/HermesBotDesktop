@@ -16,6 +16,9 @@ struct ActivityItem: Equatable, Identifiable {
         case message(text: String, streaming: Bool)
         /// An LLM turn starting or finishing: a subtle separator.
         case turn(title: String?, finished: Bool, duration: String?)
+        /// `count` finished turns in a row with nothing between them, folded into one separator; `duration` is
+        /// their range ("4.3–15s").
+        case turns(count: Int, duration: String?)
         case error(title: String, detail: String?)
         case approval(title: String, status: String)
         case other(title: String, status: String?)
@@ -25,6 +28,8 @@ struct ActivityItem: Equatable, Identifiable {
     let id: String
     let kind: Kind
     let time: Double
+    /// A turn row's duration in seconds (folding a run of turns reports their range).
+    var seconds: Double? = nil
 
     /// The reused transcript line (tool and reasoning rows).
     var line: ChatLine? {
@@ -100,7 +105,39 @@ enum ActivityPresentation {
                 kind = .other(title: row.title ?? (row.kind.isEmpty ? "activity" : row.kind), status: row.status)
             }
         }
-        return ActivityItem(id: row.key, kind: kind, time: row.ts)
+        return ActivityItem(id: row.key, kind: kind, time: row.ts,
+                            seconds: row.kind == "turn" ? row.durationMs.map { Double($0) / 1000 } : nil)
+    }
+
+    /// Consecutive "Turn finished" separators with no row between them were long runs of noise (live UI test
+    /// 2026-11-06, round 2): each run of two or more becomes one `.turns` separator. Its id is the run's oldest
+    /// turn (items are newest first), so it keeps its identity while newer turns join the run.
+    static func collapsingTurns(_ items: [ActivityItem]) -> [ActivityItem] {
+        var out: [ActivityItem] = []
+        var run: [ActivityItem] = []
+        func flush() {
+            if run.count == 1 { out.append(run[0]) }
+            if run.count > 1, let oldest = run.last, let newest = run.first {
+                out.append(ActivityItem(id: "turns:" + oldest.id, kind: .turns(count: run.count, duration: durationRange(run.compactMap(\.seconds))),
+                                        time: newest.time))
+            }
+            run = []
+        }
+        for item in items {
+            if case .turn(_, true, _) = item.kind { run.append(item) } else { flush(); out.append(item) }
+        }
+        flush()
+        return out
+    }
+
+    /// "4.3–15s", "1m 05s–2m 10s", or one duration when they are all the same; nil without durations.
+    static func durationRange(_ seconds: [Double]) -> String? {
+        guard let lo = seconds.min(), let hi = seconds.max() else { return nil }
+        let low = ToolRowPresentation.format(lo), high = ToolRowPresentation.format(hi)
+        guard low != high else { return low }
+        // Both in plain seconds: the unit is written once.
+        let shared = !low.contains("m") && !high.contains("m") && low.hasSuffix("s")
+        return (shared ? String(low.dropLast()) : low) + "–" + high
     }
 
     /// The plugin row as a Bot Chat tool line: `title` is the tool name, `args`/`result` are JSON (or the raw
