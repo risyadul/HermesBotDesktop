@@ -79,6 +79,8 @@ struct SidebarView: View {
                             .roomOrdering(room, rooms: model.rooms, store: roomOrder) { select(.room(room.roomId)) }
                     }
                     sectionHeader("Bots") {
+                        IconButton(symbol: "plus", label: "New bot") { model.newBot() }
+                            .disabled(model.backend == nil || model.botSheet != nil)
                         IconButton(symbol: "folder.badge.plus", label: "New section") { askSectionName(.create(filing: nil)) }
                             .disabled(model.backend == nil || model.bots.isEmpty)
                     }

@@ -47,6 +47,14 @@ public enum ProfileAvatar {
     public static func normalize(_ data: Data) throws -> Data {
         if data.count > maxBytes { throw Failure.tooLarge(data.count) }
         guard format(data) != nil else { throw Failure.notAnImage }
+        return try square(data)
+    }
+
+    /// A generated image (`image.generate` may answer WebP or another format ImageIO reads), as the same 256 px PNG.
+    public static func normalizeGenerated(_ data: Data) throws -> Data { try square(data) }
+
+    private static func square(_ data: Data) throws -> Data {
+        if data.count > maxBytes { throw Failure.tooLarge(data.count) }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
         else { throw Failure.unreadable }

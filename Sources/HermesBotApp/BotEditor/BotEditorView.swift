@@ -3,7 +3,7 @@ import HermesGatewayKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The Edit sheet (A8 + A9): avatar, title, description, then an Advanced disclosure with model and
+/// The Edit sheet (A8 + A9, A10 avatar picker): avatar, title, description, then an Advanced disclosure with model and
 /// provider first, skills, toolsets, MCP servers and SOUL. Presented by `motionSheet`, so it closes through
 /// the model (`onClose`), not `\.dismiss`.
 ///
@@ -23,7 +23,7 @@ struct BotEditorView: View {
                 Text("Edit \(model.bot.title)").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
                 Text("@\(model.bot.name)").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
             }
-            if model.advancedOpen {
+            if scrolls {
                 // Takes the height left between the header and the footer. A fixed sheet height (not a
                 // maximum): the sheet window only grows to a size its content requires.
                 ScrollView { fields.padding(.trailing, DS.Space.s3) }
@@ -34,7 +34,7 @@ struct BotEditorView: View {
             footer
         }
         .padding(DS.Space.s5)
-        .frame(width: DS.Size.sheetWidth, height: model.advancedOpen ? maxHeight : nil, alignment: .top)
+        .frame(width: DS.Size.sheetWidth, height: scrolls ? maxHeight : nil, alignment: .top)
         .background(DS.Palette.window)
         .disabled(model.saving)
         // The buttons answer; the binding's setter does nothing, so dismissing never races the chosen action.
@@ -45,6 +45,9 @@ struct BotEditorView: View {
             Text(model.pendingConfirm?.message ?? "")
         }
     }
+
+    /// Advanced or the avatar picker open: the fields scroll inside a sheet as tall as the window allows.
+    private var scrolls: Bool { model.advancedOpen || model.avatarPickerOpen }
 
     private var fields: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
@@ -73,37 +76,32 @@ struct BotEditorView: View {
     }
 
     private var avatarRow: some View {
-        HStack(spacing: DS.Space.s3) {
-            preview
-            VStack(alignment: .leading, spacing: DS.Space.s2) {
-                HStack(spacing: DS.Space.s2) {
-                    Button("Choose Image…") { chooseImage() }.buttonStyle(DSButtonStyle(kind: .secondary))
-                    if model.avatar != .unchanged {
-                        Button("Undo") { model.keepAvatar() }.buttonStyle(DSButtonStyle(kind: .secondary))
-                    } else if model.hadAvatar {
-                        Button("Remove") { model.removeAvatar() }.buttonStyle(DSButtonStyle(kind: .secondary))
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            HStack(spacing: DS.Space.s3) {
+                preview
+                VStack(alignment: .leading, spacing: DS.Space.s2) {
+                    HStack(spacing: DS.Space.s2) {
+                        Button(model.avatarPickerOpen ? "Hide Avatars" : "Change Avatar…") { model.toggleAvatarPicker() }
+                            .buttonStyle(DSButtonStyle(kind: .secondary))
+                        if model.avatar != .unchanged {
+                            Button("Undo") { model.keepAvatar() }.buttonStyle(DSButtonStyle(kind: .secondary))
+                        } else if model.hadAvatar {
+                            Button("Remove") { model.removeAvatar() }.buttonStyle(DSButtonStyle(kind: .secondary))
+                        }
                     }
+                    Text("A shape face, a picture, a generated image or a pet.")
+                        .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
+                    errorLine(.avatar)
                 }
-                Text("PNG or JPEG, up to 15 MB. Saved as a 256 px square.")
-                    .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-                errorLine(.avatar)
+            }
+            if model.avatarPickerOpen {
+                BotAvatarPickerView(picker: model.picker, staged: model.avatar, chooseImage: chooseImage)
             }
         }
     }
 
-    @ViewBuilder private var preview: some View {
-        let shape = RoundedRectangle(cornerRadius: DS.Radius.avatar, style: .continuous)
-        if let image = model.avatarPreview {
-            Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
-                .frame(width: BotEditorLayout.preview, height: BotEditorLayout.preview).clipShape(shape)
-                .accessibilityLabel("New avatar")
-        } else if model.showsAvatarImage {
-            AvatarView(identity: identity, size: BotEditorLayout.preview)
-        } else {
-            // The monogram the bot shows without an image (a profile key with no stored image).
-            AvatarView(identity: BotIdentity(profile: "", title: identity.title, slot: identity.slot,
-                                             uniqueMonogram: identity.monogram), size: BotEditorLayout.preview)
-        }
+    private var preview: some View {
+        BotAvatarPreview(staged: model.avatar, identity: identity, hasCurrentImage: model.hadAvatar, faceName: model.bot.name)
     }
 
     private func chooseImage() {

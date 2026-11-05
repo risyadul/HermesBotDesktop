@@ -34,7 +34,10 @@ struct HermesBotApp: App {
                 CommandGroup(after: .sidebar) {
                     Toggle("Animate Interface Changes", isOn: $motion)
                 }
-                CommandGroup(after: .newItem) { DesktopImportCommand(model: AppModel.shared) }
+                CommandGroup(after: .newItem) {
+                    NewBotCommand(model: AppModel.shared)
+                    DesktopImportCommand(model: AppModel.shared)
+                }
                 AppCommands(model: AppModel.shared)  // D5, D9, D10, D13 (AppCommands.swift)
             }
         // D9: a Bot Chat or a room in its own window, on the same models (PaneWindows.swift).

@@ -13,10 +13,14 @@ import HermesGatewayKit
 /// - A guarded (expensive / data-policy) model answers `confirm_required`: nothing is written until the user
 ///   confirms, then only the model section is resent with `confirm_expensive_model: true`.
 /// - An edited SOUL keeps the agent messaging protocol section (`SoulProtocol.ensure`, Desktop's `soul.ts`).
+/// - A10 avatar: Desktop's `editedLook` writes the look with it (`imageKind`, `custom`, and for a shape face `shape`
+///   and `color`), then the picture (a shape face is pushed as Desktop's 160 px face raster).
+/// - A13 Find Skills and A14 MCP server setup act on the profile at once (as in Desktop), not on Save; what they add
+///   joins the lists as already saved.
 @MainActor
-final class BotEditorModel: ObservableObject, Identifiable {
+final class BotEditorModel: ObservableObject, Identifiable, BotModelChoosing {
     enum Field: Hashable, CaseIterable { case title, description, avatar, model, soul, skills, toolsets, mcp }
-    enum AvatarEdit: Equatable { case unchanged, set(Data), remove }
+    typealias AvatarEdit = BotAvatarEdit
     enum AdvancedPhase: Equatable { case idle, loading, loaded, failed(String) }
     struct ModelConfirm: Equatable { let message: String; let provider: String; let model: String }
 
@@ -55,6 +59,24 @@ final class BotEditorModel: ObservableObject, Identifiable {
     private var teammates: [SoulProtocol.Teammate] = []
     private var serverInjectsProtocol = false
 
+    // MARK: A10 / A13 / A14
+    /// The avatar picker is open (the sheet scrolls then).
+    @Published var avatarPickerOpen = false
+    /// The Find Skills panel is open.
+    @Published var skillsFinderOpen = false
+    private(set) lazy var picker = BotAvatarPickerModel(
+        service: service,
+        seed: { [unowned self] in .init(name: bot.name, title: title, description: description) },
+        apply: { [unowned self] in stageAvatar($0) },
+        monogram: { [unowned self] in removeAvatar() })
+    private(set) lazy var skillsFinder = BotSkillsFinderModel(profile: bot.name, service: service) { [weak self] _ in
+        await self?.refreshSkills()
+    }
+    private(set) lazy var mcp = BotMcpModel(profile: bot.name, service: service) { [weak self] servers in
+        self?.mcpListed(servers)
+    }
+    private var lookRequested = false
+
     // MARK: save state
     @Published private(set) var errors: [Field: String] = [:]
     @Published private(set) var saving = false
@@ -70,6 +92,19 @@ final class BotEditorModel: ObservableObject, Identifiable {
         openedDescription = bot.description ?? ""
         title = openedTitle
         description = openedDescription
+    }
+
+    /// Opens or closes the avatar picker; the first open reads the bot's current shape and colour from `ui_meta`.
+    func toggleAvatarPicker() {
+        avatarPickerOpen.toggle()
+        guard avatarPickerOpen, !lookRequested else { return }
+        lookRequested = true
+        let service = self.service, name = bot.name
+        Task { [weak self] in
+            guard let row = try? await service.roster().row(name) else { return }
+            let ns = row["ui_meta"]?[BotMetaSync.namespace]
+            self?.picker.showCurrent(shape: ns?["shape"]?.string, color: ns?["color"]?.string)
+        }
     }
 
     /// The Title field's placeholder while no Bot Mode title is set: the name the bot shows now, the profile's
@@ -117,16 +152,23 @@ final class BotEditorModel: ObservableObject, Identifiable {
 
     func removeAvatar() { avatar = hadAvatar ? .remove : .unchanged; errors[.avatar] = nil }
     func keepAvatar() { avatar = .unchanged; errors[.avatar] = nil }
+    /// A pick from the avatar picker (a shape face, a generated image or a pet).
+    func stageAvatar(_ edit: AvatarEdit) { avatar = edit; errors[.avatar] = nil }
 
-    /// What the preview tile shows: the staged image, none (monogram), or the current one.
+    /// What the preview tile shows: the staged image or face, none (monogram), or the current one.
     var avatarPreview: NSImage? {
-        if case .set(let data) = avatar { return NSImage(data: data) }
-        return nil
+        switch avatar {
+        case .set(let data): return NSImage(data: data)
+        case .shape(let s, let color):
+            return BotLook.render(shape: s, color: color, name: bot.name)
+                .map { NSImage(cgImage: $0, size: NSSize(width: BotLook.faceEdge, height: BotLook.faceEdge)) }
+        case .unchanged, .remove: return nil
+        }
     }
 
     var showsAvatarImage: Bool {
         switch avatar {
-        case .set: return true
+        case .set, .shape: return true
         case .remove: return false
         case .unchanged: return hadAvatar
         }
@@ -173,42 +215,43 @@ final class BotEditorModel: ObservableObject, Identifiable {
         teammates = roster.teammates
         serverInjectsProtocol = roster.injectsProtocol
         advancedPhase = .loaded
+        Task { await mcp.load() }
     }
 
-    // MARK: advanced: model
+    // MARK: advanced: model (Desktop's ModelPicker rules: `BotModelChoosing`)
 
-    /// The catalog row matching the current provider (slug or alias), if any.
-    var activeProvider: BotProfileAPI.ModelProvider? { providers.first { $0.matches(provider) } }
+    static let inheritTag = BotModelTag.inherit
+    static let manualTag = BotModelTag.manual
 
-    /// Free-text entry when the user chose it, when there is no catalog, or when the provider is not in it.
-    var usesFreeTextModel: Bool {
-        if providers.isEmpty { return true }
-        if let manualModelEntry { return manualModelEntry }
-        return !(trimmed(provider).isEmpty || activeProvider != nil)
+    // MARK: A13 / A14: what was installed or added joins the lists as saved
+
+    /// After a skill install: `profiles.describe` again; new skills are added (as the backend reports them) without
+    /// touching the user's unsaved toggles.
+    func refreshSkills() async {
+        guard let s = try? await service.describe(bot.name) else { return }
+        let have = Set(skills.map(\.name))
+        let added = s.skills.filter { !have.contains($0.name) }
+        guard !added.isEmpty else { return }
+        skills += added
+        rebase(skills: loaded.skills + added)
+        changedSomething = true
     }
 
-    static let inheritTag = "\u{0}inherit"
-    static let manualTag = "\u{0}manual"
-
-    /// The provider menu's selection.
-    var providerTag: String {
-        if let p = activeProvider { return p.slug }
-        return trimmed(provider).isEmpty ? Self.inheritTag : Self.manualTag
+    /// `mcp.servers.list` answered: servers the toggles do not know yet (just added) join them as saved.
+    private func mcpListed(_ servers: [MCPServers.Server]) {
+        let have = Set(mcpServers.map(\.name))
+        let added = servers.filter { !have.contains($0.name) }
+            .map { BotProfileAPI.Capability(name: $0.name, enabled: $0.enabled, detail: $0.transport) }
+        guard !added.isEmpty else { return }
+        mcpServers += added
+        rebase(mcp: loaded.mcpServers + added)
+        changedSomething = true
     }
 
-    /// Desktop's provider `onValueChange`: Inherit clears both; a provider keeps the model when it offers it,
-    /// else takes its first model.
-    func chooseProvider(_ tag: String) {
-        switch tag {
-        case Self.inheritTag:
-            provider = ""; model = ""
-        case Self.manualTag:
-            manualModelEntry = true
-        default:
-            guard let p = providers.first(where: { $0.slug == tag }) else { return }
-            model = p.models.contains(model) ? model : (p.models.first ?? "")
-            provider = p.slug
-        }
+    private func rebase(skills: [BotProfileAPI.Capability]? = nil, mcp: [BotProfileAPI.Capability]? = nil) {
+        let s = loaded
+        loaded = .init(description: s.description, soul: s.soul, provider: s.provider, model: s.model,
+                       skills: skills ?? s.skills, toolsets: s.toolsets, mcpServers: mcp ?? s.mcpServers)
     }
 
     // MARK: advanced: toggles
@@ -244,7 +287,10 @@ final class BotEditorModel: ObservableObject, Identifiable {
 
     func cancel() { close() }
 
-    private func close() { onClose(changedSomething) }
+    private func close() {
+        mcp.cancelAll()
+        onClose(changedSomething)
+    }
 
     private func saveTitle() async {
         let value = trimmed(title)
@@ -357,16 +403,38 @@ final class BotEditorModel: ObservableObject, Identifiable {
         }
     }
 
+    /// Writes the avatar's look fields; false (with the avatar error set) when Hermes did not keep them. An older
+    /// gateway that cannot store `ui_meta` is no reason to hold back the picture (Desktop goes on as well).
+    private func saveLook(_ patch: BotLook.Patch) async throws -> Bool {
+        switch try await service.saveLook(bot.name, patch) {
+        case .persisted, .unsupported: return true
+        case .failed: errors[.avatar] = "Hermes did not save the avatar (another app may have changed this bot). Try again."
+        case .notFound: errors[.avatar] = "Hermes no longer lists this bot."
+        }
+        return false
+    }
+
+    /// The look first (Desktop's `editedLook`), then the picture; both are sent again on Save after a failure.
     private func saveAvatar() async {
         do {
             switch avatar {
             case .unchanged: return
             case .set(let data):
+                guard try await saveLook(BotLook.imagePatch(hasImage: true)) else { return }
                 try await service.setAvatar(bot.name, data)
                 onAvatarSaved(data)
             case .remove:
+                guard try await saveLook(BotLook.imagePatch(hasImage: false)) else { return }
                 try await service.clearAvatar(bot.name)
                 onAvatarSaved(nil)
+            case .shape(let s, let color):
+                guard let face = BotLook.facePNG(shape: s, color: color, name: bot.name) else {
+                    errors[.avatar] = "Could not draw the avatar."
+                    return
+                }
+                guard try await saveLook(BotLook.shapePatch(shape: s, color: color)) else { return }
+                try await service.setAvatar(bot.name, face)
+                onAvatarSaved(face)
             }
             avatar = .unchanged
             changedSomething = true

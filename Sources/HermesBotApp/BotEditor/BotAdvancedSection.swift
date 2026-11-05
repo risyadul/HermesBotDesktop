@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A9: the Advanced part of the Edit sheet, model and provider first (Desktop's `ModelPicker` over
 /// `model.options`, with Inherit and free-text entry), then skills, toolsets and MCP servers from
-/// `profiles.describe`, then the SOUL.
+/// `profiles.describe` (with A13 Find Skills and A14 MCP server setup), then the SOUL.
 struct BotAdvancedSection: View {
     @ObservedObject var model: BotEditorModel
 
@@ -34,34 +34,7 @@ struct BotAdvancedSection: View {
 
     private var modelSection: some View {
         section("Model", .model, trailing: model.loadingModels ? AnyView(ProgressView().controlSize(.mini)) : nil) {
-            if model.usesFreeTextModel {
-                HStack(spacing: DS.Space.s2) {
-                    TextField("Provider", text: $model.provider, prompt: Text("Provider"))
-                    TextField("Model", text: $model.model, prompt: Text("Model"))
-                }
-                .textFieldStyle(.roundedBorder)
-                if !model.providers.isEmpty {
-                    Button("Choose from the list") { model.manualModelEntry = false }
-                        .buttonStyle(.link).font(DS.Typeface.meta)
-                }
-                Text("Leave both empty to inherit the model of the main Hermes profile.")
-                    .font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-            } else {
-                Picker("Provider", selection: Binding(get: { model.providerTag }, set: { model.chooseProvider($0) })) {
-                    Text("Inherit from main profile").tag(BotEditorModel.inheritTag)
-                    ForEach(model.providers) { p in Text(p.label).tag(p.slug) }
-                    Text("Enter manually…").tag(BotEditorModel.manualTag)
-                }
-                if let active = model.activeProvider, !active.models.isEmpty {
-                    Picker("Model", selection: $model.model) {
-                        if model.model.isEmpty { Text("Choose a model").tag("") }
-                        ForEach(active.models, id: \.self) { Text($0).tag($0) }
-                        if !model.model.isEmpty && !active.models.contains(model.model) { Text(model.model).tag(model.model) }
-                    }
-                } else if model.activeProvider != nil {
-                    TextField("Model", text: $model.model, prompt: Text("Model name")).textFieldStyle(.roundedBorder)
-                }
-            }
+            BotModelPicker(model: model)
         }
     }
 
@@ -69,7 +42,9 @@ struct BotAdvancedSection: View {
 
     private var skillsSection: some View {
         let on = model.skills.filter(\.enabled).count
-        return section("Skills (\(on) of \(model.skills.count) on)", .skills) {
+        let find = Button(model.skillsFinderOpen ? "Hide Search" : "Find Skills…") { model.skillsFinderOpen.toggle() }
+            .buttonStyle(.link).font(DS.Typeface.meta)
+        return section("Skills (\(on) of \(model.skills.count) on)", .skills, trailing: AnyView(find)) {
             if model.skills.isEmpty {
                 empty("No skills installed.")
             } else {
@@ -83,6 +58,7 @@ struct BotAdvancedSection: View {
                     }
                 }
             }
+            if model.skillsFinderOpen { BotSkillsFinderView(finder: model.skillsFinder) }
         }
     }
 
@@ -107,16 +83,7 @@ struct BotAdvancedSection: View {
 
     private var mcpSection: some View {
         section("MCP servers", .mcp) {
-            if model.mcpServers.isEmpty {
-                empty("No MCP servers configured for this bot.")
-            } else {
-                VStack(alignment: .leading, spacing: DS.Space.s1) {
-                    ForEach(model.mcpServers) { m in
-                        toggle(m.name + (m.detail.map { " · \($0)" } ?? ""), help: m.name,
-                               isOn: Binding(get: { m.enabled }, set: { model.setMcp(m.name, $0) }))
-                    }
-                }
-            }
+            BotMcpSection(editor: model, mcp: model.mcp)
         }
     }
 

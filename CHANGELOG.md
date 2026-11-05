@@ -43,6 +43,25 @@ All notable changes to this project are documented here. The format follows
     (`Metadata.appintents`) and declares the service (`NSServices`) in `Info.plist`.
   - **Summarize since I left** in group chats: asks a chosen bot, in its Bot Chat, to summarize the messages
     since you last had the room open; the summary shows in a sheet. Never posts into the room.
+- **New Bot…** (A7): the **+** beside the Bots heading and **File → New Bot…** create a bot the way Hermes Desktop
+  does: name (Desktop's profile-name rules, taken names refused), title, description, avatar, and under Advanced
+  clone from (a profile or fresh), model and provider, SOUL, share keys and skip bundled skills. `profiles.create`
+  gets Desktop's exact payload; then the title and look, the avatar, and `setup.runtime_check` for the new
+  profile. Its Bot Chat opens and, unless turned off, it is asked "Hey, tell me about yourself!" (not when no
+  model is ready: Set Up Model… instead). Every step reports its own failure; a profile that exists after an
+  error is always reported.
+- Avatar picker (A10) in New Bot and Edit: Shape (Desktop's shapes with a face, its twelve colours or the name's
+  colour, Randomize, Monogram), Upload, Generate (`image.generate`, offered once Hermes says an image generator
+  is set up) and Pet (the searchable petdex gallery, thumbnails from `pet.thumb`). Shape faces are stored in
+  `ui_meta["hermes-bots"]` exactly like Desktop's (`shape`, `color`, `imageKind`, `custom`) with Desktop's 160 px
+  face picture, so both apps show the same face; picture changes also record `imageKind` as Desktop does.
+- **Find Skills…** (A13) in Edit → Advanced → Skills: search the skills hub (`skills.manage search`) and install a
+  skill into the bot after confirming; the skills list refreshes.
+- MCP server setup (A14) in Edit → Advanced → MCP servers: the bot's servers from `mcp.servers.list` with their
+  on/off switches, plus **Add Server…** (a command with arguments and environment, or a URL), **API Key…** (a
+  secure field; stored in the bot's `.env`, never logged: the wire tap omits these params), **Test** and **Sign
+  In** (OAuth: the sign-in page opens in the browser and the app waits for Hermes to report it approved; closing
+  the sheet cancels it).
 - Group Chat rooms can be pinned and reordered in the sidebar (C1.4): right-click a room for **Pin to Top** /
   **Unpin**, **Move Up** and **Move Down**, or drag it onto another room. Pinned rooms come first. Kept on this
   Mac only (UserDefaults), never sent to Hermes.

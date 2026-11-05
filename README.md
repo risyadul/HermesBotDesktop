@@ -251,18 +251,37 @@ have **not been tested** with this app yet.
 
 ## Managing bots
 
-Right-click a bot in the sidebar, or use the ••• menu in the Bot details panel (⌥⌘I), for **Edit…**,
-**Duplicate** and **Delete…**. These change the bot's Hermes profile, exactly as Hermes Desktop's Edit
-Profile, Duplicate and Delete do, so both apps stay in step.
+**New Bot…** (the **+** beside the Bots heading, or **File → New Bot…**) creates a bot. Right-click a bot in the
+sidebar, or use the ••• menu in the Bot details panel (⌥⌘I), for **Edit…**, **Duplicate** and **Delete…**. These
+change the bot's Hermes profile exactly as Hermes Desktop's New Bot, Edit Profile, Duplicate and Delete do, so
+both apps stay in step.
 
+- **New Bot…:** a **name** (it becomes the profile name and @handle: lower-case letters, digits, `-` and `_`,
+  up to 64; other characters are converted the way Hermes Desktop converts them, and a taken name is refused),
+  **title**, **description** and **avatar**. **Advanced** adds **Clone from** (a profile to copy settings, keys
+  and skills from, or a fresh profile with Hermes' bundled skills), the **model and provider**, your own
+  **SOUL** (otherwise one is written from the title and description), **Share keys & accounts with the main
+  profile** (on by default) and **Create empty (skip bundled skills)** (fresh profiles only). Create runs
+  `profiles.create`, saves the title and look, uploads the avatar, then asks Hermes whether the bot has a usable
+  model. If everything worked, its Bot Chat opens and, with **Say hello** on (the default), it is asked "Hey, tell
+  me about yourself!". Otherwise the sheet says what did not work (the profile is never left behind silently),
+  with **Set Up Model…** when no model is ready.
 - **Edit…:** the bot's **title** (shown everywhere instead of the profile name), **description** and
-  **avatar** (a PNG or JPEG up to 15 MB, cropped to a 256 px square; or Remove). **Advanced** adds the
-  **model and provider** (from Hermes' model list, typed in by hand, or **Inherit** to use the main profile's
-  model), the bot's **skills**, **toolsets** and **MCP servers** (on/off), and its **SOUL**. Only the fields you
-  changed are saved. If one field cannot be saved, it says why under that field and the rest are kept; Save
-  again retries just that one. A model Hermes flags as expensive (or under a data policy) asks first and is
-  only switched when you confirm. Saving a SOUL keeps the "Messaging other agents" section bots use to talk to
-  each other (unless your Hermes adds it on its own), the same way Hermes Desktop does.
+  **avatar** (**Change Avatar…**: a **Shape** face in one of twelve colours or the name's own colour, with
+  **Randomize**, or **Monogram**; **Upload** a PNG or JPEG up to 15 MB, cropped to a 256 px square; **Generate**
+  one with Hermes' image generator when one is set up; or pick a **Pet** from the petdex gallery; or Remove).
+  Shape faces are saved the way Hermes Desktop saves them (shape and colour in the profile's `ui_meta`, plus a
+  160 px picture), so both apps show the same face. **Advanced** adds the **model and provider** (from Hermes'
+  model list, typed in by hand, or **Inherit** to use the main profile's model), the bot's **skills** (on/off,
+  and **Find Skills…** to search the skills hub and install one, after you confirm), **toolsets**, **MCP
+  servers** (on/off, plus **Add Server…** with a command or a URL, **API Key…**, **Test** and **Sign In** for
+  OAuth servers, which opens the sign-in page in your browser) and its **SOUL**. Only the fields you changed are
+  saved. If one field cannot be saved, it says why under that field and the rest are kept; Save again retries
+  just that one. Installing a skill and the MCP actions change the bot right away; the on/off switches are saved
+  with Save. An API key goes to the bot's `.env` (the app never logs it). A model Hermes flags as expensive (or
+  under a data policy) asks first and is only switched when you confirm. Saving a SOUL keeps the "Messaging other
+  agents" section bots use to talk to each other (unless your Hermes adds it on its own), the same way Hermes
+  Desktop does.
 - **Duplicate:** creates `<name>-2` (or the next free number) as a clone of the bot (settings, skills, SOUL,
   memory), then copies its look: title with "(copy)" and avatar. The sheet shows each step and ends with
   **Open** for the new bot.

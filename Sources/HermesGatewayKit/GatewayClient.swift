@@ -84,7 +84,9 @@ public final class GatewayClient: NSObject, @unchecked Sendable, URLSessionWebSo
     }
     /// Outbound calls whose params carry the user's answers (`clarify.lock`, `approval.respond`): the wire
     /// tap shows id + method only, like server→client request frames and every `respond` result.
-    static let redactedParamMethods: Set<String> = ["clarify.lock", "approval.respond"]
+    /// MCP add / API key carry secrets (env values, keys); image and avatar uploads are large data URLs.
+    static let redactedParamMethods: Set<String> = ["clarify.lock", "approval.respond", "mcp.servers.set_api_key",
+                                                    "mcp.servers.add", "profiles.set_asset"]
 
     /// Largest frame accepted. `session.resume` returns a whole Bot Chat history (tool output included) in
     /// one frame. URLSessionWebSocketTask's default limit of 1 MiB failed long histories with EMSGSIZE
