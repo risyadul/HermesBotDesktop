@@ -158,6 +158,10 @@ packages have only been checked to build, sign and lint; launching them on a cle
 - Group Chat follows rooms by polling (the backend has no push for rooms yet).
 - No isolated mode for end users; always uses `~/.hermes`.
 
+## Roadmap
+
+Planned work, phased and tracked as a checklist: [docs/roadmap.md](docs/roadmap.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md) for layout, tests (`swift test`, no live backend needed),
