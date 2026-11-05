@@ -65,7 +65,16 @@ Sources/HermesBotApp/       SwiftUI app:
   ToolActivityRow.swift       compact tool-call row
   ServerRequestCards.swift    approval/clarify/secret cards; RequestCardModels.swift: their labels and answers
   MediaViews.swift            MEDIA files: inline images, file chips, click-time safety check
-  SidebarView.swift           Group Chats + Bots + Boards sidebar, row style, connection footer
+  SidebarView.swift           Group Chats + Bots + Boards sidebar, filter field, bot row menu, Hidden (n), row
+                              style, connection footer; SidebarFilter.swift: filter, BotRoster (pinned first,
+                              hidden section), BotRowMenu
+  BotMetaModel.swift          Pin / Hide per bot: optimistic, saved with BotMetaSync (HermesGatewayKit
+                              BotUIMeta.swift: ui_meta["hermes-bots"] read-patch-write with CAS, like Desktop)
+  Notifications/              D1/D2: NotificationPolicy (when to notify, content, routes, Dock badge count,
+                              @user grammar), RoomAttention (+ RoomAttentionWatcher: groups.state/log for
+                              every room every 8 s), NotificationCoordinator (chats + rooms → posts, withdrawals,
+                              badge), UserNotificationPoster (UNUserNotificationCenter; .app bundle only, never
+                              under XCTest), AppModel+Notifications (click and Approve/Deny routing)
   KanbanHub.swift             board list for the sidebar, per-board models (pruned when unlisted), polling paused
                               while no main window is on screen (setActive), dispatcher polling while a board shows
   DispatcherStatusModel.swift the one dispatcher status model (board chip + Settings), generation-guarded (K8)
@@ -124,6 +133,8 @@ User-facing variables are in the README. These exist for scripted runs and tests
 (`AUTOCHAT`, `EVIDENCE`, `AUTOQUIT`, Group Chat scripting, `ROOM_MANIFEST`) live in
 `EvidenceDriver.swift` and exist only in debug builds (`swift build`; the scripts use `.build/debug`);
 a release build ignores them. `LOCK_DIR` and `FORCE_SPAWN` work in every build.
+- `notificationsEnabled` (user default, not an environment variable; default true): `false` stops native
+  notifications (the Dock badge stays). `@AppStorage` key for the Settings switch still to come.
 - `HERMES_BOT_APP_LOCK_DIR=<dir>`: discover in this lock dir and give it to a spawned backend. An empty dir
   means "no backend running" for tests. It does **not** change the Hermes home (still `~/.hermes`).
 - `HERMES_BOT_APP_FORCE_SPAWN=1`: skip discovery and always spawn.
@@ -165,7 +176,10 @@ exit. The app itself does not use this home.
 Live tests run against a real `~/.hermes`, so they must clean up after themselves.
 
 - Bot Chat test sessions made by the harness are titled `hba-…` and deleted after each run (the app's own
-  canonical "Bot Chat" is never deleted). The app never changes profile or bot config.
+  canonical "Bot Chat" is never deleted). The app changes no profile or bot config except Pin / Hide, which
+  write only `pinned` / `hidden` inside `ui_meta["hermes-bots"]` (the user's action; tests use a fake gateway).
+- Notifications are never posted by tests: `UserNotificationPoster` exists only inside an `.app` bundle and
+  not under XCTest; coordinator tests use a recording poster.
 - Group Chat test rooms are `hba-…` and get disbanded after each run. Disband leaves a tombstone until backend
   pruning. The hidden member sessions are cleaned without restarting anything:
   `group-chat-harness cleanup <evidence-dir> @<room-manifest.jsonl>` disbands, then re-discovers the rooms'

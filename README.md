@@ -39,7 +39,10 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
   says so; open it in that app.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
   hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
-- **It does not change your profiles or bot config**, with one opt-in exception: if you turn on activity
+- **It does not change your profiles or bot config**, with two exceptions. **Pin to Top** and **Hide Bot**
+  (right-click a bot) are saved in that profile's `profile.yaml` under `ui_meta` → `hermes-bots` (`pinned`,
+  `hidden`), the same place and keys Hermes Desktop uses, so both apps show the same pins and hidden bots;
+  the app changes only those two keys and leaves every other `ui_meta` entry alone. And if you turn on activity
   tracking in a Group Chat, the app installs the open-source
   [Bot Activity](https://github.com/risyadul/hermes-bot-activity) plugin (a pinned commit) into Hermes and
   enables it for every bot. Turning it off from the same panel disables it in every bot profile and removes it
@@ -119,6 +122,34 @@ have **not been tested** with this app yet.
   `~/Library/Application Support/HermesBotApp/Room Attachments/<room>/` and the message names the copies'
   paths; the room's bots open them with their file tools. This app shows them as attachments; Hermes Desktop
   shows the paths as text. The copies are deleted when you disband the room.
+
+## Sidebar
+
+- **Filter:** the field at the top of the sidebar narrows group chats, bots and boards as you type (name,
+  @handle, member, description or model; a leading `@` is optional). Return or ↓ selects the first match and
+  moves to the list; Esc clears it. It does not take ⌘F.
+- **Bot menu** (right-click a bot): Open Bot Chat, Pin to Top / Unpin, Hide Bot / Unhide Bot, Copy @handle.
+  Pinned bots sit at the top of Bots. Hidden bots move to a collapsed **Hidden (n)** section at the bottom; a
+  hidden bot keeps working, stays mentionable and keeps its chats. A filter shows matching hidden bots without
+  expanding the section. If Hermes does not save a pin or hide (another app changed the bot at the same time,
+  or an older Hermes Agent), the row goes back and the sidebar says why.
+
+## Notifications and the Dock badge
+
+- When the app is **not frontmost**, it posts a macOS notification when a bot's reply finishes in Bot Chat,
+  when a bot asks for approval or an answer (Bot Chat and Group Chat), and when a Group Chat round ends after a
+  bot wrote `@user`. macOS asks for permission the first time the app has something to show.
+- Approval notifications have **Approve Once** (needs an unlocked Mac) and **Deny**, answered with the same
+  calls as the cards in the app. Clicking a notification opens its bot or room. A notification is withdrawn
+  once its request is answered anywhere.
+- A hidden bot's replies do not notify; its approvals and questions still do.
+- The **Dock badge** counts what is waiting on you: open request cards in Bot Chats and pending approvals in
+  Group Chats.
+- Bot Chat notifications cover the bots you opened since launch (the app follows a bot's chat once you open
+  it). Group Chats are checked every 8 seconds even when they are not open.
+- Turn notifications off with `defaults write io.github.risyadul.hermesbot notificationsEnabled -bool false`
+  (a Settings switch for this key is planned). Notifications need the packaged `HermesBot.app`; a bare
+  `swift run` binary shows the Dock badge only.
 
 ## Group Chat activity
 
