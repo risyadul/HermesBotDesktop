@@ -14,7 +14,7 @@ struct KanbanSidebarRows<Row: View>: View {
             Text(text)
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                 .padding(.horizontal, DS.Space.s2).padding(.vertical, DS.Space.s1)
-                .help(hub.availability == .off ? "Enable the kanban plugin in Hermes to see boards here." : "")
+                .help(KanbanHub.sidebarPlaceholderHelp(hub.availability))
         }
         ForEach(rows) { r in row(r) }
     }

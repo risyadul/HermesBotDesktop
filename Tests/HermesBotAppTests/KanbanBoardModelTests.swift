@@ -184,7 +184,8 @@ final class KanbanBoardModelTests: XCTestCase {
         XCTAssertNil(m.error)
         XCTAssertEqual(lane(m, "ready"), ["t_2", "t_1", "t_3"], "priority 1 between 2 and 0")
         XCTAssertEqual(m.task("t_1")?.status, "ready")
-        try await waitUntil { api.count("board") >= 2 }  // the follow-up refresh
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(api.count("board"), 1, "not polling (no board view): no follow-up fetch (KanbanLifecycleTests)")
     }
 
     func testMovesIntoLockedLanesAreRefusedBeforeSending() async {

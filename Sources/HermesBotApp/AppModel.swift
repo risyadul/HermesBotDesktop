@@ -37,6 +37,24 @@ final class AppModel: ObservableObject {
     var evidence = EvidenceState()
 #endif
 
+    init() {
+        // A board deleted or archived elsewhere leaves the selection (its pane would show a dead board).
+        kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
+    }
+
+    func boardsListed(_ listed: Set<String>) {
+        if case .board(let slug)? = selection, !listed.contains(slug) {
+            selection = nil
+            log("board \(slug) is gone → selection cleared")
+        }
+    }
+
+    /// App windows on or off screen (AppDelegate): Kanban polling pauses while none shows.
+    func updateVisibility() {
+        let windows = NSApp.windows.map { ($0.isVisible, $0.isMiniaturized, $0.occlusionState.contains(.visible)) }
+        kanban.setActive(KanbanHub.onScreen(appHidden: NSApp.isHidden, windows: windows))
+    }
+
     func log(_ s: String) {
         print("[app \(String(format: "%7.3f", Date().timeIntervalSince(started)))] \(s)")
     }
@@ -155,7 +173,7 @@ final class AppModel: ObservableObject {
             if groupsAvailable { await loadRooms() }
             guard backend === b else { return }
             phase = .connected
-            kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) }, gateway: GatewayStatus())
+            kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) })
 #if DEBUG
             autochat()
             autoroom()

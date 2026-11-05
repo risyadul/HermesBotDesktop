@@ -3,7 +3,7 @@ import HermesGatewayKit
 import SwiftUI
 
 // Settings sections for roadmap E1 (Background) and K8 (Kanban dispatcher). Models:
-// BackgroundServeSettingsModel.swift, GatewaySettingsModel.swift. Layout: native grouped Form (DESIGN.md).
+// BackgroundServeSettingsModel.swift, DispatcherStatusModel.swift (shared with the board chip). Layout: native grouped Form (DESIGN.md).
 
 extension DS.Size {
     /// Settings window: wide enough for the explanatory footnotes, tall enough for all three sections.
@@ -149,12 +149,12 @@ struct BackgroundServeSection: View {
 // MARK: - Kanban dispatcher (K8)
 
 struct GatewaySection: View {
-    @ObservedObject var model: GatewaySettingsModel
+    @ObservedObject var model: DispatcherStatusModel
 
     var body: some View {
         Section {
             SettingsStatusRow(title: model.starting ? "Starting…" : model.summary.title, tone: model.summary.tone,
-                              busy: model.busy)
+                              busy: model.starting)
             switch model.state {
             case .installedNotRunning?:
                 HStack(spacing: DS.Space.s3) {
@@ -206,7 +206,7 @@ struct GatewaySection: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(DSButtonStyle(kind: .secondary))
-                .disabled(model.busy)
+                .disabled(model.starting)
             }
         } header: {
             Text("Kanban dispatcher")

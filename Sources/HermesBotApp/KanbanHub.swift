@@ -2,8 +2,12 @@ import Foundation
 import HermesGatewayKit
 
 // Kanban state of one connection: the board list for the sidebar (refreshed on connect and on a slow
-// beat), the per-board models, and the dispatcher (`hermes gateway`) status for K8. AppModel owns one hub
-// and calls `connect` / `disconnect`; nothing here outlives a connection.
+// beat), the per-board models, and the app-wide dispatcher (`hermes gateway`) status for K8
+// (DispatcherStatusModel.swift). AppModel owns one hub and calls `connect` / `disconnect`; nothing here but
+// the dispatcher outlives a connection.
+//
+// Polling pauses while no app window is on screen (`setActive`, fed by AppDelegate: app hidden, windows
+// minimised or fully covered) and resumes, with a fresh fetch, when one is again.
 
 /// One sidebar row: a non-archived board with its running / blocked counts.
 struct KanbanSidebarRow: Equatable, Identifiable {
@@ -23,6 +27,8 @@ final class KanbanHub: ObservableObject {
         case available
         /// The kanban plugin is not served (disabled in Hermes, or too old).
         case off
+        /// This connection gives no REST access (`Backend.sessionREST` is nil), so boards cannot be loaded.
+        case noAccess
         /// The last board list request failed for another reason (kept quiet: the sidebar keeps old rows).
         case failed(String)
     }
@@ -30,22 +36,35 @@ final class KanbanHub: ObservableObject {
     /// Board list cadence: cheap, and boards change rarely. Slower while the plugin is off or failing.
     static let refreshInterval: TimeInterval = 20
     static let idleInterval: TimeInterval = 60
+    /// How often the dispatcher record is re-read while a board is on screen (a local file check).
+    static let dispatcherInterval: TimeInterval = 10
 
     @Published private(set) var boards: [KanbanBoardSummary] = []
     @Published private(set) var availability: Availability = .unknown
-    let dispatcher = DispatcherStatusModel()
+    /// False while no app window is on screen: nothing polls.
+    @Published private(set) var isActive = true
+    let dispatcher: DispatcherStatusModel
     private(set) var api: (any KanbanService)?
+    /// Called with the listed (non-archived) slugs after each successful board list: AppModel drops a
+    /// selection whose board is gone.
+    var onBoardsListed: ((Set<String>) -> Void)?
     /// Not published: created lazily while the detail pane is built.
     private var models: [String: KanbanBoardModel] = [:]
     private var loop: Task<Void, Never>?
+    private var dispatcherLoop: Task<Void, Never>?
+    private var dispatcherWatchers = 0
     private var generation = 0
     private let sleep: @Sendable (TimeInterval) async throws -> Void
 
-    init(sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) {
+    init(dispatcher: DispatcherStatusModel = DispatcherStatusModel(),
+         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) {
+        self.dispatcher = dispatcher
         self.sleep = sleep
     }
 
     var rows: [KanbanSidebarRow] { Self.sidebarRows(boards) }
+    var isPolling: Bool { loop != nil }
+    var isWatchingDispatcher: Bool { dispatcherLoop != nil }
 
     /// Archived boards are hidden; server order is kept.
     static func sidebarRows(_ boards: [KanbanBoardSummary]) -> [KanbanSidebarRow] {
@@ -63,28 +82,39 @@ final class KanbanHub: ObservableObject {
         case .unknown: return "Not loaded yet"
         case .available: return "No boards"
         case .off: return "Kanban is off in Hermes"
+        case .noAccess: return "Boards unavailable on this connection"
         case .failed: return "Boards not loaded"
         }
+    }
+
+    /// Hover help for the placeholder.
+    static func sidebarPlaceholderHelp(_ availability: Availability) -> String {
+        switch availability {
+        case .off: return "Enable the kanban plugin in Hermes to see boards here."
+        case .noAccess: return "This Hermes connection gives the app no REST access, which Kanban needs. Reconnecting to a current Hermes fixes it."
+        default: return ""
+        }
+    }
+
+    /// True while some app window shows on screen: the app is not hidden and a window is visible, not
+    /// minimised and not fully covered.
+    static func onScreen(appHidden: Bool, windows: [(visible: Bool, miniaturized: Bool, unoccluded: Bool)]) -> Bool {
+        !appHidden && windows.contains { $0.visible && !$0.miniaturized && $0.unoccluded }
     }
 
     func summary(_ slug: String) -> KanbanBoardSummary? { boards.first { $0.slug == slug } }
 
     // MARK: lifecycle
 
-    /// A new connection: `api` is nil when the backend gives no REST access (the section then says so).
-    func connect(api: (any KanbanService)?, gateway: GatewayStatus?) {
+    /// A new connection: `api` is nil when the backend gives no REST access (`.noAccess`: the sidebar says so).
+    func connect(api: (any KanbanService)?) {
         disconnect()
         self.api = api
-        dispatcher.attach(gateway)
-        guard api != nil else { return }
-        generation += 1
-        let gen = generation, sleep = self.sleep
-        loop = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let wait = await self?.refreshLoopStep(gen) else { return }
-                do { try await sleep(wait) } catch { return }
-            }
+        guard api != nil else {
+            availability = .noAccess
+            return
         }
+        if isActive { startLoop() }
     }
 
     /// Connection lost or app quitting: every board stops polling and the list empties.
@@ -97,7 +127,57 @@ final class KanbanHub: ObservableObject {
         api = nil
         boards = []
         availability = .unknown
-        dispatcher.attach(nil)
+        dispatcher.reset()
+    }
+
+    /// App windows left or came back on screen. Off: the board list, every board and the dispatcher stop
+    /// polling (a board keeps wanting to poll). On: they start again, each with an immediate fetch.
+    func setActive(_ active: Bool) {
+        guard active != isActive else { return }
+        isActive = active
+        for m in models.values { m.setSuspended(!active) }
+        if active {
+            if api != nil, loop == nil { startLoop() }
+        } else {
+            loop?.cancel()
+            loop = nil
+        }
+        updateDispatcherLoop()
+    }
+
+    /// A board view appeared (`true`) or went away: the dispatcher record is re-read every
+    /// `dispatcherInterval` while at least one is on screen and the app is active.
+    func watchDispatcher(_ on: Bool) {
+        dispatcherWatchers = max(0, dispatcherWatchers + (on ? 1 : -1))
+        updateDispatcherLoop()
+    }
+
+    private func updateDispatcherLoop() {
+        let wanted = dispatcherWatchers > 0 && isActive
+        if wanted, dispatcherLoop == nil {
+            let sleep = self.sleep, dispatcher = self.dispatcher
+            dispatcherLoop = Task { [weak dispatcher] in
+                while !Task.isCancelled {
+                    guard let dispatcher else { return }
+                    await dispatcher.refresh()
+                    do { try await sleep(Self.dispatcherInterval) } catch { return }
+                }
+            }
+        } else if !wanted {
+            dispatcherLoop?.cancel()
+            dispatcherLoop = nil
+        }
+    }
+
+    private func startLoop() {
+        generation += 1
+        let gen = generation, sleep = self.sleep
+        loop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let wait = await self?.refreshLoopStep(gen) else { return }
+                do { try await sleep(wait) } catch { return }
+            }
+        }
     }
 
     private func refreshLoopStep(_ gen: Int) async -> TimeInterval? {
@@ -115,6 +195,13 @@ final class KanbanHub: ObservableObject {
             guard gen == generation else { return }
             if boards != list.boards { boards = list.boards }
             availability = .available
+            // A board deleted or archived elsewhere: its model stops and goes; the selection follows.
+            let listed = Set(list.boards.filter { !$0.archived }.map(\.slug))
+            for (slug, m) in models where !listed.contains(slug) {
+                m.stop()
+                models[slug] = nil
+            }
+            onBoardsListed?(listed)
         } catch {
             guard gen == generation else { return }
             if case PluginREST.Failure.pluginUnavailable = error {
@@ -131,62 +218,13 @@ final class KanbanHub: ObservableObject {
         if let m = models[slug] { return m }
         guard let api else { return nil }
         let m = KanbanBoardModel(slug: slug, api: api)
+        m.setSuspended(!isActive)
         models[slug] = m
         return m
     }
 }
 
-// MARK: - dispatcher (K8)
-
-/// `hermes gateway` runs the kanban dispatcher: without it, ready + assigned cards never start.
-@MainActor
-final class DispatcherStatusModel: ObservableObject {
-    @Published private(set) var state: GatewayStatus.State?
-    @Published private(set) var starting = false
-    /// Outcome of the last Start, in plain words.
-    @Published private(set) var startResult: String?
-    @Published private(set) var startFailed = false
-    private(set) var status: GatewayStatus?
-
-    /// The record may appear a moment after `hermes gateway start` returns: one re-check after this.
-    static let settleDelay: TimeInterval = 2
-
-    func attach(_ status: GatewayStatus?) {
-        self.status = status
-        state = nil
-        starting = false
-        startResult = nil
-        startFailed = false
-    }
-
-    /// Reads the record and the LaunchAgent (file system only; off the main actor).
-    func refresh() async {
-        guard let status else { return }
-        let s = await Task.detached { status.state() }.value
-        guard self.status != nil else { return }
-        state = s
-    }
-
-    func start() async {
-        guard let status, !starting else { return }
-        starting = true
-        startResult = nil
-        startFailed = false
-        do {
-            try await status.start()
-            startResult = "Dispatcher started."
-        } catch {
-            startFailed = true
-            startResult = "Start failed: \(Redaction.describe(error))"
-        }
-        starting = false
-        await refresh()
-        if !startFailed, DispatcherChip.kind(state: state, starting: false) != .running {
-            try? await Task.sleep(nanoseconds: UInt64(Self.settleDelay * 1_000_000_000))
-            await refresh()
-        }
-    }
-}
+// MARK: - dispatcher chip (K8)
 
 /// What the board header's dispatcher chip shows.
 enum DispatcherChip {
