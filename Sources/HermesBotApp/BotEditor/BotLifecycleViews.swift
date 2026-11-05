@@ -86,11 +86,15 @@ struct BotDeleteView: View {
 /// The bot sheet `RootView` presents (`AppModel.botSheet`).
 struct BotSheetContent: View {
     let sheet: BotSheet?
+    /// The main window's height: the Edit sheet stays inside it (`BotEditorLayout.sheetMaxHeight`).
+    var windowHeight: CGFloat = DS.Size.windowMinHeight
     @ObservedObject private var avatars = AvatarStore.shared
 
     var body: some View {
         switch sheet {
-        case .edit(let m)?: BotEditorView(model: m, identity: avatars.identity(profile: m.bot.name, title: m.bot.title))
+        case .edit(let m)?:
+            BotEditorView(model: m, identity: avatars.identity(profile: m.bot.name, title: m.bot.title),
+                          maxHeight: BotEditorLayout.sheetMaxHeight(windowHeight: windowHeight))
         case .duplicate(let m)?: BotDuplicateView(model: m)
         case .delete(let m)?: BotDeleteView(model: m)
         case nil: EmptyView()

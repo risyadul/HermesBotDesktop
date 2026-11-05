@@ -133,6 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct RootView: View {
     @ObservedObject var model: AppModel
     @Environment(\.motionEnabled) private var motion
+    /// The window's height (content plus the toolbar inset): bounds the bot Edit sheet.
+    @State private var windowHeight = DS.Size.windowMinHeight
 
     var body: some View {
         NavigationSplitView {
@@ -146,6 +148,9 @@ struct RootView: View {
         .frame(minWidth: DS.Size.windowMinWidth, minHeight: DS.Size.windowMinHeight)
         .tint(DS.Palette.primary)
         .background(MainWindowMarker { model.markMainWindow($0) })
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height + $0.safeAreaInsets.top + $0.safeAreaInsets.bottom }) {
+            windowHeight = $0
+        }
         .task { await model.connectAtLaunch() }
         .task(id: model.bots.map(\.name)) { AvatarStore.shared.load(bots: model.bots, backend: model.backend) }
         // Not `.sheet`: its slide and dimmer fade ignore the motion gate (MotionSheet.swift).
@@ -156,7 +161,7 @@ struct RootView: View {
         }
         .motionSheet(isPresented: Binding(get: { model.botSheet != nil }, set: { if !$0 { model.botSheet = nil } }),
                      motion: motion) {
-            BotSheetContent(sheet: model.botSheet)
+            BotSheetContent(sheet: model.botSheet, windowHeight: windowHeight)
         }
     }
 

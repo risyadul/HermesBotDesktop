@@ -6,9 +6,16 @@ import UniformTypeIdentifiers
 /// The Edit sheet (A8 + A9): avatar, title, description, then an Advanced disclosure with model and
 /// provider first, skills, toolsets, MCP servers and SOUL. Presented by `motionSheet`, so it closes through
 /// the model (`onClose`), not `\.dismiss`.
+///
+/// With Advanced open the fields scroll between the pinned header and the pinned Cancel / Save row, and the
+/// sheet is `maxHeight` tall (the parent window's height less a margin): a fixed 340 pt body
+/// left the sheet 484 pt tall in any window, with skills, toolsets, MCP and SOUL out of reach (live UI test
+/// 2026-11-06, round 2; BotEditorLayoutTests).
 struct BotEditorView: View {
     @ObservedObject var model: BotEditorModel
     let identity: BotIdentity
+    /// The sheet's height while Advanced is open (`BotEditorLayout.sheetMaxHeight`); the minimum window's by default.
+    var maxHeight: CGFloat = BotEditorLayout.sheetMaxHeight(windowHeight: DS.Size.windowMinHeight)
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
@@ -17,15 +24,17 @@ struct BotEditorView: View {
                 Text("@\(model.bot.name)").font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
             }
             if model.advancedOpen {
+                // Takes the height left between the header and the footer. A fixed sheet height (not a
+                // maximum): the sheet window only grows to a size its content requires.
                 ScrollView { fields.padding(.trailing, DS.Space.s3) }
-                    .frame(height: BotEditorLayout.scrollHeight)
+                    .frame(maxHeight: .infinity, alignment: .top)
             } else {
                 fields
             }
             footer
         }
         .padding(DS.Space.s5)
-        .frame(width: DS.Size.sheetWidth)
+        .frame(width: DS.Size.sheetWidth, height: model.advancedOpen ? maxHeight : nil, alignment: .top)
         .background(DS.Palette.window)
         .disabled(model.saving)
         // The buttons answer; the binding's setter does nothing, so dismissing never races the chosen action.
@@ -41,7 +50,7 @@ struct BotEditorView: View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             avatarRow
             labeled("Title", .title) {
-                TextField("Title", text: $model.title, prompt: Text(model.bot.displayName ?? model.bot.name))
+                TextField("Title", text: $model.title, prompt: Text(model.titlePlaceholder))
                     .textFieldStyle(.roundedBorder).labelsHidden()
             }
             labeled("Description", .description) {
@@ -136,8 +145,12 @@ struct BotEditorView: View {
 enum BotEditorLayout {
     /// The avatar preview tile (the empty-state size step above the inspector's 36).
     static let preview: CGFloat = DS.Size.avatarEmpty
-    /// The scrolling body while Advanced is open: header + body + footer stay inside the 520 pt window minimum.
-    static let scrollHeight: CGFloat = 340
+    /// The sheet keeps this much of its parent window's height free (the sheet hangs below the toolbar).
+    static let windowMargin: CGFloat = 80
+    /// The sheet's height limit in a window `windowHeight` tall: the window less `windowMargin`.
+    static func sheetMaxHeight(windowHeight: CGFloat) -> CGFloat {
+        max(windowHeight, DS.Size.windowMinHeight) - windowMargin
+    }
     static let listHeight: CGFloat = 150
     static let soulHeight: CGFloat = 160
 }
