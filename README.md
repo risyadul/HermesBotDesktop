@@ -212,6 +212,15 @@ through the running Hermes backend.
 
 - **Rename a room:** room menu (⋯) → **Rename…**. The new name shows at once; if Hermes refuses it, the old name
   comes back and the note above the composer says why. Bots see the new name from their next turn.
+- **Change members:** room menu (⋯) → **Change Members…** (available once the room has loaded). Hermes can't
+  change who is in a room, so this starts a new group chat: pick 2 to 6 bots (the current ones are ticked, the
+  name is kept and can be changed) and choose **Create New Room**. Its first message is a context note from you:
+  where it continues from, who joined and left, and the previous room's last 12 messages (at most about 4,000
+  characters), quoted one per line. Files are not copied; their names are mentioned. The note asks the bots to
+  reply `(pass)`, so they wait for your next message. Then choose what happens to the previous room: **Keep it**
+  (the default; tick **Rename it to "… (old)"** to rename it) or **Disband it** (the room id is retired and the
+  file copies made for it are deleted). The new room opens after that. If Hermes refuses to create the room,
+  nothing changes; if only the context note fails, the new room is still made and its note bar says so.
 - **Threads:** hover a message (or right-click it) and choose **Reply in thread**. The thread opens in the right
   column with its own composer; the room composer below the timeline always writes to the whole room. Replying
   in thread to a room message starts a thread on it, and the first reply quotes that message, because bots only

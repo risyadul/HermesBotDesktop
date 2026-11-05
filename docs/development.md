@@ -124,7 +124,12 @@ Sources/HermesBotApp/       SwiftUI app:
   RoomView.swift              Group Chat pane; RoomRows.swift (ribbon, timeline rows),
                               RoomActionViews.swift (approval/retry cards, @mentions), CreateRoomView.swift,
                               RoomRenameView.swift, RoomThreadViews.swift (thread pane, thread links,
-                              message action strip)
+                              message action strip), RoomMembersView.swift (Change Members sheet)
+  RoomMemberChange.swift      C2.2 Change Members: RoomCarryOver (the context message: last 12 `main`
+                              messages, 4000-char cap, one `> ` line each, control frames relabelled, @ dropped,
+                              file names only) and RoomMemberChange (groups.create → carry-over groups.send →
+                              keep / rename "(old)" / disband the old room); AppModel+RoomMembers.swift wires
+                              it to the sidebar and selection
   RoomDigests.swift           RoomDigestHub (sidebar room rows: groups.list → log tails → state for unsettled
                               rooms, seen-through per room in UserDefaults) and the room row view
   RoomActivityModel.swift     per-room Activity inspector state: bot-activity polling, plugin enable/remove;
@@ -138,7 +143,8 @@ Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, Group
                             ChatTranscriptTool, MediaTags, ServerRequest, SlashCommand, ChatControls
                             (ParityTestSupport: fakes)
 Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatModelControls), BotChatUIModel, MediaViews, RoomModel Group Chat
-                            actions + RoomDigestHub (with FakeRoomActions); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
+                            actions + RoomDigestHub + Change Members (RoomMemberChangeTests; with FakeRoomActions,
+                            no real room is created, sent to, renamed or disbanded); app regressions: Try Again reconnects after a failed load (ConnectFlow + real
                             AppModel.connect against a local fake backend, needs /usr/bin/python3),
                             approval ripple vs the motion gate, rendered monogram contrast ≥ 4.5:1,
                             create-room sheet vs the motion gate; real-window suites are opt-in
