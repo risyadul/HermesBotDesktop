@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Kanban boards in the sidebar (Boards section, with running and blocked counts). A board shows its lanes and
+  cards, refreshes every few seconds while open, and switches between boards. Cards open into a details
+  panel (description, latest summary, dependencies, comments, runs, worker log); drag a card to another lane,
+  or use its menu to assign it, set its priority, archive it, or copy its id. New Task creates a card. The
+  board header says whether the kanban dispatcher (`hermes gateway`) is running, starts it when it is
+  installed, and shows the install command when it is not.
 - Bot Chat is now the same chat Hermes Desktop uses for that bot: opening it continues the existing history
   instead of starting a new conversation, and bots can message other bots from it. If the app cannot confirm
   whether the chat exists, it does not start a new one. If the chat is running in another Hermes app, the app

@@ -469,8 +469,10 @@ toolbar. Minimum window 820 × 520.
   Every view value comes from `DesignSystem.swift`; a number that is not a token is a design change.
 - **Content edge:** member text starts at avatar 32 + gutter 10 = 42 pt. Pass lines, status lines,
   failure and action cards start on that same edge, so the timeline has one left margin for content.
-- **Sidebar:** Group Chats first (the main work), then Bots. Rows are 44 pt high: avatar (or the room's
-  two-avatar stack), title, one muted subtitle line. A breathing dot marks a room whose round is
+- **Sidebar:** Group Chats first (the main work), then Bots, then Boards (kanban). Rows are 44 pt high:
+  avatar (or the room's two-avatar stack, or a board tile), title, one muted subtitle line. A board row
+  carries a breathing dot + count for running cards and an attention count for blocked ones; when the
+  kanban plugin is off the section is one muted line, "Kanban is off in Hermes". A breathing dot marks a room whose round is
   running. Footer: connection dot plus the backend in two or three words ("Hermes Desktop", "hermes
   serve", "Private hermes serve") so it never truncates at the 220 pt minimum; the full mode is the
   tooltip.
@@ -487,6 +489,18 @@ toolbar. Minimum window 820 × 520.
   inspector leave (312 pt at the 820 pt minimum with default column widths). The inspector's 260 pt
   maximum is what still fits at the 820 pt minimum next to a 280 pt sidebar column, so dragging it
   wide, or shrinking a window with a wide inspector, never pushes it past the window edge.
+- **Kanban board:** toolbar (board name + task count, New Task, card details toggle), a header row
+  (board switcher when there are two or more boards, filter field 220 pt, dispatcher chip), a note bar
+  (failed action in danger, the server's create warning in attention), then the lanes in server order
+  as a horizontally scrolling row of 264 pt `surface` columns (card radius) with label + count; an empty
+  archive lane is hidden and the dispatcher-only lanes (running, review, scheduled) show a lock and
+  refuse drops. Cards are `window` tiles (chip radius, hairline; the open card has the graphite ring):
+  title, a `P<n>` tag when prioritised, state flags (running dot; attention for blocked / needs input /
+  no heartbeat; danger for failed runs; muted "won't run" for a ready card with no assignee), then
+  assignee avatar 20 + @handle, comment count and age. The card details inspector uses the Bot Chat
+  inspector's widths and remembered state. The dispatcher chip is a `status-chip`: muted when running,
+  attention when stopped (with Start) or not installed (its popover shows `hermes gateway install` to
+  copy).
 - **Empty states** are centred in the pane, never pinned to the composer by a bottom-anchored scroll.
 - **Window resize:** the detail pane flexes; bubbles and messages wrap within their max widths; the
   ribbon scrolls horizontally instead of wrapping; nothing clips at the 820 pt minimum. The sidebar
@@ -603,7 +617,7 @@ update immediately; only their appearance animates.
 | Room working | dots pulse; sidebar dot breathes while the round runs | `phaseAnimator` while `active` |
 | Streaming 1:1 | text grows with an opacity content transition, caret blinks in the bot colour | `.contentTransition(.opacity)` |
 | Sheets | the system slide and parent dimmer fade; with motion off the sheet and the dimmer appear and disappear in one frame, on open and on close | `motionSheet`: AppKit `beginSheet`/`endSheet`, run in a zero-duration `NSAnimationContext` when motion is off (SwiftUI `.sheet` cannot be gated) |
-| Bot details inspector | the system slide; with motion off it opens and closes in one frame | `.inspector` bound to `@State` and toggled in a `disablesAnimations` transaction (an `@AppStorage` binding loses the transaction) |
+| Bot / card details inspector | the system slide; with motion off it opens and closes in one frame | `.inspector` bound to `@State` and toggled in a `disablesAnimations` transaction (an `@AppStorage` binding loses the transaction) |
 
 Curves: spring `response 0.38, dampingFraction 0.72` for things that arrive; ease-out 0.25 s for state
 changes. Everything above turns off when macOS Reduce Motion is on, and the in-app setting

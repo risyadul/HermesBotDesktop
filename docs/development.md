@@ -53,7 +53,11 @@ Sources/HermesBotApp/       SwiftUI app:
   ToolActivityRow.swift       compact tool-call row
   ServerRequestCards.swift    approval/clarify/secret cards; RequestCardModels.swift: their labels and answers
   MediaViews.swift            MEDIA files: inline images, file chips, click-time safety check
-  SidebarView.swift           Group Chats + Bots sidebar, row style, connection footer
+  SidebarView.swift           Group Chats + Bots + Boards sidebar, row style, connection footer
+  KanbanHub.swift             board list for the sidebar, per-board models, dispatcher status (K8)
+  KanbanBoardModel.swift      one board: polling, lanes, optimistic actions + rollback, details (KanbanService)
+  KanbanBoardView.swift       board pane: header, lanes, cards, card menus, dispatcher chip
+  KanbanTaskInspector.swift   card details inspector, New Task sheet; KanbanSidebar.swift: Boards rows
   BotChatView.swift           Bot Chat pane (transcript, composer, streaming text)
   BotInspector.swift          bot details inspector, DefaultTag
   RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions)
