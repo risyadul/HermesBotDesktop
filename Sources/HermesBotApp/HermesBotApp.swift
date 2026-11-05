@@ -158,6 +158,8 @@ struct RootView: View {
                      motion: motion) {
             BotSheetContent(sheet: model.botSheet)
         }
+        // K9: Create Task from Message (KanbanIntegrations.swift).
+        .modifier(KanbanComposePresenter(hub: model.kanban, bots: model.bots.map(\.name), motion: motion))
     }
 
     /// One pane at a time: the outgoing pane leaves in the same frame (the selection changes outside any
@@ -175,7 +177,7 @@ struct RootView: View {
         } else if case .board(let slug)? = model.selection, let board = model.kanban.model(for: slug) {
             KanbanBoardView(hub: model.kanban, model: board, onSelectBoard: { next in
                 withTransaction(SidebarView.selectionTransaction) { model.selection = .board(next) }
-            })
+            }, onOpenBot: { model.openBotChat($0) }, canOpenBot: { model.canOpenBotChat($0) })
             .paneArrival(motion: motion).id(PaneIdentity(slug, board))
         } else {
             placeholder

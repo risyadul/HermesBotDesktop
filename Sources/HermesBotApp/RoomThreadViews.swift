@@ -51,6 +51,8 @@ struct RoomMessageActions {
     /// Nil inside the thread pane (the pane's composer already posts to the thread).
     let onReplyInThread: (() -> Void)?
     let copyText: String?
+    /// K9: "Create Task from Message…" (nil: not offered).
+    var onCreateTask: (() -> Void)?
 
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
@@ -101,6 +103,10 @@ struct MessageActionsModifier: ViewModifier {
         }
         if let text = actions.copyText {
             Button("Copy") { RoomMessageActions.copy(text) }
+        }
+        if let create = actions.onCreateTask {
+            Divider()
+            Button("Create Task from Message…", action: create)
         }
     }
 }

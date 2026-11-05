@@ -45,6 +45,8 @@ enum KanbanMarkdown {
 struct KanbanTaskInspector: View {
     @ObservedObject var model: KanbanBoardModel
     let onArchive: (KanbanTask) -> Void
+    /// K9: the assignee's Bot Chat, when that bot is in the roster.
+    var openBotChat: (KanbanTask) -> (() -> Void)? = { _ in nil }
     @ObservedObject private var avatars = AvatarStore.shared
     @State private var sending = false
     @State private var deleteCandidate: KanbanAttachment?
@@ -57,6 +59,8 @@ struct KanbanTaskInspector: View {
                     heading(task)
                     Hairline()
                     fields(task)
+                    KanbanAISection(ai: model.ai, task: task, onOpenTask: { model.select($0) },
+                                    title: { id in model.task(id).map { $0.title.isEmpty ? id : $0.title } ?? id })
                     if let error = task.lastFailureError { section("Last failure") { text(error, color: DS.Palette.danger) } }
                     section("Description") {
                         if let body = (model.detail?.task.body ?? task.body), !body.isEmpty {
@@ -111,6 +115,12 @@ struct KanbanTaskInspector: View {
                     NSPasteboard.general.setString(task.id, forType: .string)
                 }
                 Menu {
+                    if let watches = model.watches {
+                        KanbanWatchToggle(watches: watches, slug: model.slug, task: task) { on in
+                            watches.set(model.slug, task.id, watching: on)
+                        }
+                        Divider()
+                    }
                     Button("Archive…", role: .destructive) { onArchive(task) }
                 } label: { Image(systemName: "ellipsis.circle").font(DS.Typeface.icon) }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
@@ -131,12 +141,16 @@ struct KanbanTaskInspector: View {
                     if let who = task.assignee { AvatarView(identity: avatars.identity(profile: who), size: DS.Size.avatarChip) }
                     KanbanAssignMenu(task: task, model: model, title: task.assignee.map { "@\($0)" } ?? "Unassigned")
                         .menuStyle(.borderlessButton).fixedSize()
+                    if let who = task.assignee, let open = openBotChat(task) {
+                        IconButton(symbol: "bubble.left.and.text.bubble.right", label: "Open Bot Chat with @\(who)", action: open)
+                    }
                 }
             }
             field("Priority") {
                 KanbanPriorityMenu(task: task, model: model, title: task.priority == 0 ? "0 (normal)" : "\(task.priority)")
                     .menuStyle(.borderlessButton).fixedSize()
             }
+            field("Model") { KanbanModelMenu(ai: model.ai, task: task) }
             if let created = task.createdAt { field("Created") { text(Self.date(created) + (task.createdBy.map { " by \($0)" } ?? "")) } }
             if let updated = model.detail?.events.compactMap(\.createdAt).max() { field("Updated") { text(Self.date(updated)) } }
             if let done = task.completedAt { field("Completed") { text(Self.date(done)) } }
@@ -404,6 +418,13 @@ struct KanbanNewTaskSheet: View {
     let onCreate: (KanbanTaskDraft, String?) async -> String?
     /// Presented by `motionSheet`, so `\.dismiss` would not reach it (CreateRoomView.swift).
     let onClose: () -> Void
+    /// K9 Create Task from Message: the sheet starts with these, says where they came from, and offers a board.
+    var initialTitle = ""
+    var initialDetails = ""
+    var initialAssignee = ""
+    var subtitle: String?
+    var boards: [KanbanSidebarRow] = []
+    var board: Binding<String>?
     @State private var title = ""
     @State private var details = ""
     @State private var assignee = ""
@@ -426,7 +447,18 @@ struct KanbanNewTaskSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Text("New task").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
+            VStack(alignment: .leading, spacing: DS.Space.s1) {
+                Text("New task").font(DS.Typeface.titlePane).foregroundStyle(DS.Palette.ink)
+                if let subtitle { Text(subtitle).font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted).lineLimit(1) }
+            }
+            if let board, !boards.isEmpty {
+                labeled("Board") {
+                    Picker("Board", selection: board) {
+                        ForEach(boards) { Text($0.name).tag($0.slug) }
+                    }
+                    .labelsHidden()
+                }
+            }
             labeled("Title") {
                 TextField("What should be done", text: $title).textFieldStyle(.roundedBorder).labelsHidden().focused($titleFocused)
             }
@@ -482,7 +514,12 @@ struct KanbanNewTaskSheet: View {
         .padding(DS.Space.s5).frame(width: DS.Size.sheetWidth)
         .background(DS.Palette.window)
         .defaultFocus($titleFocused, true)
-        .onAppear { titleFocused = true }
+        .onAppear {
+            if title.isEmpty && details.isEmpty && assignee.isEmpty {
+                title = initialTitle; details = initialDetails; assignee = initialAssignee
+            }
+            titleFocused = true
+        }
     }
 
     private func create() {

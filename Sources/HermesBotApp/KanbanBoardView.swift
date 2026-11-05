@@ -24,6 +24,9 @@ struct KanbanBoardView: View {
     @ObservedObject var hub: KanbanHub
     @ObservedObject var model: KanbanBoardModel
     let onSelectBoard: (String) -> Void
+    /// K9: open a bot's Bot Chat (a card's assignee), and whether that bot is in the roster.
+    var onOpenBot: ((String) -> Void)?
+    var canOpenBot: (String) -> Bool = { _ in false }
     /// The inspector opens when a card is selected unless the user closed it (KanbanInspectorRule); that
     /// choice is remembered. Visibility is @State like Bot Chat's (BotChatView.swift: an @AppStorage binding
     /// loses the no-animation transaction).
@@ -39,6 +42,9 @@ struct KanbanBoardView: View {
     @State private var showNewTask = false
     @State private var archiveCandidate: KanbanTask?
     @State private var dropTarget: String?
+    /// K7: New Board / Rename / Orchestration sheet, and the Delete confirmation.
+    @State private var boardSheet: BoardSheet?
+    @State private var confirmDelete = false
     @Environment(\.motionEnabled) private var motion
 
     private var name: String { hub.summary(model.slug)?.name ?? model.slug }
@@ -56,7 +62,7 @@ struct KanbanBoardView: View {
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
         .inspector(isPresented: $showInspector) {
-            KanbanTaskInspector(model: model, onArchive: { archiveCandidate = $0 })
+            KanbanTaskInspector(model: model, onArchive: { archiveCandidate = $0 }, openBotChat: botChat)
                 .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showInspector) { _, shown in
@@ -79,6 +85,13 @@ struct KanbanBoardView: View {
                 archiveCandidate = nil
             }
         } message: { Text("The card leaves the board. Archived cards stay in Hermes.") }
+        .confirmationDialog(KanbanBoardRules.archiveTitle(name), isPresented: $confirmDelete) {
+            Button("Delete Board", role: .destructive) { deleteBoard() }
+        } message: { Text(KanbanBoardRules.archiveMessage(hub.summary(model.slug))) }
+        .modifier(KanbanAIConfirmation(ai: model.ai))
+        .motionSheet(isPresented: Binding(get: { boardSheet != nil }, set: { if !$0 { boardSheet = nil } }), motion: motion) {
+            boardSheetContent
+        }
         .motionSheet(isPresented: $showNewTask, motion: motion) {
             KanbanNewTaskSheet(lanes: model.serverLanes.map(\.name), assignees: model.assigneeNames,
                                onCreate: { draft, column in await model.create(draft, column: column) },
@@ -90,6 +103,41 @@ struct KanbanBoardView: View {
                                onChanged: { Task { await model.refresh() } },
                                onClose: { showWorkers = false })
         }
+    }
+
+    enum BoardSheet: Equatable { case new, rename, orchestration }
+
+    @ViewBuilder private var boardSheetContent: some View {
+        switch boardSheet {
+        case .new?:
+            KanbanBoardNameSheet(mode: .create, initialName: "", existing: hub.boards, onSave: { name in
+                switch await hub.createBoard(name: name) {
+                case .success(let slug): onSelectBoard(slug); return nil
+                case .failure(let f): return f.message
+                }
+            }, onClose: { boardSheet = nil })
+        case .rename?:
+            KanbanBoardNameSheet(mode: .rename(slug: model.slug), initialName: name, existing: hub.boards,
+                                 onSave: { await hub.renameBoard(model.slug, to: $0) }, onClose: { boardSheet = nil })
+        case .orchestration?:
+            KanbanOrchestrationSheet(api: model.api, onClose: { boardSheet = nil })
+        case nil:
+            EmptyView()
+        }
+    }
+
+    /// K7 Delete: archive, then go to another board (the gone board's pane would only say so).
+    private func deleteBoard() {
+        let slug = model.slug, next = Self.otherBoard(hub.rows, current: slug), select = onSelectBoard
+        Task {
+            if await hub.archiveBoard(slug) == nil, let next { select(next) }
+        }
+    }
+
+    /// K9: the card's assignee Bot Chat, when that bot is in the roster.
+    private func botChat(_ task: KanbanTask) -> (() -> Void)? {
+        guard let who = task.assignee, let onOpenBot, canOpenBot(who) else { return nil }
+        return { onOpenBot(who) }
     }
 
     /// Where "Go to Another Board" leads: the first other listed board, or nil when there is none.
@@ -131,6 +179,9 @@ struct KanbanBoardView: View {
                     .fixedSize()
                     .help("Switch board")
             }
+            KanbanBoardMenu(hub: hub, slug: model.slug, onNew: { boardSheet = .new }, onRename: { boardSheet = .rename },
+                            onOrchestration: { boardSheet = .orchestration }, onDelete: { confirmDelete = true },
+                            onSelectBoard: onSelectBoard)
             TextField("Filter by title or @assignee", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: DS.Kanban.filterWidth)
@@ -153,6 +204,9 @@ struct KanbanBoardView: View {
             note(notice, symbol: "exclamationmark.circle.fill", color: DS.Palette.attention) { model.dismissNotice() }
         } else if let sync = model.syncError {
             note("Board not refreshed: \(sync). Retrying.", symbol: "arrow.clockwise", color: DS.Palette.muted, dismiss: nil)
+        } else if let board = hub.boardNote {
+            note(board.text, symbol: board.isError ? "exclamationmark.triangle.fill" : "checkmark.circle",
+                 color: board.isError ? DS.Palette.danger : DS.Palette.muted) { hub.dismissBoardNote() }
         }
     }
 
@@ -240,6 +294,7 @@ struct KanbanBoardView: View {
                                model: model, laneNames: names,
                                groupByProfile: KanbanProfileFilter.groupsLane(lane, enabled: groupRunning),
                                onSelect: { model.select($0.id) }, onOpen: open, onArchive: { archiveCandidate = $0 },
+                               botChat: botChat,
                                onCollapse: lane.tasks.isEmpty && expandedLanes.contains(lane.name)
                                    ? { setExpanded(lane.name, false) } : nil)
             }
@@ -355,6 +410,8 @@ struct KanbanLaneView: View {
     let onSelect: (KanbanTask) -> Void
     let onOpen: (KanbanTask) -> Void
     let onArchive: (KanbanTask) -> Void
+    /// K9: the card's assignee Bot Chat, when that bot is in the roster.
+    var botChat: (KanbanTask) -> (() -> Void)? = { _ in nil }
     /// Folds an empty lane the user unfolded back into its strip.
     var onCollapse: (() -> Void)?
     @ObservedObject private var avatars = AvatarStore.shared
@@ -433,7 +490,7 @@ struct KanbanLaneView: View {
             .draggable(task.id)
             .contextMenu {
                 KanbanTaskMenu(task: task, model: model, laneNames: laneNames, onOpen: { onOpen(task) },
-                               onArchive: { onArchive(task) })
+                               onArchive: { onArchive(task) }, openBotChat: botChat(task))
             }
             .transition(motion ? .opacity : .identity)
     }
@@ -551,20 +608,30 @@ struct KanbanFlagsRow: View {
 
 // MARK: - actions menu (context menu and inspector)
 
-/// Open, Move to ▸, Assign to ▸, Priority ▸, Copy Task ID, Archive…
+/// Open, Move to ▸, Assign to ▸, Priority ▸, Open Bot Chat, AI actions (K6), Notify When Done or Blocked (K9),
+/// Copy Task ID, Archive…
 struct KanbanTaskMenu: View {
     let task: KanbanTask
     @ObservedObject var model: KanbanBoardModel
     let laneNames: [String]
     var onOpen: (() -> Void)?
     let onArchive: () -> Void
+    var openBotChat: (() -> Void)?
 
     var body: some View {
         if let onOpen { Button("Open", action: onOpen) }
         KanbanMoveMenu(task: task, model: model, laneNames: laneNames)
         KanbanAssignMenu(task: task, model: model)
         KanbanPriorityMenu(task: task, model: model)
+        if let who = task.assignee, let openBotChat { Button("Open Bot Chat with @\(who)", action: openBotChat) }
         Divider()
+        KanbanAIMenuItems(task: task, ai: model.ai, onOpen: onOpen)
+        Divider()
+        if let watches = model.watches {
+            KanbanWatchToggle(watches: watches, slug: model.slug, task: task) { on in
+                watches.set(model.slug, task.id, watching: on)
+            }
+        }
         Button("Copy Task ID") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(task.id, forType: .string)

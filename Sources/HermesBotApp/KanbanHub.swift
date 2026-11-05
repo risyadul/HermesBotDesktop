@@ -44,6 +44,17 @@ final class KanbanHub: ObservableObject {
     /// False while no app window is on screen: nothing polls.
     @Published private(set) var isActive = true
     let dispatcher: DispatcherStatusModel
+    /// K7: the last board action's result line (KanbanBoardManagement.swift).
+    @Published var boardNote: KanbanBoardNote?
+    /// K9: a New Task sheet asked for from a message (KanbanIntegrations.swift).
+    @Published var compose: KanbanComposeRequest?
+    /// K9: watched cards and their watcher (notifications when one finishes or is blocked).
+    let watches: KanbanWatchList
+    let cardWatcher: KanbanCardWatcher
+    /// K9: a watched card moved into Done or Blocked (AppModel posts it).
+    var onCardEvent: ((KanbanCardEvent) -> Void)?
+    /// The board whose model was asked for last (the default board of a composed task).
+    private(set) var lastBoard: String?
     private(set) var api: (any KanbanService)?
     /// Called with the listed (non-archived) slugs after each successful board list: AppModel drops a
     /// selection whose board is gone.
@@ -56,10 +67,16 @@ final class KanbanHub: ObservableObject {
     private var generation = 0
     private let sleep: @Sendable (TimeInterval) async throws -> Void
 
-    init(dispatcher: DispatcherStatusModel = DispatcherStatusModel(),
+    /// `watches`: nil keeps watched cards in memory only (tests); the app passes UserDefaults-backed ones.
+    init(dispatcher: DispatcherStatusModel = DispatcherStatusModel(), watches: KanbanWatchList? = nil,
          sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) {
         self.dispatcher = dispatcher
         self.sleep = sleep
+        let watches = watches ?? KanbanWatchList(defaults: nil)
+        self.watches = watches
+        cardWatcher = KanbanCardWatcher(watches: watches, sleep: sleep)
+        cardWatcher.boardName = { [weak self] slug in self?.summary(slug)?.name ?? slug }
+        cardWatcher.onEvent = { [weak self] e in self?.onCardEvent?(e) }
     }
 
     var rows: [KanbanSidebarRow] { Self.sidebarRows(boards) }
@@ -110,10 +127,11 @@ final class KanbanHub: ObservableObject {
     func connect(api: (any KanbanService)?) {
         disconnect()
         self.api = api
-        guard api != nil else {
+        guard let api else {
             availability = .noAccess
             return
         }
+        cardWatcher.start(api: api)
         if isActive { startLoop() }
     }
 
@@ -124,6 +142,9 @@ final class KanbanHub: ObservableObject {
         loop = nil
         for m in models.values { m.stop() }
         models = [:]
+        cardWatcher.stop()
+        compose = nil
+        boardNote = nil
         api = nil
         boards = []
         availability = .unknown
@@ -215,9 +236,12 @@ final class KanbanHub: ObservableObject {
 
     /// The board's model, created on first use (nil when not connected).
     func model(for slug: String) -> KanbanBoardModel? {
+        lastBoard = slug
         if let m = models[slug] { return m }
         guard let api else { return nil }
         let m = KanbanBoardModel(slug: slug, api: api)
+        m.watches = watches
+        m.onCreated = { [weak self] t in self?.cardWatcher.watch(slug, t) }
         m.setSuspended(!isActive)
         models[slug] = m
         return m

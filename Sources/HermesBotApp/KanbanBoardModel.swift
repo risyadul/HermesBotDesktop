@@ -31,6 +31,21 @@ protocol KanbanService: Sendable {
     func run(_ runId: Int, board: String?) async throws -> KanbanRun
     func inspectRun(_ runId: Int, board: String?) async throws -> KanbanRunProcess
     func terminateRun(_ runId: Int, board: String?, reason: String?) async throws
+    // K6 AI actions + model override (KanbanAI.swift in HermesGatewayKit; KanbanCardAI.swift)
+    func estimate(taskId: String, board: String?) async throws -> KanbanEstimate
+    func decompose(taskId: String, board: String?, author: String?) async throws -> KanbanDecomposeResult
+    func specify(taskId: String, board: String?, author: String?) async throws -> KanbanSpecifyResult
+    func modelOptions() async throws -> [KanbanModelProvider]
+    func setModelOverride(_ id: String, _ override: KanbanModelOverride, board: String?) async throws -> KanbanTask?
+    // K7 boards + orchestration (KanbanBoardsAPI.swift; KanbanBoardManagement.swift)
+    func createBoard(slug: String, name: String) async throws -> KanbanBoardSummary?
+    func renameBoard(_ slug: String, name: String) async throws -> KanbanBoardSummary?
+    func archiveBoard(_ slug: String) async throws -> KanbanBoardRemoval
+    func exportBoard(_ slug: String, to output: String) async throws -> KanbanBoardExport
+    func importBoard(archive: String) async throws -> KanbanBoardImport
+    func orchestration() async throws -> KanbanOrchestration
+    func setOrchestration(_ patch: KanbanOrchestrationPatch) async throws -> KanbanOrchestration
+    func profiles() async throws -> [KanbanProfile]
 }
 
 extension KanbanAPI: KanbanService {}
@@ -279,6 +294,12 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
     /// Where downloads are saved and how a checked one is shown; tests replace both.
     var attachmentRoot = KanbanAttachmentFiles.root
     var openFile: @MainActor (URL, KanbanAttachmentFiles.Action) -> Void = { KanbanAttachmentFiles.perform($0, $1) }
+    /// K6: Estimate / Decompose / Specify and the model override of this board's cards (KanbanCardAI.swift).
+    lazy var ai = KanbanCardAIModel(board: self)
+    /// K9: a card created from the app (New Task, Create Task from Message); KanbanHub watches it.
+    var onCreated: ((KanbanTask) -> Void)?
+    /// K9: the cards that notify when they finish or block (set by KanbanHub; nil in a bare model).
+    var watches: KanbanWatchList?
 
     /// Bumped by `start` and `stop`: answers of an older loop are dropped.
     private(set) var generation = 0
@@ -537,7 +558,10 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
         do {
             let r = try await api.createTask(draft, board: slug, column: column)
             actionsDone += 1
-            if let t = r.task { serverLanes = Self.place(t, in: serverLanes) }
+            if let t = r.task {
+                serverLanes = Self.place(t, in: serverLanes)
+                onCreated?(t)
+            }
             notice = r.warning
             refreshIfPolling()
             return nil
@@ -545,6 +569,14 @@ final class KanbanBoardModel: ObservableObject, Identifiable {
             if Self.isBoardGone(error) { markGone() }
             return Self.describe(error)
         }
+    }
+
+    /// A card the server answered after a change made outside `perform` (K6 model override, specify): shown at
+    /// once, and a poll already in flight is treated as stale.
+    func adopt(_ task: KanbanTask) {
+        actionsDone += 1
+        serverLanes = Self.place(task, in: serverLanes, keepArchived: includeArchived)
+        refreshIfPolling()
     }
 
     /// After an action: fetch the board now, unless the view stopped polling (then nothing is shown and the
