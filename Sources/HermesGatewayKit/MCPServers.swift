@@ -145,9 +145,7 @@ public struct MCPServers: Sendable {
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }
-            guard let eq = line.firstIndex(of: "="),
-                  String(line[..<eq]).range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
-            else { throw Failure("Write environment variables as KEY=VALUE, one per line.") }
+            guard let eq = line.firstIndex(of: "="), isValidEnvName(String(line[..<eq])) else { throw Failure("Write environment variables as KEY=VALUE, one per line.") }
             env[String(line[..<eq])] = String(line[line.index(after: eq)...])
         }
         return env
@@ -161,10 +159,24 @@ public struct MCPServers: Sendable {
 
     // MARK: API key
 
-    public static func apiKeyParams(profile: String, name: String, envVar: String?, value: String) -> JSONValue {
+    /// An environment variable name the app writes to `.env`: a C identifier of at most 128 characters.
+    public static func isValidEnvName(_ name: String) -> Bool {
+        name.range(of: #"^[A-Za-z_][A-Za-z0-9_]{0,127}$"#, options: .regularExpression) != nil
+    }
+
+    /// The `set_api_key` params, checked: the value becomes one `.env` line, so a line break (or NUL) in it
+    /// would write extra variables; a custom variable name must be a plain identifier.
+    public static func apiKeyParams(profile: String, name: String, envVar: String?, value: String) throws -> JSONValue {
+        guard !value.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\0" }) else {
+            throw Failure("The API key cannot contain line breaks.")
+        }
         var p: [String: JSONValue] = ["profile": .string(profile), "name": .string(name), "value": .string(value)]
         if let envVar, !envVar.trimmingCharacters(in: .whitespaces).isEmpty {
-            p["env_var"] = .string(envVar.trimmingCharacters(in: .whitespaces))
+            let v = envVar.trimmingCharacters(in: .whitespaces)
+            guard isValidEnvName(v) else {
+                throw Failure("Use letters, digits or '_' for the variable name, not starting with a digit (128 at most).")
+            }
+            p["env_var"] = .string(v)
         }
         return .object(p)
     }
@@ -172,7 +184,7 @@ public struct MCPServers: Sendable {
     /// Stores `value` for server `name`; returns the env var it went to.
     @discardableResult
     public func setAPIKey(profile: String, name: String, envVar: String?, value: String) async throws -> String {
-        let r = try await call("mcp.servers.set_api_key", Self.apiKeyParams(profile: profile, name: name, envVar: envVar, value: value))
+        let r = try await call("mcp.servers.set_api_key", try Self.apiKeyParams(profile: profile, name: name, envVar: envVar, value: value))
         return r["env_var"]?.string ?? ""
     }
 
@@ -204,16 +216,23 @@ public struct MCPServers: Sendable {
     // MARK: OAuth
 
     /// The backend-hosted loopback the browser comes back to: `http://127.0.0.1:<port>/callback`, nothing else
-    /// (Desktop's check when it has no callback bridge of its own). The authorization URL itself must be http(s).
+    /// (Desktop's check when it has no callback bridge of its own). The authorization URL itself must be https;
+    /// plain http only to a loopback host (a local test server), so credentials never cross the network in clear.
     public static func checkAuthURL(_ text: String) throws -> URL {
-        guard let url = URL(string: text), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+        guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
+              scheme == "https" || (scheme == "http" && isLoopback(url.host)),
               let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        else { throw Failure("The OAuth server did not provide an authorization URL.") }
+        else { throw Failure("The OAuth server did not provide a secure (https) authorization URL.") }
         let redirect = parts.queryItems?.first { $0.name == "redirect_uri" }?.value.flatMap(URLComponents.init(string:))
         guard let r = redirect, r.scheme == "http", r.host == "127.0.0.1", let port = r.port, port > 0,
               r.path == "/callback", r.user == nil, r.password == nil, r.query == nil, r.fragment == nil
         else { throw Failure("The OAuth server did not provide a local loopback callback URL.") }
         return url
+    }
+
+    static func isLoopback(_ host: String?) -> Bool {
+        guard let h = host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")) else { return false }
+        return h == "localhost" || h == "::1" || h.range(of: #"^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$"#, options: .regularExpression) != nil
     }
 
     public struct Cancelled: Error, RedactionSafeError, Equatable {

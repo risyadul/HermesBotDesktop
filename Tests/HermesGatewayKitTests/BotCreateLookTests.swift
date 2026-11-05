@@ -247,7 +247,8 @@ final class BotCreateLookTests: XCTestCase {
         XCTAssertEqual(AvatarSources.ranked(pets, query: "ALP").map(\.slug), ["a"])
         XCTAssertEqual(AvatarSources.ranked(pets, query: "c").map(\.slug), ["c"], "slug match")
         XCTAssertEqual(AvatarSources.thumbParams(.init(slug: "a", spritesheetURL: "https://cdn/a.webp")), ["slug": "a", "url": "https://cdn/a.webp"])
-        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0])
+        // A real 1 × 1 PNG: thumbs must have a readable header within the pixel limit to be decoded.
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")!
         XCTAssertEqual(AvatarSources.thumb(["ok": true, "dataUri": .string("data:image/png;base64," + png.base64EncodedString())]), png)
         XCTAssertNil(AvatarSources.thumb(["ok": false, "slug": "a"]))
         XCTAssertNil(AvatarSources.thumb(["ok": true, "dataUri": "data:image/png;base64,AQID"]), "not an image")

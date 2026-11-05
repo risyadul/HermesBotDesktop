@@ -203,6 +203,24 @@ final class BotProfileManagementTests: XCTestCase {
         XCTAssertLessThan(out.count, 2_000_000, "inside the gateway's set_asset limit")
     }
 
+    /// A side over 16384 px is refused from the header, before any decode (a decompression bomb is a small file
+    /// declaring a huge canvas; ImageIO happily reads a fully-populated 20000 × 20000 PNG of ~1 MB). A thin strip
+    /// keeps the fixture cheap while crossing the same limit.
+    func testAvatarRefusesImagesWithHugeDeclaredDimensions() throws {
+        let bomb = try png(width: 20_000, height: 8)
+        for normalize in [ProfileAvatar.normalize, ProfileAvatar.normalizeGenerated] {
+            XCTAssertThrowsError(try normalize(bomb)) { XCTAssertEqual($0 as? ProfileAvatar.Failure, .tooManyPixels) }
+        }
+        XCTAssertFalse(ProfileAvatar.isSafeToDecode(bomb))
+        XCTAssertTrue(ProfileAvatar.isSafeToDecode(try png(width: 10, height: 10)))
+        XCTAssertNil(AvatarSources.thumb(["ok": true, "dataUri": .string(ProfileAvatar.dataURL(bomb))]),
+                     "a pet thumbnail over the limit is never decoded")
+        // A large but legal image still decodes (through the capped thumbnailer) to the 256 px square.
+        let out = try ProfileAvatar.normalize(try png(width: 5_000, height: 4_500))
+        let image = try XCTUnwrap(CGImageSourceCreateWithData(out as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
+        XCTAssertEqual([image.width, image.height], [256, 256])
+    }
+
     func testAvatarRefusesOtherFormatsAndFilesOver15MB() throws {
         XCTAssertThrowsError(try ProfileAvatar.normalize(Data("GIF89a....".utf8))) { XCTAssertEqual($0 as? ProfileAvatar.Failure, .notAnImage) }
         XCTAssertThrowsError(try ProfileAvatar.normalize(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0]))) {

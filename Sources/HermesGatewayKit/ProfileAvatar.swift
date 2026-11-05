@@ -10,15 +10,22 @@ import UniformTypeIdentifiers
 public enum ProfileAvatar {
     public static let maxBytes = 15_000_000
     public static let edge = 256
+    /// A side longer than this is refused before any pixel is decoded: a few KB of PNG can declare a
+    /// 100k × 100k canvas (a decompression bomb) that a full decode would try to allocate.
+    public static let maxPixelSide = 16_384
+    /// Decoding goes through ImageIO's thumbnailer capped at this edge, so the bitmap stays small.
+    public static let decodeEdge = 4_096
 
     public enum Failure: Error, RedactionSafeError, Equatable {
         case tooLarge(Int)
+        case tooManyPixels
         case notAnImage
         case unreadable
 
         public var description: String {
             switch self {
             case .tooLarge: return "The image is larger than 15 MB."
+            case .tooManyPixels: return "The image is larger than 16384 pixels on a side."
             case .notAnImage: return "Choose a PNG or JPEG image."
             case .unreadable: return "The image could not be read."
             }
@@ -55,9 +62,15 @@ public enum ProfileAvatar {
 
     private static func square(_ data: Data) throws -> Data {
         if data.count > maxBytes { throw Failure.tooLarge(data.count) }
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), let size = pixelSize(source)
         else { throw Failure.unreadable }
+        guard size.width <= maxPixelSide, size.height <= maxPixelSide else { throw Failure.tooManyPixels }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: decodeEdge,
+                                        kCGImageSourceShouldCacheImmediately: true]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            throw Failure.unreadable
+        }
         let side = min(image.width, image.height)
         guard side > 0,
               let square = image.cropping(to: CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2,
@@ -76,6 +89,22 @@ public enum ProfileAvatar {
         CGImageDestinationAddImage(dest, scaled, nil)
         guard CGImageDestinationFinalize(dest) else { throw Failure.unreadable }
         return out as Data
+    }
+
+    /// The declared pixel size, read from the header without decoding.
+    private static func pixelSize(_ source: CGImageSource) -> (width: Int, height: Int)? {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int, let height = props[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0 else { return nil }
+        return (width, height)
+    }
+
+    /// True when an image from elsewhere (a gateway avatar, a pet thumbnail) is safe to hand to `NSImage`:
+    /// its header is readable and no side exceeds `maxPixelSide`.
+    public static func isSafeToDecode(_ data: Data) -> Bool {
+        guard data.count <= maxBytes, let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let size = pixelSize(source) else { return false }
+        return size.width <= maxPixelSide && size.height <= maxPixelSide
     }
 
     /// `data:image/png;base64,…` (or jpeg), as Desktop sends it.

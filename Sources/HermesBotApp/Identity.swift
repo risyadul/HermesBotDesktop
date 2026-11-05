@@ -133,7 +133,7 @@ final class AvatarStore: ObservableObject {
                     let r = try await backend.client.call("profiles.get_asset", ["name": .string(bot.name), "asset": "avatar"])
                     guard r["found"]?.bool == true, let url = r["data"]?.string, let comma = url.firstIndex(of: ","),
                           let data = Data(base64Encoded: String(url[url.index(after: comma)...])),
-                          let image = NSImage(data: data) else { return }
+                          ProfileAvatar.isSafeToDecode(data), let image = NSImage(data: data) else { return }
                     images[bot.name] = image
                 } catch {
                     AppModel.shared.log("profiles.get_asset \(bot.name) failed: \(Redaction.describe(error))")

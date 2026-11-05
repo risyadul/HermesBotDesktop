@@ -29,9 +29,10 @@ public enum SkillsHub {
         }
     }
 
-    /// Desktop's guard on what may reach `skills.manage install`: a slug or an owner/name path.
+    /// Desktop's guard on what may reach `skills.manage install`: a slug or one owner/name path. Each segment
+    /// starts with a letter or digit, so `..` (or any dot segment) never reaches the installer, and at most one `/`.
     public static func isInstallable(_ name: String) -> Bool {
-        name.range(of: #"^[A-Za-z0-9][A-Za-z0-9._/-]*$"#, options: .regularExpression) != nil
+        name.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$"#, options: .regularExpression) != nil
     }
 
     public static func installParams(_ name: String, profile: String) -> JSONValue {

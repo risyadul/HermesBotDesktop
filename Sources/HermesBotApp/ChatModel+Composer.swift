@@ -80,7 +80,9 @@ struct PromptHistory: Equatable {
 
 /// B12: per-bot composer drafts kept across launches in UserDefaults (`hba.botChatDrafts`), size-capped:
 /// a draft over `maxChars` is not kept (a cut-off draft could be sent by mistake), and only the
-/// `maxBots` most recently edited drafts are. Blank drafts are removed.
+/// `maxBots` most recently edited drafts are. Blank drafts are removed, and so is a draft that holds
+/// something token-shaped (`Redaction.scrub` would change it): a pasted bearer token or gateway URL with
+/// `?token=` never lands in UserDefaults.
 struct ChatDraftStore {
     static let key = "hba.botChatDrafts"
     static let maxChars = 20_000
@@ -101,7 +103,8 @@ struct ChatDraftStore {
 
     func save(_ text: String, for bot: String, now: Date = Date()) {
         var drafts = all
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > Self.maxChars {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > Self.maxChars
+            || Redaction.scrub(text) != text {
             guard drafts[bot] != nil else { return }
             drafts[bot] = nil
         } else {

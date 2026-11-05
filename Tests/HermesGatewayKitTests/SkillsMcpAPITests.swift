@@ -59,9 +59,37 @@ final class SkillsMcpAPITests: XCTestCase {
             ["name": "fs2", "config": ["command": "npx", "args": ["-y", "x"]], "profile": "alpha"],
         ])
         XCTAssertEqual(gw.params("mcp.servers.set_api_key"), [["profile": "alpha", "name": "jira", "value": "sk-123"]])
-        XCTAssertEqual(MCPServers.apiKeyParams(profile: "a", name: "b", envVar: " TOKEN ", value: "v"),
+        XCTAssertEqual(try MCPServers.apiKeyParams(profile: "a", name: "b", envVar: " TOKEN ", value: "v"),
                        ["profile": "a", "name": "b", "value": "v", "env_var": "TOKEN"])
         XCTAssertEqual(gw.params("mcp.servers.test"), [["profile": "alpha", "name": "jira"]])
+    }
+
+    func testSkillInstallNamesRefuseTraversalAndNestedPaths() {
+        XCTAssertTrue(SkillsHub.isInstallable("pdf"))
+        XCTAssertTrue(SkillsHub.isInstallable("owner/name..v2"))
+        for bad in ["..", "../x", "owner/..", "owner/../x", "a/b/c", "owner/", "/abs", "owner/.hidden", "a//b"] {
+            XCTAssertFalse(SkillsHub.isInstallable(bad), bad)
+        }
+    }
+
+    func testAPIKeyAndEnvNamesCannotInjectEnvLines() async throws {
+        for bad in ["sk\nEVIL=1", "sk\rEVIL=1", "sk\r\n", "a\u{0}b"] {
+            XCTAssertThrowsError(try MCPServers.apiKeyParams(profile: "a", name: "b", envVar: nil, value: bad), bad.debugDescription)
+        }
+        for bad in ["1BAD", "A-B", "A B", "A\nB", "A=B", String(repeating: "A", count: 129)] {
+            XCTAssertThrowsError(try MCPServers.apiKeyParams(profile: "a", name: "b", envVar: bad, value: "v"), bad.debugDescription)
+        }
+        XCTAssertNoThrow(try MCPServers.apiKeyParams(profile: "a", name: "b", envVar: "_" + String(repeating: "A", count: 127), value: "v"))
+        XCTAssertNoThrow(try MCPServers.apiKeyParams(profile: "a", name: "b", envVar: "  ", value: "v"), "blank uses the default name")
+        XCTAssertThrowsError(try MCPServers.environment(String(repeating: "A", count: 129) + "=x"))
+        // Nothing reaches the gateway when the key is refused.
+        let gw = FakeGateway()
+        gw.on("mcp.servers.set_api_key") { _ in ["ok": true, "env_var": "X"] }
+        do {
+            _ = try await MCPServers(call: gw.call).setAPIKey(profile: "a", name: "b", envVar: nil, value: "x\nY=1")
+            XCTFail("expected a refusal")
+        } catch {}
+        XCTAssertEqual(gw.params("mcp.servers.set_api_key"), [])
     }
 
     func testSecretsNeverReachTheWireTap() {
@@ -110,6 +138,9 @@ final class SkillsMcpAPITests: XCTestCase {
 
     func testAuthURLMustComeBackToTheBackendsLoopback() throws {
         XCTAssertNoThrow(try MCPServers.checkAuthURL(Self.authURL))
+        for local in ["http://127.0.0.1:9000/authorize", "http://localhost:9000/authorize", "http://[::1]:9000/authorize"] {
+            XCTAssertNoThrow(try MCPServers.checkAuthURL(local + "?redirect_uri=http%3A%2F%2F127.0.0.1%3A1%2Fcallback"), local)
+        }
         for bad in [
             "https://a/x?redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback",
             "https://a/x?redirect_uri=https%3A%2F%2F127.0.0.1%3A1%2Fcallback",
@@ -119,6 +150,8 @@ final class SkillsMcpAPITests: XCTestCase {
             "https://a/x?redirect_uri=http%3A%2F%2Fevil.com%3A1%2Fcallback",
             "https://a/x",
             "file:///etc/passwd?redirect_uri=http%3A%2F%2F127.0.0.1%3A1%2Fcallback",
+            "http://auth.example.com/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A1%2Fcallback",
+            "http://127.evil.com/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A1%2Fcallback",
         ] {
             XCTAssertThrowsError(try MCPServers.checkAuthURL(bad), bad)
         }

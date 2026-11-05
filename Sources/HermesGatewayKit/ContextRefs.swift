@@ -16,24 +16,45 @@ public struct ContextRef: Sendable, Equatable, Hashable {
     public var refText: String { "@\(kind.rawValue):\(Self.formatValue(value))" }
 
     /// A web URL the dialog accepts: `http(s)://` with a host (Desktop `URL_HINT` plus a host check, so a
-    /// bare scheme is not attached). Surrounding spaces are ignored.
+    /// bare scheme is not attached). Surrounding spaces are ignored; whitespace or control characters inside
+    /// are refused (a newline would start a second directive line), and the normalised `absoluteString` is
+    /// what rides in the prompt.
     public static func url(_ raw: String) -> ContextRef? {
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard t.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil,
+        guard !t.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || isControl($0) }),
+              t.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil,
               let u = URL(string: t), let host = u.host, !host.isEmpty else { return nil }
-        return ContextRef(kind: .url, value: t)
+        return quotable(ContextRef(kind: .url, value: u.absoluteString))
     }
 
-    /// A local folder (`isDirectory`), by its standardized path.
+    /// A local folder (`isDirectory`), by its standardized path. Plain spaces are fine (the value is quoted);
+    /// newlines, tabs and other control characters are refused.
     public static func folder(_ url: URL) -> ContextRef? {
         guard url.isFileURL else { return nil }
-        return ContextRef(kind: .folder, value: url.standardizedFileURL.path)
+        let path = url.standardizedFileURL.path
+        guard !path.unicodeScalars.contains(where: {
+            $0 != " " && (CharacterSet.whitespacesAndNewlines.contains($0) || isControl($0))
+        }) else { return nil }
+        return quotable(ContextRef(kind: .folder, value: path))
+    }
+
+    private static func isControl(_ s: Unicode.Scalar) -> Bool {
+        CharacterSet.controlCharacters.contains(s) || s.properties.generalCategory == .format
+    }
+
+    /// A ref whose value needs quoting but already holds every quote character cannot be written unambiguously.
+    private static func quotable(_ ref: ContextRef) -> ContextRef? {
+        needsQuoting(ref.value) && ["`", "\"", "'"].allSatisfy { ref.value.contains($0) } ? nil : ref
+    }
+
+    private static func needsQuoting(_ value: String) -> Bool {
+        value.range(of: "[\\s()\\[\\]{}<>\"'`]", options: .regularExpression) != nil
     }
 
     /// Desktop `formatRefValue`: values with whitespace, brackets or quotes are wrapped in the first quote
     /// character they do not contain (backtick, then `"`, then `'`); otherwise left bare.
     public static func formatValue(_ value: String) -> String {
-        guard value.range(of: "[\\s()\\[\\]{}<>\"'`]", options: .regularExpression) != nil else { return value }
+        guard needsQuoting(value) else { return value }
         for q in ["`", "\"", "'"] where !value.contains(q) { return q + value + q }
         return value
     }

@@ -100,7 +100,7 @@ public enum AvatarSources {
     /// The PNG of a `pet.thumb` reply; nil when the backend could not crop one.
     public static func thumb(_ r: JSONValue) -> Data? {
         guard r["ok"]?.bool == true, let uri = r["dataUri"]?.string, let data = decodeDataURL(uri),
-              ProfileAvatar.format(data) != nil else { return nil }
+              ProfileAvatar.format(data) != nil, ProfileAvatar.isSafeToDecode(data) else { return nil }
         return data
     }
 }

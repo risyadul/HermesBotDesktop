@@ -259,6 +259,18 @@ final class ChatComposerFeaturesTests: XCTestCase {
         XCTAssertEqual(store.draft(for: "bot\(ChatDraftStore.maxBots + 2)"), "draft \(ChatDraftStore.maxBots + 2)")
     }
 
+    func testDraftsHoldingSecretsAreNotPersisted() {
+        let store = ChatDraftStore(defaults: suite)
+        store.save("plain words", for: "a")
+        store.save("connect to ws://h/api/ws?token=abcdef123456", for: "a")
+        XCTAssertEqual(store.draft(for: "a"), "", "a token-shaped draft replaces (and removes) the older one")
+        XCTAssertNil((suite.dictionary(forKey: ChatDraftStore.key) as? [String: Any])?["a"])
+        store.save("Authorization: Bearer sk-live-0123456789", for: "b")
+        XCTAssertEqual(store.draft(for: "b"), "")
+        store.save("nothing secret here", for: "b")
+        XCTAssertEqual(store.draft(for: "b"), "nothing secret here")
+    }
+
     func testTheAppStoreIsOffUnderTests() {
         XCTAssertNil(ChatDraftStore.app, "tests never write the real defaults")
     }
