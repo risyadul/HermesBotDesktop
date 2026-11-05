@@ -182,19 +182,28 @@ struct RootView: View {
 
 // MARK: - settings
 
+/// General (motion), Background (E1, SettingsSections.swift) and Kanban dispatcher (K8).
 struct SettingsView: View {
     @AppStorage(DS.Motion.settingKey) private var motion = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var background = BackgroundServeSettingsModel()
+    @StateObject private var gateway = GatewaySettingsModel()
     var body: some View {
         Form {
-            Toggle("Animate interface changes", isOn: $motion)
-            Text(reduceMotion
-                 ? "Reduce Motion is on in System Settings, so animations stay off."
-                 : "New messages, turn status changes and approvals animate once. Reduce Motion in System Settings also turns this off.")
-                .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            Section("General") {
+                Toggle("Animate interface changes", isOn: $motion)
+                Text(reduceMotion
+                     ? "Reduce Motion is on in System Settings, so animations stay off."
+                     : "New messages, turn status changes and approvals animate once. Reduce Motion in System Settings also turns this off.")
+                    .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            BackgroundServeSection(model: background)
+            GatewaySection(model: gateway)
         }
         .formStyle(.grouped)
+        .tint(DS.Palette.primary)
         .frame(width: DS.Size.settingsWidth)
+        .frame(minHeight: DS.Size.settingsMinHeight, idealHeight: DS.Size.settingsHeight)
     }
 }
