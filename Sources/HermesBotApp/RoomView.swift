@@ -17,6 +17,8 @@ struct RoomView: View {
     @State private var confirmDisband = false
     @State private var dismissedNote: String?
     @FocusState private var composerFocused: Bool
+    @State private var paste = AttachmentPasteMonitor()
+    @State private var dropTargeted = false
     @Environment(\.motionEnabled) private var motion
 
     init(model: RoomModel) {
@@ -47,10 +49,23 @@ struct RoomView: View {
             composer
         }
         .background(DS.Palette.window)
+        .overlay { if dropTargeted { DropHighlight() } }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard model.composer.isOpen, !files.isEmpty else { return false }
+            model.addAttachments(files)
+            return true
+        } isTargeted: { dropTargeted = $0 && model.composer.isOpen }
+        .onChange(of: composerFocused) { _, f in paste.focused = f }
+        .onDisappear { paste.remove() }
         .navigationTitle(model.room.name)
         .navigationSubtitle("\(model.room.members.count) bots")
         .toolbar { toolbar }
-        .onAppear { model.start() }
+        .onAppear {
+            model.start()
+            let model = model
+            paste.install(canAttach: { model.composer.isOpen }, attach: { model.addAttachments($0) })
+        }
         .onDisappear { model.stopPolling() }
         .onChange(of: model.lastSync) { _, sync in
             if sync != nil { memory.setBaselineIfNeeded(model.timeline.cursor) }
@@ -140,7 +155,9 @@ struct RoomView: View {
     @ViewBuilder private func rowView(_ row: RoomRow) -> some View {
         switch row.kind {
         case .user(let text):
-            UserBubble(text: text, time: row.time, mentionHandles: Set(model.room.members.map(\.handle)))
+            let parts = RoomAttachments.split(text)
+            UserBubble(text: parts.text, time: row.time, mentionHandles: Set(model.room.members.map(\.handle)),
+                       attachments: RoomAttachments.mediaRefs(parts.paths))
         case .member(let memberId, let author, let text):
             MemberMessage(identity: identity(memberId, title: author), author: author, time: row.time) {
                 MessageBody(text: text, mentions: Set(model.room.members.map(\.handle))).equatable()
@@ -210,9 +227,12 @@ struct RoomView: View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
             ComposerBox(placeholder: "Message \(model.room.name). Start with @handle to address one bot",
                         draft: $draft,
-                        canSend: model.composer.canSend && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                        canSend: canSend,
                         onSend: send, focus: $composerFocused,
-                        onTab: { MentionSuggestions.acceptFirst(&draft, members: model.room.members) })
+                        onTab: { MentionSuggestions.acceptFirst(&draft, members: model.room.members) },
+                        onAttach: attachAction,
+                        attachments: model.pending,
+                        onRemoveAttachment: { model.removeAttachment($0) })
                 .overlay(alignment: .topLeading) {
                     MentionSuggestions(draft: $draft, members: model.room.members, identity: { identity($0.memberId, title: $0.title) })
                         .alignmentGuide(.top) { $0[.bottom] + DS.Space.s1 }
@@ -237,9 +257,29 @@ struct RoomView: View {
             .help("Group chats update by polling groups.log and groups.state.")
     }
 
+    /// The paperclip, while the room accepts messages.
+    private var attachAction: (() -> Void)? {
+        guard model.composer.isOpen else { return nil }
+        return { pickFiles() }
+    }
+
+    /// Text, or at least one ready attachment, and the room accepts messages.
+    private var canSend: Bool {
+        guard model.composer.canSend else { return false }
+        let hasText = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasText || model.pending.contains(where: \.isReady)
+    }
+
     /// Clears the draft only when the model accepted it (a closing/disbanded room keeps it).
     private func send() {
         if model.send(draft) { draft = "" }
+    }
+
+    private func pickFiles() {
+        let model = model
+        pickAttachments(message: "Attach files for the bots in \(model.room.name). They get a copy they can open.") {
+            model.addAttachments($0)
+        }
     }
 
     // MARK: identity

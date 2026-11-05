@@ -33,7 +33,7 @@ struct BotChatView: View {
         // clipping the inspector at the 820 pt minimum (InspectorLayoutTests).
         .frame(minWidth: 0, maxWidth: .infinity)
         .background(DS.Palette.window)
-        .overlay { if dropTargeted { dropHighlight } }
+        .overlay { if dropTargeted { DropHighlight() } }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
             guard chat.isReady, !files.isEmpty else { return false }
@@ -192,19 +192,6 @@ struct BotChatView: View {
                 .buttonStyle(DSButtonStyle(kind: .primary))
                 .accessibilityLabel("Retry opening the Bot Chat")
         }
-    }
-
-    private var dropHighlight: some View {
-        RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-            .strokeBorder(DS.Palette.ring, style: StrokeStyle(lineWidth: DS.Stroke.keyboardFocus, dash: [DS.Space.s2, DS.Space.s1]))
-            .background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .overlay {
-                Label("Drop files to attach", systemImage: "paperclip")
-                    .font(DS.Typeface.bodyStrong).foregroundStyle(DS.Palette.ink)
-            }
-            .padding(DS.Space.s2)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 
     @ViewBuilder private func bubble(_ line: ChatLine) -> some View {

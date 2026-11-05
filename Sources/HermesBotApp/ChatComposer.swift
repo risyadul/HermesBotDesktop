@@ -12,8 +12,7 @@ struct ChatComposer: View {
     let identity: BotIdentity
     @FocusState private var focused: Bool
     @State private var menu = SlashMenuState()
-    @State private var pasteMonitor: Any?
-    @State private var focusFlag = FocusFlag()
+    @State private var paste = AttachmentPasteMonitor()
     @Environment(\.motionEnabled) private var motion
 
     private var menuItems: [SlashCommand] {
@@ -39,9 +38,9 @@ struct ChatComposer: View {
             menu.draftChanged(d)
             if d == "/" && chat.catalog == nil { chat.loadCatalog() }
         }
-        .onChange(of: focused) { _, f in focusFlag.value = f }
-        .onAppear { installPasteMonitor() }
-        .onDisappear { removePasteMonitor() }
+        .onChange(of: focused) { _, f in paste.focused = f }
+        .onAppear { let chat = chat; paste.install(canAttach: { chat.isReady }, attach: { chat.addAttachments($0) }) }
+        .onDisappear { paste.remove() }
     }
 
     private var field: some View {
@@ -151,46 +150,7 @@ struct ChatComposer: View {
     }
 
     private func pickFiles() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.prompt = "Attach"
-        panel.message = "Attach files to your message to \(chat.bot.title)"
         let chat = chat
-        panel.begin { response in
-            guard response == .OK else { return }
-            chat.addAttachments(panel.urls)
-        }
+        pickAttachments(message: "Attach files to your message to \(chat.bot.title)") { chat.addAttachments($0) }
     }
-
-    /// ⌘V while the field is focused and the pasteboard holds files or an image: attach them instead of
-    /// pasting their names. Anything else (text) pastes normally.
-    private func installPasteMonitor() {
-        guard pasteMonitor == nil else { return }
-        let chat = chat, flag = focusFlag
-        pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let isPaste = event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
-                && event.charactersIgnoringModifiers == "v"
-            guard isPaste else { return event }
-            let handled = MainActor.assumeIsolated { () -> Bool in
-                guard chat.isReady, flag.value else { return false }
-                let urls = PasteboardAttachments.urls(from: .general)
-                guard !urls.isEmpty else { return false }
-                chat.addAttachments(urls)
-                return true
-            }
-            return handled ? nil : event
-        }
-    }
-
-    private func removePasteMonitor() {
-        if let m = pasteMonitor { NSEvent.removeMonitor(m) }
-        pasteMonitor = nil
-    }
-}
-
-/// The composer's focus, readable from the AppKit paste monitor (which outlives one view value).
-@MainActor final class FocusFlag {
-    var value = false
 }

@@ -106,8 +106,11 @@ have **not been tested** with this app yet.
   needs `pdftoppm` on the backend machine) and other files. Files over a limit are refused with a message.
 - **Files from bots:** images show inline and other files as chips (Bot Chat and Group Chat). A file opens
   only when you click it, after a safety check that refuses credentials and system locations.
-- **Group Chat is text-only for your own messages:** the backend's group rooms accept only text, so you
-  cannot attach files there.
+- **Files in Group Chat:** the backend's group rooms accept only text, so a file you attach (paperclip, ⌘V or
+  drag and drop, up to 10 files of 50 MB each) is copied to
+  `~/Library/Application Support/HermesBotApp/Room Attachments/<room>/` and the message names the copies'
+  paths; the room's bots open them with their file tools. This app shows them as attachments; Hermes Desktop
+  shows the paths as text. The copies are deleted when you disband the room.
 
 ## Configuration
 

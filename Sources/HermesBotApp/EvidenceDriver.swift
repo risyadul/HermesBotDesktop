@@ -19,6 +19,8 @@ import HermesGatewayKit
 //   HERMES_BOT_APP_AUTOQUIT=1                      quit after the reply completed / room settled (normal cleanup)
 //   HERMES_BOT_APP_AUTOSWITCH="<seconds>|<items>"   switch panes like sidebar clicks: items are `room:<index>`
 //                                                  (sidebar order) or `bot:<profile>`, comma-separated (read only)
+//   HERMES_BOT_APP_AUTOATTACH="<path>,<path>"       after AUTOSWITCH, add those files as chips to the open
+//                                                  room or Bot Chat composer (nothing is sent)
 
 /// Scripted-run state, stored on `AppModel` (`evidence`).
 struct EvidenceState {
@@ -75,6 +77,15 @@ extension AppModel {
                 try? await Task.sleep(nanoseconds: UInt64(gap * 1_000_000_000))
             }
             log("autoswitch done")
+            if let files = ProcessInfo.processInfo.environment["HERMES_BOT_APP_AUTOATTACH"] {
+                let urls = files.split(separator: ",").map { URL(fileURLWithPath: String($0)) }
+                switch selection {
+                case .room(let id)?: roomModel(id)?.addAttachments(urls)
+                case .bot(let name)?: chats[name]?.addAttachments(urls)
+                case nil: break
+                }
+                log("autoattach → \(urls.count) file(s)")
+            }
         }
     }
 

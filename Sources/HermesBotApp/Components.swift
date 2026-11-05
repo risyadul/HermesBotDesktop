@@ -247,9 +247,28 @@ struct ComposerBox: View {
     /// Tab while the field is focused: return true when handled (accepting a mention suggestion);
     /// otherwise Tab moves focus as usual.
     var onTab: (() -> Bool)? = nil
+    /// Paperclip before the field (Group Chat attachments); nil hides it.
+    var onAttach: (() -> Void)? = nil
+    /// Attachment chips above the field.
+    var attachments: [PendingAttachment] = []
+    var onRemoveAttachment: (UUID) -> Void = { _ in }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s2) {
+            if !attachments.isEmpty {
+                AttachmentChips(items: attachments, onRemove: onRemoveAttachment)
+            }
+            row
+        }
+        .padding(.leading, onAttach == nil ? DS.Space.s3 : DS.Space.s2).padding(.trailing, DS.Space.s2).padding(.vertical, DS.Space.s2)
+        .composerSurface(focused: focus.wrappedValue)
+    }
+
+    private var row: some View {
         HStack(alignment: .bottom, spacing: DS.Space.s2) {
+            if let onAttach {
+                IconButton(symbol: "paperclip", label: "Attach files", action: onAttach)
+            }
             TextField(placeholder, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(DS.Typeface.body)
@@ -263,8 +282,6 @@ struct ComposerBox: View {
                 .disabled(!canSend)
                 .keyboardShortcut(.return, modifiers: .command)
         }
-        .padding(.leading, DS.Space.s3).padding(.trailing, DS.Space.s2).padding(.vertical, DS.Space.s2)
-        .composerSurface(focused: focus.wrappedValue)
     }
 }
 

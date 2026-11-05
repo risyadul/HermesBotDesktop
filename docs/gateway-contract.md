@@ -1289,14 +1289,25 @@ Before any RPC (`ChatAttachments.check`): resolve symlinks; must exist (`notFoun
 `pdftoppm` on the **backend** host; the app does not fall back to `file.attach` when it is missing (5028 is
 shown).
 
-### 12.4 Group Chat is text-only (backend limitation) [src]
+### 12.4 Group Chat attachments travel as file references (backend is text-only) [src + test]
 
 `groups.send` validates `payload` as an exact field set `{text, thread_id}` and rejects any extra key such as
 `attachments` (`gateway/hosted_room_discussion.py:60, 198-203`; handler `methods_groups.py:382-393`; RoomLink
 catalog `attachments=False`, `methods_groups.py:162`). The app's payload stays exactly
 `{text: ..., thread_id: "main"}` (§7.1), so the user cannot attach files in a room. Desktop avoids this by
 orchestrating Group Chat itself over per-member sessions (`plugins/hermes-bots/group-turns.ts`), which the app
-does not do. This is a backend limitation of hosted rooms, not an app omission.
+does not do.
+
+The app therefore sends files as references (`RoomAttachments.swift`, `RoomAttachmentStore.swift`): each file is
+copied to `~/Library/Application Support/HermesBotApp/Room Attachments/<room_id>/<random>/<name>` (0700
+folders; removed on disband) and the text gets a trailing block
+
+    [Attached files: local copies on this Mac, open them with your file tools]
+    - /absolute/path/of/the/copy
+
+which the room's (local) members read with their file tools. The payload is still exactly `{text, thread_id}`.
+The app folds a well-formed block back into attachments (`RoomAttachments.split`); other clients show it as
+text. Limits: 10 files of 50 MB per message (the room's text cap is 64 KiB).
 
 ## 13. Files from bots: `MEDIA:` tags (M3)
 

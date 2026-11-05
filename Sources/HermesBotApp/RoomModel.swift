@@ -23,6 +23,8 @@ final class RoomModel: ObservableObject, Identifiable {
     @Published private(set) var notes: [String] = []
     @Published private(set) var lastSync: Date?
     @Published private(set) var busyActions: Set<String> = []
+    /// Files picked, pasted or dropped for the next message (copied into the room's folder on send).
+    @Published var pending: [PendingAttachment] = []
     let api: GroupsAPI
     /// Evidence hook: every applied sync (new events since the previous one).
     var onSync: ((RoomModel, [RoomEvent]) -> Void)?
@@ -102,6 +104,7 @@ final class RoomModel: ObservableObject, Identifiable {
 
     private func markDisbanded() {
         guard !disbanded else { return }
+        RoomAttachmentStore.remove(room: room.roomId)
         composer.close()
         poller.stop()
         onDisbanded?(self)
@@ -119,7 +122,30 @@ final class RoomModel: ObservableObject, Identifiable {
     /// (draft kept, nothing sent) while a send is in flight or once the room is closing/disbanded —
     /// whichever path called it (Return, button, script).
     func send(_ draft: String) -> Bool {
-        guard let text = composer.beginSend(draft) else { return false }
+        let chips = pending.filter(\.isReady)
+        guard chips.count <= RoomAttachments.maxFiles else {
+            note("at most \(RoomAttachments.maxFiles) files per message, message not posted")
+            return false
+        }
+        guard composer.canSend, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chips.isEmpty else { return false }
+        var copies: [URL] = []
+        for chip in chips {
+            guard let checked = chip.checked else { continue }
+            do {
+                copies.append(try RoomAttachmentStore.copy(checked, room: room.roomId))
+            } catch {
+                RoomAttachmentStore.discard(copies)
+                if let i = pending.firstIndex(where: { $0.id == chip.id }) { pending[i].state = .failed(Redaction.describe(error)) }
+                return false
+            }
+        }
+        guard let text = composer.beginSend(RoomAttachments.compose(text: draft, paths: copies.map(\.path))) else {
+            RoomAttachmentStore.discard(copies)
+            return false
+        }
+        let sentIds = Set(chips.map(\.id))
+        PasteboardAttachments.delete(chips.map(\.url))  // pasted images now live as room copies
+        pending.removeAll { sentIds.contains($0.id) }
         let eventId = "hba-msg-\(UUID().uuidString.lowercased())"
         Task {
             do {
@@ -127,6 +153,7 @@ final class RoomModel: ObservableObject, Identifiable {
                 AppModel.shared.log("groups.send → seq=\(e.seq) (ACK only; replies arrive through polling)")
             } catch {
                 note("send failed, message not posted: \(Redaction.describe(error))")
+                RoomAttachmentStore.discard(copies)
             }
             composer.finishSend()
             nudge()
@@ -187,5 +214,26 @@ final class RoomModel: ObservableObject, Identifiable {
             busyActions.remove(key)
             nudge()
         }
+    }
+}
+
+// MARK: - attachments
+
+extension RoomModel {
+    /// Adds files (paperclip, drop, paste) as chips; refused files show their reason on the chip.
+    func addAttachments(_ urls: [URL]) {
+        guard composer.isOpen else { return }
+        for url in urls where url.isFileURL {
+            let key = url.standardizedFileURL.resolvingSymlinksInPath().path
+            guard !pending.contains(where: { $0.key == key && !$0.isFailed }) else { continue }
+            pending.removeAll { $0.key == key && $0.isFailed }
+            pending.append(PendingAttachment(url: url, key: key, check: { try RoomAttachments.check($0) }))
+        }
+    }
+
+    func removeAttachment(_ id: UUID) {
+        guard let i = pending.firstIndex(where: { $0.id == id }) else { return }
+        let chip = pending.remove(at: i)
+        PasteboardAttachments.delete([chip.url])
     }
 }

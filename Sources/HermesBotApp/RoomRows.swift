@@ -133,17 +133,26 @@ struct UserBubble: View {
     let text: String
     let time: Double
     var mentionHandles: Set<String> = []
+    /// Files sent with the message (Group Chat `RoomAttachments`), under its text.
+    var attachments: [MediaRef] = []
 
     var body: some View {
         HStack {
             Spacer(minLength: DS.Size.userBubbleInset)
             VStack(alignment: .trailing, spacing: DS.Space.s0) {
-                Text(Self.mentions(text, handles: mentionHandles))
-                    .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
-                    .tint(DS.Palette.link)
-                    .lineSpacing(DS.Typeface.proseLineSpacing)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !text.isEmpty {
+                    Text(Self.mentions(text, handles: mentionHandles))
+                        .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
+                        .tint(DS.Palette.link)
+                        .lineSpacing(DS.Typeface.proseLineSpacing)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !attachments.isEmpty {
+                    MediaAttachmentList(refs: attachments)
+                        .padding(.top, text.isEmpty ? 0 : DS.Space.s2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if time > 0 { TimeLabel(time: time) }
             }
             .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.s2)
@@ -154,7 +163,7 @@ struct UserBubble: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("You: \(text)")
+        .accessibilityLabel("You: \(text)" + (attachments.isEmpty ? "" : ", \(attachments.count) attached file\(attachments.count == 1 ? "" : "s")"))
     }
 
     /// The user's text with its http(s) links clickable (blue, underlined) and @mentions of real members (and

@@ -49,8 +49,10 @@ All notable changes to this project are documented here. The format follows
   no longer left behind.
 - Bot Chats are no longer deleted when you quit: the chat is the bot's one continuous conversation, and quitting
   only disconnects. This replaces the earlier behavior of deleting 1:1 chats on quit.
-- Group Chat stays text-only for your own messages: the Hermes backend's group rooms accept only text, so you
-  cannot attach files there (bots can still send you files).
+- Attachments in Group Chat: the backend's rooms take text only, so attached files (paperclip, ⌘V, drag and
+  drop; up to 10 files of 50 MB) are copied to the app's Application Support folder and the message names the
+  copies, which the room's bots open with their file tools. The app shows them as attachments; the copies are
+  deleted when the room is disbanded.
 - Bot monograms are unique among visible bots (for example "reviewer" and "researcher" no longer both show
   "RE").
 - Avatars that failed to load are retried after reconnecting.

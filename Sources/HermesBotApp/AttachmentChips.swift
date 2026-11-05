@@ -182,3 +182,66 @@ struct AttachmentChip: View {
         .accessibilityLabel(item.accessibilityLabel)
     }
 }
+
+// MARK: - shared composer plumbing (Bot Chat and Group Chat)
+
+/// ⌘V while a composer field is focused and the pasteboard holds files or an image: attach them instead of
+/// pasting their names. Anything else (text) pastes normally. One per composer; `install` is idempotent.
+@MainActor final class AttachmentPasteMonitor {
+    private var monitor: Any?
+    /// The composer's focus, readable from the AppKit monitor (which outlives one view value).
+    var focused = false
+
+    func install(canAttach: @escaping @MainActor () -> Bool, attach: @escaping @MainActor ([URL]) -> Void) {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let isPaste = event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+                && event.charactersIgnoringModifiers == "v"
+            guard isPaste else { return event }
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard self?.focused == true, canAttach() else { return false }
+                let urls = PasteboardAttachments.urls(from: .general)
+                guard !urls.isEmpty else { return false }
+                attach(urls)
+                return true
+            }
+            return handled ? nil : event
+        }
+    }
+
+    func remove() {
+        if let m = monitor { NSEvent.removeMonitor(m) }
+        monitor = nil
+    }
+}
+
+/// The multi-file picker behind a composer's paperclip.
+@MainActor func pickAttachments(message: String, attach: @escaping @MainActor ([URL]) -> Void) {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = true
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.prompt = "Attach"
+    panel.message = message
+    panel.begin { response in
+        guard response == .OK else { return }
+        let urls = panel.urls
+        MainActor.assumeIsolated { attach(urls) }
+    }
+}
+
+/// Dashed ring over a pane while files are dragged over it.
+struct DropHighlight: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+            .strokeBorder(DS.Palette.ring, style: StrokeStyle(lineWidth: DS.Stroke.keyboardFocus, dash: [DS.Space.s2, DS.Space.s1]))
+            .background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay {
+                Label("Drop files to attach", systemImage: "paperclip")
+                    .font(DS.Typeface.bodyStrong).foregroundStyle(DS.Palette.ink)
+            }
+            .padding(DS.Space.s2)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
