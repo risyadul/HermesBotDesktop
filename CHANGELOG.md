@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Group Chat Activity panel (⌥⌘I): what each bot in the room is doing right now, its recent tool calls with
+  arguments and results, its reasoning and errors. The detailed view uses the open-source Bot Activity Hermes
+  plugin; without it the panel shows each bot's turn status and offers to install it (pinned commit, enabled for
+  every bot), and it can be turned off again from the panel.
+- Kanban: a Boards section in the sidebar with your Hermes Kanban boards. See the columns and cards, open a card
+  for its description, summary, dependencies, comments and worker log, and create, move, assign, prioritize,
+  comment on and archive cards. The board shows whether the Kanban dispatcher (`hermes gateway`) is running and
+  can start it.
+- Settings → Keep Hermes running in the background: an opt-in LaunchAgent keeps `hermes serve` running after you
+  quit, so Group Chat rounds and routines continue; the app attaches to it on launch.
 - Bot Chat is now the same chat Hermes Desktop uses for that bot: opening it continues the existing history
   instead of starting a new conversation, and bots can message other bots from it. If the app cannot confirm
   whether the chat exists, it does not start a new one. If the chat is running in another Hermes app, the app

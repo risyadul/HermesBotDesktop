@@ -36,6 +36,12 @@ Sources/HermesGatewayKit/   reusable: HostRendezvous (attach discovery), Backend
   ServerRequests.swift        server->client requests (approval, clarify, sudo, secret): frames, answers, cancel
   SlashCommands.swift         commands.catalog (curated like Desktop) + invocation classification
   ToolActivity.swift          tool.start/progress/complete payloads
+  PluginREST.swift            /api/plugins/<name>/ REST client (session token header, loopback, no redirects)
+  KanbanAPI.swift             kanban plugin calls (always ?board=); KanbanModels.swift: lenient models
+  BotActivityAPI.swift        bot-activity plugin calls + install/enable/remove via plugins.manage (pinned ref);
+                              BotActivityFeed.swift: paging merge, cursor, member phases
+  BackgroundServe.swift       opt-in LaunchAgent keeping `hermes serve` running (plist, launchctl)
+  GatewayStatus.swift         kanban dispatcher (`hermes gateway`) state + start; CommandRunner.swift: no-shell runner
 Sources/BotChatHarness/     CLI: attach/spawn → profiles.list → one streamed 1:1 turn → cleanup
 Sources/SpikeHarness/       CLI: the M0 groups.* round trip (isolated home): RoundTrip, GroupsAPI+Spike
                             (M0-only raw calls: profiles, create, disband, Member)
@@ -59,6 +65,9 @@ Sources/HermesBotApp/       SwiftUI app:
   RoomModel.swift             SidebarItem, RoomModel (polling, send gate, room actions)
   RoomView.swift              Group Chat pane; RoomRows.swift (ribbon, timeline rows),
                               RoomActionViews.swift (approval/retry cards, @mentions), CreateRoomView.swift
+  RoomActivityModel.swift     per-room Activity inspector state: bot-activity polling, plugin enable/remove;
+                              RoomActivityPresentation.swift (rows, chips, turn-state fallback),
+                              RoomActivityPanel.swift (panel, enable sheet)
   RoomPresentation, Identity, Components, DesignSystem, MotionSheet, ConnectFlow: shared view logic
   EvidenceDriver.swift        scripted runs + window snapshots, #if DEBUG only (see below)
 Tests/HermesGatewayKitTests/ ChatTranscript rules, token-leak regressions, GroupChat logic + groups.* wire

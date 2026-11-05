@@ -30,14 +30,21 @@ the gateway WebSocket (JSON-RPC) and does not reimplement any agent behavior.
 
 - **It uses your real Hermes install (`~/.hermes`).** If a Hermes backend is already running (for example the
   Hermes desktop app), this app attaches to it. Otherwise it starts its own `hermes serve` on `~/.hermes` and
-  stops it when you quit. A backend it attached to is never stopped.
+  stops it when you quit. A backend it attached to is never stopped. To keep rooms and routines running after
+  you quit, turn on **Keep Hermes running in the background** in Settings (see
+  [Keeping Hermes running](#keeping-hermes-running)).
 - **Bot Chat is the same chat Hermes Desktop uses for that bot.** Opening a bot continues its existing
   history; the app never deletes it. Quitting only disconnects. If the app cannot confirm whether the chat
   exists, it does not start a new one. If the chat is running in another Hermes app (error 4090), the app
   says so; open it in that app.
 - **Group Chat rooms are separate from the Hermes desktop app's group chats.** Rooms here are the backend's
   hosted rooms (`groups.*`); group chats you made in the Electron app will not show up, and vice versa.
-- **It does not change your profiles or bot config.** Bots are your existing Hermes profiles.
+- **It does not change your profiles or bot config**, with one opt-in exception: if you turn on activity
+  tracking in a Group Chat, the app installs the open-source
+  [Bot Activity](https://github.com/risyadul/hermes-bot-activity) plugin (a pinned commit) into Hermes and
+  enables it for every bot. You can turn it off again from the same panel. Bots are your existing Hermes profiles.
+- **Kanban edits are real.** Cards you create, move, assign or archive in the Kanban view change your Hermes
+  Kanban board, the same one Hermes Desktop and the `hermes kanban` CLI use.
 - **It only connects to backends on loopback** (`127.0.0.1`, `::1`, `localhost`); a backend record pointing
   elsewhere is rejected.
 - Setting `HERMES_HOME` does **not** isolate the app today; it always uses `~/.hermes`.
@@ -111,6 +118,35 @@ have **not been tested** with this app yet.
   `~/Library/Application Support/HermesBotApp/Room Attachments/<room>/` and the message names the copies'
   paths; the room's bots open them with their file tools. This app shows them as attachments; Hermes Desktop
   shows the paths as text. The copies are deleted when you disband the room.
+
+## Group Chat activity
+
+Bots in a Group Chat work in hidden sessions, so the room itself only shows when each bot starts, replies or
+passes. The **Activity** panel (toolbar button, ⌥⌘I) shows, per bot, what it is doing right now: the tool it
+is running and for how long, its recent tool calls with arguments and results, its reasoning, and errors.
+
+The detailed view needs the [Bot Activity](https://github.com/risyadul/hermes-bot-activity) Hermes plugin,
+because Hermes hands those events only to plugins. If it is not installed, the panel shows each bot's turn
+status and an **Enable Tracking…** button that installs a pinned commit of the plugin and enables it
+for every bot (or turns on a copy that is installed but disabled). **Turn Off Activity Tracking…** in the panel's … menu removes it.
+
+## Kanban
+
+The **Boards** section in the sidebar shows your Hermes Kanban boards (the built-in `kanban` plugin). You can
+see the columns and cards, open a card for its description, summary, dependencies, comments and worker log,
+and create, move, assign, prioritize, comment on and archive cards.
+
+Cards are worked on by the Kanban dispatcher, which runs inside `hermes gateway`, not inside this app. The
+board header shows whether it is running. If it is installed but stopped, **Start** runs `hermes gateway
+start`; if it is not installed, run `hermes gateway install` once.
+
+## Keeping Hermes running
+
+When this app starts its own backend, quitting the app stops it, and with it any Group Chat round in progress
+and the scheduler for routines. **Settings → Keep Hermes running in the background** installs a per-user
+LaunchAgent (`~/Library/LaunchAgents/io.github.risyadul.hermesbot.serve.plist`) that starts `hermes serve` at
+login and restarts it if it crashes; the app then attaches to it. Turning the setting off unloads and deletes
+the LaunchAgent. It is off by default.
 
 ## Configuration
 
