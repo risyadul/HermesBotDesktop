@@ -19,6 +19,8 @@ final class AppModel: ObservableObject {
     /// `groups.capabilities` answered at connect. False on an older Hermes Agent without `groups.*`:
     /// Group Chat is off (no "+", a notice), Bot Chat still works.
     @Published private(set) var groupsAvailable = true
+    /// Kanban boards, board models and the dispatcher status of the current connection (KanbanHub.swift).
+    let kanban = KanbanHub()
     var selectedBot: String? { if case .bot(let n)? = selection { return n }; return nil }
     private(set) var backend: Backend?
     private var disconnectToken: UUID?
@@ -106,6 +108,7 @@ final class AppModel: ObservableObject {
             if groupsAvailable { await loadRooms() }
             guard backend === b else { return }
             phase = .connected
+            kanban.connect(api: b.sessionREST.map { KanbanAPI(access: $0) }, gateway: GatewayStatus())
 #if DEBUG
             autochat()
             autoroom()
@@ -137,6 +140,7 @@ final class AppModel: ObservableObject {
         activityModels = [:]
         for c in chats.values { c.close() }
         chats = [:]
+        kanban.disconnect()
         rooms = []
         bots = []
         modeText = ""
@@ -231,6 +235,7 @@ final class AppModel: ObservableObject {
         if let b = backend { unsubscribeDisconnect(b) }  // our own close is not a lost connection
         for m in roomModels.values { m.shutdown() }
         for m in activityModels.values { m.shutdown() }
+        kanban.disconnect()
 #if DEBUG
         await disbandCreatedRooms()
 #endif

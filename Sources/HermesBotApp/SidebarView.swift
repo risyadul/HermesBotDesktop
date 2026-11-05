@@ -9,7 +9,9 @@ struct SidebarView: View {
     @FocusState private var focused: Bool
     @Environment(\.motionEnabled) private var motion
 
-    private var order: [SidebarItem] { model.rooms.map { .room($0.roomId) } + model.bots.map { .bot($0.name) } }
+    private var order: [SidebarItem] {
+        model.rooms.map { .room($0.roomId) } + model.bots.map { .bot($0.name) } + model.kanban.rows.map { .board($0.slug) }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +42,10 @@ struct SidebarView: View {
                     }
                     ForEach(model.bots) { bot in
                         row(.bot(bot.name)) { botRow(bot) }
+                    }
+                    sectionHeader("Boards") { EmptyView() }
+                    KanbanSidebarRows(hub: model.kanban, connected: model.phase.isConnected) { board in
+                        row(.board(board.slug)) { KanbanBoardRowContent(row: board) }
                     }
                 }
                 .padding(.horizontal, DS.Space.s2).padding(.bottom, DS.Space.s3)
@@ -151,7 +157,7 @@ struct SidebarView: View {
         return t
     }
 
-    /// Up/down arrows move the selection through rooms then bots (the sidebar is focusable).
+    /// Up/down arrows move the selection through rooms, bots, then boards (the sidebar is focusable).
     private func move(_ direction: MoveCommandDirection) {
         let items = order
         guard !items.isEmpty else { return }

@@ -10,10 +10,12 @@ All notable changes to this project are documented here. The format follows
   arguments and results, its reasoning and errors. The detailed view uses the open-source Bot Activity Hermes
   plugin; without it the panel shows each bot's turn status and offers to install it (pinned commit, enabled for
   every bot), and it can be turned off again from the panel.
-- Kanban: a Boards section in the sidebar with your Hermes Kanban boards. See the columns and cards, open a card
-  for its description, summary, dependencies, comments and worker log, and create, move, assign, prioritize,
-  comment on and archive cards. The board shows whether the Kanban dispatcher (`hermes gateway`) is running and
-  can start it.
+- Kanban boards in the sidebar (Boards section, with running and blocked counts). A board shows its lanes and
+  cards, refreshes every few seconds while open, and switches between boards. Cards open into a details
+  panel (description, latest summary, dependencies, comments, runs, worker log); drag a card to another lane,
+  or use its menu to assign it, set its priority, archive it, or copy its id. New Task creates a card. The
+  board header says whether the kanban dispatcher (`hermes gateway`) is running, starts it when it is
+  installed, and shows the install command when it is not.
 - Settings → Keep Hermes running in the background: an opt-in LaunchAgent keeps `hermes serve` running after you
   quit, so Group Chat rounds and routines continue; the app attaches to it on launch.
 - Bot Chat is now the same chat Hermes Desktop uses for that bot: opening it continues the existing history

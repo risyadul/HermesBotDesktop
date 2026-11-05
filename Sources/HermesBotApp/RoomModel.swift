@@ -11,6 +11,8 @@ import SwiftUI
 enum SidebarItem: Hashable {
     case bot(String)
     case room(String)
+    /// A kanban board, by slug (KanbanBoardView).
+    case board(String)
 }
 
 @MainActor
