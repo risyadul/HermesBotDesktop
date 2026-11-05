@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Bot Chat (B1, B5, B6, B12, B13, B15):
+  - **@mention other bots** with autocomplete (the roster, never the bot itself). A prompt that tags bots gets
+    Hermes Desktop's identification note for the model, which contacts them with its `message_agent` tool; the
+    app never forwards the text itself. The note is hidden again when the history loads.
+  - **Times on hover** next to Copy, and the **turn duration** under a reply watched from its start.
+  - **Scroll-to-bottom button** with a count of new messages while scrolled up; new output no longer pulls the
+    view down while you read.
+  - **Prompt history** with ↑/↓ at the start/end of the composer (per bot, from the chat's own messages) and
+    **per-bot drafts** kept across launches (size-capped).
+  - **Find in chat (⌘F)**: match count, previous/next (⇧⌘G/⌘G), highlights, Esc closes.
+  - **Export Conversation (⇧⌘E)** to Markdown, with tool summaries; tool arguments, results and reasoning
+    left out, tokens masked.
 - First-run setup screens (E2) instead of a bare error: **Install Hermes Agent** when no `hermes` is found
   (docs link, the `HERMES_BOT_APP_HERMES_BIN` override with a Copy button, the places checked, Try Again);
   **Choose a model for Hermes** when the backend answers but `setup.runtime_check` (read-only) says no model can
