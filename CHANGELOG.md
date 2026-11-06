@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-06
+
+First public release of Herald.
+
 ### Highlights
 - **Bot Chat is shared with Hermes Desktop:** the same chat, history kept, never deleted on quit.
 - **Manage bots without the CLI:** New Bot, Edit (avatar, model, skills, MCP servers, SOUL), Duplicate, Delete.
@@ -262,3 +266,6 @@ Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes
 - Room listing stops if the backend does not advance its paging offset.
 - Calls after the connection closed fail cleanly and release the WebSocket; missing `profiles` / `rooms` keys
   are logged.
+
+[Unreleased]: https://github.com/risyadul/HermesBotDesktop/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/risyadul/HermesBotDesktop/releases/tag/v0.1.0
