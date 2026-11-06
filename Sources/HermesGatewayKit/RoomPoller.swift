@@ -85,7 +85,9 @@ public final class RoomPoller {
             guard isCurrent(gen) else { droppedStale += 1; return false }
             guard t.cursor >= timeline.cursor else { droppedStale += 1; return true }
             timeline = t; state = s; appliedCount += 1
-            onUpdate?(Update(timeline: t, state: s, newEvents: t.events.filter { $0.seq > base.cursor }))
+            // Applied events are in seq order; only the newly appended suffix can be above this cursor.
+            let newEvents = Array(t.events.reversed().prefix { $0.seq > base.cursor }.reversed())
+            onUpdate?(Update(timeline: t, state: s, newEvents: newEvents))
         } catch {
             guard isCurrent(gen) else { droppedStale += 1; return false }
             onError?(error)

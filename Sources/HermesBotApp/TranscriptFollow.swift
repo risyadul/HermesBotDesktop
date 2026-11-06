@@ -1,3 +1,4 @@
+import AppKit
 import HermesGatewayKit
 import SwiftUI
 
@@ -11,36 +12,64 @@ struct TranscriptFollow: Equatable {
     static let slack: CGFloat = 48
 
     private(set) var following = true
-    private var lastTop: CGFloat?
+    private var last: Geometry?
+
+    private struct Geometry: Equatable {
+        let top: CGFloat
+        let height: CGFloat
+        let viewport: CGFloat
+        let width: CGFloat
+    }
 
     /// Distance from the viewport's bottom to the end of the content.
     static func distance(bottom: CGFloat, viewport: CGFloat) -> CGFloat { max(0, bottom - viewport) }
 
     /// Returns true when `following` changed.
     @discardableResult
-    mutating func update(top: CGFloat, bottom: CGFloat, viewport: CGFloat) -> Bool {
+    mutating func update(top: CGFloat, bottom: CGFloat, viewport: CGFloat, width: CGFloat = 0,
+                         userScrolling: Bool = false, allowResume: Bool = true) -> Bool {
         let before = following
-        let scrolledUp = lastTop.map { top > $0 + 0.5 } ?? false
-        lastTop = top
+        let current = Geometry(top: top, height: bottom - top, viewport: viewport, width: width)
+        let layoutChanged = last.map {
+            abs(current.height - $0.height) > 0.5 || abs(viewport - $0.viewport) > 0.5 || abs(width - $0.width) > 0.5
+        } ?? false
+        let scrolledUp = last.map { top > $0.top + 0.5 } ?? false
+        last = current
+        // A sidebar slide, expanding row or lazy height correction can move the content's top without
+        // any user scroll. Native live-scroll notifications disambiguate a gesture that also realises rows.
+        let scrollMoved = userScrolling || !layoutChanged
         if Self.distance(bottom: bottom, viewport: viewport) <= Self.slack {
-            following = true
-        } else if scrolledUp {
+            if following || allowResume { following = true }
+        } else if scrolledUp && scrollMoved {
             following = false
         }
         return following != before
     }
 
     /// Jump to bottom / the user sent a message: follow again.
-    mutating func resume() { following = true }
+    mutating func resume() { following = true; last = nil }
+    /// A native scroll gesture starts before SwiftUI delivers the resulting geometry.
+    mutating func pause() { following = false; last = nil }
 }
 
 /// B6: messages that arrived while the user was scrolled up (their own messages, replies, errors), counted
 /// once each, by line id. Zero again once the transcript follows. Unit tested (TranscriptFollowTests).
 struct UnreadCounter: Equatable {
     private var seen: Set<UUID> = []
+    private var historySeeded = false
     private(set) var count = 0
 
     static func counts(_ line: ChatLine) -> Bool { line.role == .user || line.role == .bot || line.role == .error }
+
+    /// Loading persisted history is not a batch of new arrivals. Explicitly seed once at the first
+    /// ready presentation, even if native layout temporarily reported that following was paused.
+    @discardableResult
+    mutating func seedHistoryIfNeeded(_ lines: [ChatLine]) -> Bool {
+        guard !historySeeded else { return false }
+        historySeeded = true
+        update(lines, following: true)
+        return true
+    }
 
     mutating func update(_ lines: [ChatLine], following: Bool) {
         let ids = lines.filter(Self.counts).map(\.id)
@@ -53,19 +82,27 @@ struct UnreadCounter: Equatable {
     }
 }
 
-/// Scroll geometry for one Bot Chat view, kept in a reference so a scroll tick does not re-render the
-/// transcript: the view publishes only `following` changes.
+/// Per-viewport follow intent and commands owned by the native transcript coordinator. The reference
+/// stays outside row state so scrolling does not invalidate the transcript or another window.
 @MainActor final class TranscriptScrollTracker {
     var follow = TranscriptFollow()
-    var edges = TranscriptEdges()
-    var viewport: CGFloat = 0
+    var viewport: CGSize = .zero
+    var userScrolling = false
+    var nativeAttached = false
+    var scrollToLatest: (() -> Void)?
+    var scrollToID: ((AnyHashable, UnitPoint) -> Void)?
 }
 
-/// The transcript content's top and bottom edges in the scroll view's coordinate space (`space`).
-struct TranscriptEdges: Equatable, Sendable {
-    static let space = "hba.transcript"
-    var top: CGFloat = 0
-    var bottom: CGFloat = 0
+/// Group Chat counts only message rows, so polling status events does not inflate the unread badge.
+struct RoomUnreadCounter: Equatable {
+    private var seen: Set<Int> = []
+    private(set) var count = 0
+
+    mutating func update(_ rows: [RoomRow], following: Bool) {
+        let ids = rows.filter(\.isMessage).map(\.id)
+        if following { seen = Set(ids); count = 0 }
+        else { count = ids.filter { !seen.contains($0) }.count }
+    }
 }
 
 /// B6: the floating "jump to bottom" control (Desktop `scroll-to-bottom-button.tsx`): centred above the

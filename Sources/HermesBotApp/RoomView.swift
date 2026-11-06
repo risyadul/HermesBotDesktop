@@ -31,6 +31,11 @@ struct RoomView: View {
     @State private var dropTargeted = false
     /// This view as one of the room's viewers (D9: the room can show in two windows).
     @State private var viewer = PaneViewer()
+    /// Geometry stays in a reference: scrolling publishes only changes to the follow state.
+    @State private var scroll = TranscriptScrollTracker()
+    @State private var following = true
+    @State private var unread = RoomUnreadCounter()
+    @State private var followRequest = 0
     /// Persisted Activity panel visibility, bound through a @State copy as in BotChatView (an @AppStorage
     /// write reaches the view outside the toggle's transaction, so the no-animation path still slid it).
     @AppStorage("hba.roomActivity") private var storedActivity = false
@@ -43,7 +48,7 @@ struct RoomView: View {
         _memory = StateObject(wrappedValue: RoomMotionMemory.of(model.id))
     }
 
-    private var rows: [RoomRow] { RoomPresentation.rows(lines: model.lines, events: model.timeline.events) }
+    private var rows: [RoomRow] { model.presentation.rows }
 
     /// The inspector column holds the open thread, else the Activity panel when that is on.
     private var inspectorShown: Binding<Bool> {
@@ -56,7 +61,7 @@ struct RoomView: View {
         if motion { change() } else { withDSAnimation(false) { change() } }
     }
     private var memberStates: [String: RoomPresentation.MemberState] {
-        RoomPresentation.memberStates(room: model.room, timeline: model.timeline, driver: model.driver)
+        model.memberStates
     }
     /// C1.8: "N of M available" (bots that still exist and whose last turn did not fail).
     private var availability: RoomAvailability {
@@ -193,39 +198,56 @@ struct RoomView: View {
     // MARK: timeline
 
     private func timeline(_ rows: [RoomRow], actions: [RoomPendingAction]) -> some View {
-        let threads = Dictionary(model.timeline.threads.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        func timelineRow(_ row: RoomRow) -> some View { self.timelineRow(row, threads: threads) }
-        return ScrollViewReader { proxy in
-            ScrollView {
-                // Older rows lazy, the rows seen on open laid out eagerly (EagerTail: why not all of one kind).
-                let tail = EagerTail.start(of: rows) { $0.approximateLines }
-                VStack(alignment: .leading, spacing: DS.Space.timeline) {
-                    LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
-                        ForEach(rows[..<tail]) { row in timelineRow(row) }
-                    }
-                    ForEach(rows[tail...]) { row in timelineRow(row) }
-                    ForEach(actions) { action in
-                        ActionCard(model: model, action: action, memory: memory, identity: identity)
-                            .id(action.id)
-                            .transition(motion ? .arrive(from: .bottomLeading) : .identity)
-                    }
+        let presentation = model.presentation
+        let data = RoomTimelineRows(messages: rows, actions: actions)
+        return TranscriptTable(items: data, revision: UUID(),
+                               structureRevision: RoomTimelineRows.Structure(snapshot: ObjectIdentifier(presentation), actions: actions.map(\.id)),
+                               tracker: scroll, onFollowChange: { value in
+            if following != value {
+                following = value
+                unread.update(model.presentation.rows, following: value)
+            }
+        }, sameContent: ==) { item in
+            Group {
+                switch item {
+                case .message(let row): timelineRow(row, threads: presentation.threads)
+                case .action(let action): ActionCard(model: model, action: action, memory: memory, identity: identity)
                 }
-                .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.s4).padding(.bottom, DS.Space.s3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(motion && memory.baseline != nil ? DS.Motion.spring : nil, value: rows.map(\.id))
-                .animation(motion && memory.baseline != nil ? DS.Motion.spring : nil, value: rows.last.map(passCount))
-                .animation(motion ? DS.Motion.ease : nil, value: actions.map(\.id))
             }
-            .defaultScrollAnchor(.bottom)
-            .messageJumpTarget(.room(model.id), proxy: proxy)  // D10: Search Messages → this message
-            .onChange(of: model.timeline.cursor) { _, _ in
-                guard let id = model.lines.last?.id else { return }
-                withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(id, anchor: .bottom) }
+            .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.timeline)
+            .padding(.bottom, item.id == data.last?.id ? DS.Space.s3 : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .environment(\.motionEnabled, motion)
+        }
+        .messageJumpTarget(.room(model.id), beforeJump: {
+            scroll.follow.pause()
+            following = false
+        }) { anchor in
+            if case .roomSeq(let seq) = anchor { scroll.scrollToID?(AnyHashable(seq), .center) }
+        }
+        .onAppear { unread.update(rows, following: following) }
+        .onChange(of: rows.last(where: \.isMessage)?.id) { _, _ in
+            unread.update(rows, following: following)
+            if following { scrollRoomToEnd() }
+        }
+        .onChange(of: actions.last?.id) { _, id in
+            if id != nil, following { scrollRoomToEnd() }
+        }
+        .onChange(of: followRequest) { _, _ in scrollRoomToEnd() }
+        .overlay(alignment: .bottom) {
+            if !following {
+                ScrollToBottomButton(unread: unread.count) { scrollRoomToEnd(animated: true) }
+                    .padding(.bottom, DS.Space.s3)
             }
-            .onChange(of: actions.map(\.id)) { _, ids in
-                guard let id = ids.last else { return }
-                withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(id, anchor: .bottom) }
-            }
+        }
+    }
+
+    private func scrollRoomToEnd(animated: Bool = false) {
+        scroll.follow.resume()
+        following = true
+        unread.update(model.presentation.rows, following: true)
+        withDSAnimation(motion && animated, DS.Motion.ease) {
+            scroll.scrollToLatest?()
         }
     }
 
@@ -254,11 +276,6 @@ struct RoomView: View {
         inspectorChange { model.showThread(thread) }
     }
 
-    private func passCount(_ row: RoomRow) -> Int {
-        if case .passes(let p) = row.kind { return p.count }
-        return 0
-    }
-
     /// Only rows after the baseline (first data this room showed) animate in; history never does.
     private func transition(for row: RoomRow) -> AnyTransition {
         guard motion, memory.isNew(row.id) else { return .identity }
@@ -280,7 +297,7 @@ struct RoomView: View {
                 .messageActions(messageActions(row, memberId: nil, inThreadPane: inThreadPane), alignment: .topTrailing)
         case .member(let memberId, let author, let text):
             MemberMessage(identity: identity(memberId, title: author), author: author, time: row.time) {
-                MessageBody(text: text, mentions: Set(model.room.members.map(\.handle))).equatable()
+                MessageBody(text: text, mentions: Set(model.room.members.map(\.handle)), renderIdentity: "room-\(model.id)-\(row.id)").equatable()
             }
             .messageActions(messageActions(row, memberId: memberId, inThreadPane: inThreadPane), alignment: .topTrailing)
         case .passes(let passes):
@@ -359,19 +376,13 @@ struct RoomView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
-            ComposerBox(placeholder: "Message \(model.room.name). Start with @handle to address one bot",
-                        draft: mainDraft,
-                        canSend: canSend,
-                        onSend: send, focus: $composerFocused,
-                        onTab: { MentionSuggestions.acceptFirst(&mainDraft.wrappedValue, members: model.room.members) },
-                        onAttach: attachAction,
-                        attachments: model.pending,
-                        onRemoveAttachment: { model.removeAttachment($0) },
-                        dictation: model.composer.isOpen ? dictation : nil)
-                .overlay(alignment: .topLeading) {
-                    MentionSuggestions(draft: mainDraft, members: model.room.members, identity: { identity($0.memberId, title: $0.title) })
-                        .alignmentGuide(.top) { $0[.bottom] + DS.Space.s1 }
-                }
+            RoomDraftComposer(state: model.draftStates.state(for: RoomThreads.main),
+                              placeholder: "Message \(model.room.name). Start with @handle to address one bot",
+                              members: model.room.members, acceptsMessages: model.composer.canSend,
+                              identity: { identity($0.memberId, title: $0.title) }, focus: $composerFocused,
+                              onSend: send, onAttach: attachAction, attachments: model.pending,
+                              onRemoveAttachment: { model.removeAttachment($0) },
+                              dictation: model.composer.isOpen ? dictation : nil)
             HStack(spacing: DS.Space.s3) {
                 KeyHint(keys: "Return", label: "send")
                 KeyHint(keys: "@", label: "mention")
@@ -398,22 +409,15 @@ struct RoomView: View {
         return { pickFiles() }
     }
 
-    /// The room composer's draft (`main`), kept by the model.
-    private var mainDraft: Binding<String> {
-        Binding(get: { model.draft(RoomThreads.main) }, set: { model.setDraft($0, thread: RoomThreads.main) })
-    }
-
-    /// Text, or at least one ready attachment, and the room accepts messages.
-    private var canSend: Bool {
-        guard model.composer.canSend else { return false }
-        let hasText = !model.draft(RoomThreads.main).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return hasText || model.pending.contains(where: \.isReady)
-    }
-
     /// The model clears the draft only when it accepted it (a closing/disbanded room keeps it).
     private func send() {
         dictation.stop()  // B17
-        model.submit(thread: RoomThreads.main)
+        if model.submit(thread: RoomThreads.main) {
+            scroll.follow.resume()
+            following = true
+            unread.update(model.presentation.rows, following: true)
+            followRequest &+= 1
+        }
     }
 
     private func pickFiles() {

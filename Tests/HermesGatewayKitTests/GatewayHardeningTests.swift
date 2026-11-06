@@ -122,6 +122,8 @@ final class GatewayHardeningTests: XCTestCase {
 
     /// The socket fails between `call` reading the live task and registering its reply continuation:
     /// `failAll` has already drained `pending`, so the call must fail at once, not wait for its timeout.
+    // The deterministic race injection hook is intentionally absent from optimized production code.
+    #if DEBUG
     func testCallRacingDisconnectFailsAtOnce() async throws {
         let gw = try await FakeGateway.start()
         defer { gw.stop() }
@@ -134,6 +136,7 @@ final class GatewayHardeningTests: XCTestCase {
         catch GatewayClient.ClientError.closed(let reason) { XCTAssertEqual(reason, "client close") }
         XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the call waited for its timeout")
     }
+    #endif
 
     // MARK: - helpers
 

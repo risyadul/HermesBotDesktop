@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Parsing never fails a message: text the parser rejects, or a run without block intent, becomes a plain
 /// paragraph, so no text is lost.
-indirect enum MarkdownBlock: Equatable {
+indirect enum MarkdownBlock: Equatable, Sendable {
     case paragraph(AttributedString)
     case heading(level: Int, AttributedString)
     case code(language: String?, String)
@@ -33,23 +33,28 @@ indirect enum MarkdownBlock: Equatable {
 
     /// Parses `text`. Soft line breaks become real line breaks: chat replies use single newlines as
     /// line breaks (bullet-like "• " lines, addresses), as in Hermes Desktop.
-    static func parse(_ text: String) -> [MarkdownBlock] {
+    static func parse(_ text: String, cacheResult: Bool = true) -> [MarkdownBlock] {
         guard !text.isEmpty else { return [] }
         if let hit = cache.object(forKey: text as NSString) { return hit.blocks }
         let blocks = parseUncached(text)
-        cache.setObject(Parsed(blocks), forKey: text as NSString)
+        // Account for the source, its NSString key and the attributed block tree. This is an estimate,
+        // not an RSS guarantee; unlike an entry count alone it bounds retention of very large replies.
+        if cacheResult {
+            cache.setObject(Parsed(blocks), forKey: text as NSString, cost: text.utf8.count * 8)
+        }
         return blocks
     }
 
     /// Parsed messages by text: a lazy row recreated while scrolling does not parse its message again
     /// (a long reply takes tens of milliseconds on the main thread).
-    private final class Parsed {
+    private final class Parsed: Sendable {
         let blocks: [MarkdownBlock]
         init(_ blocks: [MarkdownBlock]) { self.blocks = blocks }
     }
     nonisolated(unsafe) private static let cache: NSCache<NSString, Parsed> = {
         let c = NSCache<NSString, Parsed>()
         c.countLimit = 256
+        c.totalCostLimit = 32 * 1024 * 1024
         return c
     }()
 
@@ -271,8 +276,8 @@ indirect enum MarkdownBlock: Equatable {
     }
 }
 
-struct MarkdownTable: Equatable {
-    enum Alignment: Equatable { case leading, center, trailing }
+struct MarkdownTable: Equatable, Sendable {
+    enum Alignment: Equatable, Sendable { case leading, center, trailing }
     let alignments: [Alignment]
     /// One entry per column (empty strings for a missing header cell).
     let header: [AttributedString]

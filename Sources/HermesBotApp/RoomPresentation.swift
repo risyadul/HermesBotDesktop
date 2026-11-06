@@ -45,9 +45,14 @@ enum RoomPresentation {
     /// of the event each line came from.
     static func rows(lines: [RoomLine], events: [RoomEvent]) -> [RoomRow] {
         let bySeq = Dictionary(events.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
+        return rows(lines: lines, eventsBySeq: bySeq)
+    }
+
+    /// A presentation snapshot already owns this lookup; reuse it for the timeline and opened threads.
+    static func rows(lines: [RoomLine], eventsBySeq: [Int: RoomEvent]) -> [RoomRow] {
         var out: [RoomRow] = []
         for line in lines {
-            let e = bySeq[line.id]
+            let e = eventsBySeq[line.id]
             let time = e?.createdAt ?? 0
             switch line.kind {
             case .user:

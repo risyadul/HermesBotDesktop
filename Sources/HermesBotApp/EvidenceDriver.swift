@@ -90,10 +90,14 @@ extension AppModel {
     }
 
     func turnEvent(_ type: String, _ chat: ChatModel) {
-        let t = Date().timeIntervalSince(started)
-        evidence.uiLog.append(["t": .number(t), "event": .string(type), "ui_bot_text_chars": .number(Double(chat.streamingText.count)),
+        guard evidence.evidenceDir != nil || evidence.autoQuit else { return }
+        if evidence.evidenceDir != nil {
+            let t = Date().timeIntervalSince(started)
+            let textCount = chat.streamingText.count
+            evidence.uiLog.append(["t": .number(t), "event": .string(type), "ui_bot_text_chars": .number(Double(textCount)),
                       "ui_delta_count": .number(Double(chat.deltaCount))])
-        log("ui \(type) → bubble chars=\(chat.streamingText.count) deltas=\(chat.deltaCount)")
+            log("ui \(type) → bubble chars=\(textCount) deltas=\(chat.deltaCount)")
+        }
         // Snapshot on the next runloop turn, after SwiftUI applied the change.
         if type == "message.delta" && chat.deltaCount == 1 { DispatchQueue.main.async { self.snapshot("2-streaming") } }
         if type == "message.complete" {
@@ -163,6 +167,7 @@ extension AppModel {
     }
 
     func roomSynced(_ m: RoomModel, _ new: [RoomEvent]) {
+        guard evidence.evidenceDir != nil || evidence.autoRoomState.sent else { return }
         let t = Date().timeIntervalSince(started)
         let d = m.driver
         evidence.uiLog.append(["t": .number(t), "event": "room.sync", "room_id": .string(m.room.roomId),

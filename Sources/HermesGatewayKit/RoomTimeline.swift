@@ -183,11 +183,23 @@ public struct RoomTimeline: Sendable, Equatable {
         }
         return order.map { id in
             let messages = byId[id] ?? []
-            let anchor = RoomThreads.anchorSeq(of: id).flatMap { seq in events.contains { $0.seq == seq } ? seq : nil }
+            let anchor = RoomThreads.anchorSeq(of: id).flatMap { seq in containsEvent(seq: seq) ? seq : nil }
             let title = RoomThreads.body(of: RoomAttachments.split(messages.first?.text ?? "").text)
             return RoomThreadSummary(id: id, anchorSeq: anchor, firstSeq: messages.first?.seq ?? 0,
                                      lastSeq: messages.last?.seq ?? 0, messageCount: messages.count, title: title)
         }
+    }
+
+    /// Applied events are monotonic by seq, including logs with a detected gap. Anchor lookup does not
+    /// need to allocate a set of every event or walk the history once for each thread.
+    private func containsEvent(seq: Int) -> Bool {
+        var lower = events.startIndex
+        var upper = events.endIndex
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if events[middle].seq < seq { lower = middle + 1 } else { upper = middle }
+        }
+        return lower < events.endIndex && events[lower].seq == seq
     }
 
     /// Rows for the UI. Member display names come from the roster when the event lacks one.

@@ -54,6 +54,10 @@ struct BotChatView: View {
             return true
         } isTargeted: { dropTargeted = $0 && chat.isReady }
         .task { chat.open() }
+        .onAppear { seedUnreadHistoryIfReady() }
+        .onChange(of: chat.phase) { _, phase in
+            if phase == .ready { seedUnreadHistoryIfReady() }
+        }
         .navigationTitle(chat.bot.title)
         .navigationSubtitle("@\(chat.bot.name)" + (chat.bot.model.map { " · \($0)" } ?? ""))
         .toolbar {
@@ -110,107 +114,102 @@ struct BotChatView: View {
         if find == nil { find = ChatFind() } else { findFocus += 1 }
     }
 
+    private func seedUnreadHistoryIfReady() {
+        guard chat.isReady, unread.seedHistoryIfNeeded(chat.lines) else { return }
+        scroll.follow.resume()
+        following = true
+    }
+
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // Older rows lazy, the ones seen on open laid out eagerly (EagerTail).
-                let items = TranscriptItem.build(chat.lines)
-                let tail = EagerTail.start(of: items) { $0.approximateLines }
-                let gaps = TranscriptItem.gaps(items)
-                let full = ChatCopy.fullResponses(chat.lines)
-                let changed = ChangedFiles.cards(chat.lines, busy: chat.busy)  // B16
-                VStack(alignment: .leading, spacing: 0) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(items[..<tail]) { item in
-                            transcriptRow(item, full: full, changed: changed).padding(.top, gaps[item.id] ?? 0)
-                        }
-                    }
-                    ForEach(items[tail...]) { item in
-                        transcriptRow(item, full: full, changed: changed).padding(.top, gaps[item.id] ?? 0)
-                    }
-                    ServerRequestCards(chat: chat, identity: identity)
-                        .padding(.top, chat.requests.isEmpty ? 0 : DS.Space.timeline)
-                }
-                .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.s4).padding(.bottom, DS.Space.s3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(motion ? DS.Motion.spring : nil, value: chat.lines.map(\.id))
-                .animation(motion ? DS.Motion.spring : nil, value: chat.requests.map(\.id))
-                .onGeometryChange(for: TranscriptEdges.self) { g in
-                    let f = g.frame(in: .named(TranscriptEdges.space))
-                    return TranscriptEdges(top: f.minY, bottom: f.maxY)
-                } action: { e in
-                    scroll.edges = e
-                    trackScroll()
-                }
+        let presentation = chat.presentation
+        let rows = BotTimelineRows(messages: presentation.items, requests: chat.requests)
+        return TranscriptTable(items: rows, revision: UUID(),
+                               structureRevision: rows.structure(history: presentation.history),
+                               tracker: scroll, onFollowChange: { value in
+            if following != value {
+                following = value
+                unread.update(chat.lines, following: value)
             }
-            .coordinateSpace(.named(TranscriptEdges.space))
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-                scroll.viewport = h
-                trackScroll()
+        }, sameContent: ==) { row in
+            tableRow(row, presentation: presentation)
+                .environmentObject(disclosure)
+                .environment(\.findQuery, find?.query ?? "")
+                .environment(\.motionEnabled, motion)
+        }
+        .opacity(transcriptSettled ? 1 : 0)
+        .onAppear { settle() }
+        .messageJumpTarget(.bot(chat.bot.name), beforeJump: {
+            scroll.follow.pause()
+            following = false
+        }) { anchor in
+            if case .chatLine(let id) = anchor { scroll.scrollToID?(AnyHashable(id), .center) }
+        }
+        .onChange(of: chat.lines.last?.text) { _, _ in
+            if following || chat.lines.last?.role == .user { scrollToEnd() }
+            if find != nil { find?.refresh(chat.lines) }
+        }
+        .onChange(of: chat.lines.last?.id) { _, _ in unread.update(chat.lines, following: following) }
+        .onChange(of: chat.lines.count) { _, _ in unread.update(chat.lines, following: following) }
+        .onChange(of: chat.requests.last?.id) { _, id in
+            if id != nil, following { scrollToEnd() }
+        }
+        .onChange(of: find?.currentMatch) { _, match in
+            guard let match else { return }
+            scroll.follow.pause()
+            following = false
+            scroll.scrollToID?(AnyHashable(match.lineId), .center)
+        }
+        .overlay(alignment: .bottom) {
+            if !following {
+                ScrollToBottomButton(unread: unread.count) { scrollToEnd(animated: true) }
+                    .padding(.bottom, DS.Space.s3)
             }
-            .defaultScrollAnchor(.bottom)
-            .environmentObject(disclosure)
-            .environment(\.findQuery, find?.query ?? "")
-            .opacity(transcriptSettled ? 1 : 0)
-            .onAppear { settle(proxy) }
-            .messageJumpTarget(.bot(chat.bot.name), proxy: proxy)  // D10: Search Messages → this message
-            .onChange(of: chat.lines.last?.text) { _, _ in
-                // B6: new output follows only while the user is at the bottom; their own new message always does.
-                if following || chat.lines.last?.role == .user { scrollToEnd(proxy) }
-                unread.update(chat.lines, following: following)
-                if find != nil { find?.refresh(chat.lines) }
-            }
-            .onChange(of: chat.requests.last?.id) { _, id in
-                if let id, following { proxy.scrollTo("request-\(id)", anchor: .bottom) }
-            }
-            .onChange(of: find?.currentMatch) { _, match in
-                guard let match else { return }
-                withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(match.lineId, anchor: .center) }
-            }
-            .overlay(alignment: .bottom) {
-                if !following {
-                    ScrollToBottomButton(unread: unread.count) { scrollToEnd(proxy, animated: true) }
-                        .padding(.bottom, DS.Space.s3)
-                        .transition(motion ? .scale(scale: DS.Motion.pressedScale).combined(with: .opacity) : .identity)
-                }
-            }
-            .animation(motion ? DS.Motion.ease : nil, value: following)
         }
     }
 
-    /// B6: the scroll view moved or its content changed size. Only a change of `following` reaches the view.
-    private func trackScroll() {
-        guard transcriptSettled, scroll.viewport > 0,
-              scroll.follow.update(top: scroll.edges.top, bottom: scroll.edges.bottom, viewport: scroll.viewport) else { return }
-        following = scroll.follow.following
-        unread.update(chat.lines, following: following)
+    @ViewBuilder private func tableRow(_ row: BotTimelineRow, presentation: BotTranscriptPresentation) -> some View {
+        Group {
+            switch row {
+            case .message(let item):
+                transcriptRow(item, full: presentation.fullResponses, changed: presentation.changedFiles)
+                    .padding(.top, presentation.gaps[item.id] ?? 0)
+            case .request(let request):
+                ServerRequestRow(chat: chat, identity: identity, request: request).padding(.top, DS.Space.timeline)
+            }
+        }
+        .padding(.horizontal, DS.Space.s5)
+        .padding(.top, row.id == presentation.items.first.map({ AnyHashable($0.id) }) ? DS.Space.s4 : 0)
+        .padding(.bottom, row.id == (chat.requests.last.map { AnyHashable("request-\($0.id)") }
+                                     ?? presentation.lastID.map(AnyHashable.init)) ? DS.Space.s3 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The last row (or the last open request card) at the bottom of the view; follows again.
-    private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool = false) {
+    private func scrollToEnd(animated: Bool = false) {
         scroll.follow.resume()
         if !following { following = true }
         if unread.count > 0 { unread.update(chat.lines, following: true) }
-        let request = chat.requests.last.map { "request-\($0.id)" }
-        let last = TranscriptItem.build(chat.lines).last?.id
         withDSAnimation(motion && animated, DS.Motion.ease) {
-            if let request { proxy.scrollTo(request, anchor: .bottom) } else if let last { proxy.scrollTo(last, anchor: .bottom) }
+            scroll.scrollToLatest?()
         }
     }
 
-    /// Reopening a long Bot Chat first drew it some rows above the end, then jumped down once the eagerly laid
-    /// out tail had its real heights (the bottom anchor works from estimates on the first pass). The transcript
-    /// is scrolled to its last row, again on the next runloop turn after that layout, and only then shown.
-    private func settle(_ proxy: ScrollViewProxy) {
-        let last = TranscriptItem.build(chat.lines).last?.id
-        if let last { proxy.scrollTo(last, anchor: .bottom) }
+    /// Give the native viewport its initial layout before revealing the last message. Later height
+    /// corrections and resize pinning belong to the same native coordinator.
+    private func settle() {
+        guard !transcriptSettled else { return }
+        seedUnreadHistoryIfReady()
+        scroll.scrollToLatest?()
         DispatchQueue.main.async {
-            if let last { proxy.scrollTo(last, anchor: .bottom) }
+            scroll.follow.resume()
+            scroll.scrollToLatest?()
+            following = true
+            unread.update(chat.lines, following: true)
             transcriptSettled = true
         }
     }
 
-    private func transcriptRow(_ item: TranscriptItem, full: [UUID: String], changed: [UUID: [ChangedFile]]) -> some View {
+    private func transcriptRow(_ item: TranscriptItem, full: TranscriptLookup<String>, changed: TranscriptLookup<[ChangedFile]>) -> some View {
         let fromUser: Bool
         let lastId: UUID
         switch item {
@@ -230,7 +229,7 @@ struct BotChatView: View {
     }
 
     /// B2: Copy message (and Copy full response for a reply in several parts) on hover and in the context menu.
-    @ViewBuilder private func copyable<V: View>(_ view: V, _ item: TranscriptItem, full: [UUID: String]) -> some View {
+    @ViewBuilder private func copyable<V: View>(_ view: V, _ item: TranscriptItem, full: TranscriptLookup<String>) -> some View {
         if case .line(let line, _) = item, ChatCopy.copyable(line) {
             let bot = chat.bot
             // B3/B4: Edit / Restore / Branch on sent messages, Regenerate / Branch on replies.
@@ -355,7 +354,7 @@ struct BotChatView: View {
     }
 }
 
-/// Streamed reply: grows with an opacity content transition and a blinking caret in the bot colour while
+/// Streamed reply: grows without animating the entire text on every token, with a blinking caret while
 /// `streaming`; settles to `MessageBody` (markdown + code) when the turn completes.
 struct StreamingText: View {
     let text: String
@@ -371,8 +370,6 @@ struct StreamingText: View {
                     .lineSpacing(DS.Typeface.proseLineSpacing)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
-                    .animation(motion ? DS.Motion.stream : nil, value: text)
                 Caret(color: caret)
             }
         } else {

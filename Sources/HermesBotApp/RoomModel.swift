@@ -20,9 +20,31 @@ enum SidebarItem: Hashable {
 @MainActor
 final class RoomModel: ObservableObject, Identifiable {
     nonisolated let id: String
-    @Published private(set) var room: RoomSummary
-    @Published private(set) var timeline = RoomTimeline()
-    @Published private(set) var driver: RoomDriverStatus?
+    @Published private(set) var room: RoomSummary {
+        didSet {
+            // The roster supplies author names missing from events; room status/name alone do not.
+            if room.members != oldValue.members {
+                transcriptPresentationNeedsUpdate = true
+                roomStatusPresentation = nil
+            }
+        }
+    }
+    @Published private(set) var timeline = RoomTimeline() {
+        didSet {
+            // Room logs are append-only with immutable seq identities. Cursor/count changes identify
+            // applied messages without comparing the entire accumulated event array on every poll.
+            if timeline.cursor != oldValue.cursor || timeline.events.count != oldValue.events.count {
+                transcriptPresentationNeedsUpdate = true
+            }
+            roomStatusPresentation = nil
+        }
+    }
+    private var transcriptPresentation: RoomTranscriptPresentation?
+    private var transcriptPresentationNeedsUpdate = true
+    private var roomStatusPresentation: RoomStatusPresentation?
+    @Published private(set) var driver: RoomDriverStatus? {
+        didSet { roomStatusPresentation = nil }
+    }
     @Published private(set) var composer = RoomComposer()
     @Published private(set) var notes: [String] = []
     @Published private(set) var lastSync: Date?
@@ -32,7 +54,11 @@ final class RoomModel: ObservableObject, Identifiable {
     @Published var pending: [PendingAttachment] = []
     /// Composer drafts per thread (`main` = the room composer). They live here, not in the view, so they
     /// survive switching panes; a send that fails puts its text back.
-    @Published var drafts: [String: String] = [:]
+    let draftStates = RoomDraftStates()
+    var drafts: [String: String] {
+        get { draftStates.values }
+        set { draftStates.values = newValue }
+    }
     /// The thread shown in the thread pane (nil: closed).
     @Published var openThread: String?
     /// D12: the open Summarize Since You Left sheet. `RoomView` presents it from the pane; the toolbar button
@@ -81,13 +107,31 @@ final class RoomModel: ObservableObject, Identifiable {
         poller = RoomPoller(source: api, roomId: room.roomId)
         poller.onUpdate = { [weak self] u in self?.apply(u) }
         poller.onError = { [weak self] e in self?.syncFailed(e) }
+        poller.interval = { [weak self] timeline, state in
+            self?.pollInterval ?? RoomPollPolicy.interval(driver: state?.driver, timeline: timeline)
+        }
     }
 
     var disbanded: Bool { composer.availability == .closed }
-    var lines: [RoomLine] { timeline.lines(room: room) }
-    var pollInterval: TimeInterval { RoomPollPolicy.interval(driver: driver, timeline: timeline) }
+    var presentation: RoomTranscriptPresentation {
+        if !transcriptPresentationNeedsUpdate, let transcriptPresentation { return transcriptPresentation }
+        let result = RoomTranscriptPresentation(timeline: timeline, room: room, previous: transcriptPresentation)
+        transcriptPresentation = result
+        transcriptPresentationNeedsUpdate = false
+        return result
+    }
+    var lines: [RoomLine] { presentation.lines }
+    var statusPresentation: RoomStatusPresentation {
+        if let roomStatusPresentation { return roomStatusPresentation }
+        let result = RoomStatusPresentation(timeline: timeline, room: room, driver: driver)
+        roomStatusPresentation = result
+        return result
+    }
+    var memberStates: [String: RoomPresentation.MemberState] { statusPresentation.memberStates }
+    func threadPresentation(thread: String) -> RoomThreadPresentation { presentation.thread(thread) }
+    var pollInterval: TimeInterval { statusPresentation.pollInterval }
     /// Something is still happening: a task is queued/running/stopping or the latest message is unsettled.
-    var active: Bool { RoomPollPolicy.busy(driver: driver, timeline: timeline) }
+    var active: Bool { statusPresentation.active }
     /// The room view is on screen: what it shows counts as seen (sidebar "needs you"). A room pane in a window
     /// that is hidden, minimised or covered is not.
     var isOnScreen: Bool { wantsPolling && windowOnScreen }
@@ -135,7 +179,12 @@ final class RoomModel: ObservableObject, Identifiable {
     func nudge() { poller.nudge() }
 
     private func apply(_ u: RoomPoller.Update) {
-        timeline = u.timeline; driver = u.state.driver; lastSync = Date(); pollCount += 1
+        if timeline.cursor != u.timeline.cursor || timeline.latestSeq != u.timeline.latestSeq
+            || timeline.gapDetected != u.timeline.gapDetected || timeline.events.count != u.timeline.events.count {
+            timeline = u.timeline
+        }
+        if driver != u.state.driver { driver = u.state.driver }
+        lastSync = Date(); pollCount += 1
         let incoming = u.state.room.revision < renamedRevision ? room : u.state.room
         setRoom(pendingName.map { incoming.renamed($0) } ?? incoming)
         onSync?(self, u.newEvents)
@@ -144,7 +193,7 @@ final class RoomModel: ObservableObject, Identifiable {
 
     private func setRoom(_ r: RoomSummary) {
         let renamed = r.name != room.name
-        room = r
+        if room != r { room = r }
         if renamed { onRoomChanged?(r) }
     }
 
@@ -373,9 +422,9 @@ final class RoomModel: ObservableObject, Identifiable {
 
 extension RoomModel {
     /// Binding target for a composer: the draft of `thread`.
-    func draft(_ thread: String) -> String { drafts[thread] ?? "" }
+    func draft(_ thread: String) -> String { draftStates.state(for: thread).text }
 
-    func setDraft(_ text: String, thread: String) { drafts[thread] = text }
+    func setDraft(_ text: String, thread: String) { draftStates.state(for: thread).text = text }
 
     /// "Reply in thread" on the message at `seq`: opens its thread (a new one anchored on it for a `main`
     /// message) in the thread pane and focuses that composer.
