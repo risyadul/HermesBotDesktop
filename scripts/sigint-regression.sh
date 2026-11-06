@@ -1,20 +1,20 @@
 #!/bin/bash
 # Regression check: Ctrl+C in the launching terminal runs the same cleanup as Quit.
 #
-# Runs the app in a private tmux session against a fake backend (scripts/fixtures/fake_backend.py),
-# lets one Bot Chat turn finish, presses Ctrl+C, waits until the (deliberately slow, 1.5 s) session.close
-# is in flight, presses Ctrl+C again, then asserts what the fake backend saw and in which order.
-#   attach       attached backend: close → delete, once each; backend left running
-#   attach-keep  same with HERMES_BOT_APP_KEEP_SESSIONS=1: close once, no delete
-#   spawn        app-owned backend (fake `hermes` binary): own process group, never gets SIGINT,
-#                close → delete → SIGTERM; nothing left running
+# Runs the app in a private tmux session against a fake backend (scripts/fixtures/fake_backend.py) that
+# serves the canonical "Bot Chat" flow (lookup, create + title, resume, one streamed turn). After the turn
+# finishes it presses Ctrl+C, and again 0.2 s later, then asserts what the fake backend saw:
+#   attach   attached backend: the Bot Chat is only detached (NO session.close / session.delete); the
+#            quit completes; the backend is left running
+#   spawn    app-owned backend (fake `hermes` binary): own process group, never gets SIGINT, no
+#            session.close / session.delete, then SIGTERM; nothing left running
 #
 # Never touches a real Hermes backend: discovery uses a temp lock dir, spawn uses the fake binary.
 # Only processes this script started are signalled (PID + command checked). Opens app windows: needs a
 # GUI session, and it takes focus, so do not run it while something else is capturing screenshots.
 #
-# usage: scripts/sigint-regression.sh [--app <HermesBotApp executable>] [attach|attach-keep|spawn ...]
-#        default app: .build/debug/HermesBotApp; default scenarios: all three
+# usage: scripts/sigint-regression.sh [--app <HermesBotApp executable>] [attach|spawn ...]
+#        default app: .build/debug/HermesBotApp; default scenarios: both
 # exit:  0 = all scenarios passed, 1 = an assertion failed, 2 = setup problem
 set -u
 
@@ -65,21 +65,8 @@ check() {  # check <label> <actual> <expected>
     if [ "$2" = "$3" ]; then echo "  ok   $1 = $2"; else echo "  FAIL $1 = $2 (expected $3)"; fail=1; fi
 }
 count() { grep -c -E "$1" "$2" 2>/dev/null || true; }
-first_ts() { grep -E "$1" "$2" 2>/dev/null | head -1 | cut -d' ' -f1; }  # fake log: "<epoch> pid=… pgid=… …"
-# The fake appends under one lock, so line order is event order; use it for backend-side ordering
-# (timestamps of back-to-back events can tie).
+# The fake appends under one lock, so line order is event order.
 first_line() { grep -n -E "$1" "$2" 2>/dev/null | head -1 | cut -d: -f1; }
-now() { "$python" -c 'import time; print(f"{time.time():.6f}")'; }
-lt() { [ -n "$1" ] && [ -n "$2" ] && "$python" -c 'import sys; sys.exit(0 if float(sys.argv[1]) < float(sys.argv[2]) else 1)' "$1" "$2"; }
-order() {  # order <label> <ts...>: all present and strictly increasing
-    local label=$1 ok=yes prev="" t; shift
-    for t in "$@"; do
-        [ -z "$t" ] && { ok=no; break; }
-        if [ -n "$prev" ] && ! lt "$prev" "$t"; then ok=no; break; fi
-        prev=$t
-    done
-    check "$label" "$ok" yes
-}
 wait_for() {  # wait_for <seconds> <command...>
     local end=$(( $(date +%s) + $1 )); shift
     until "$@"; do [ "$(date +%s)" -ge "$end" ] && return 1; sleep 0.1; done
@@ -93,12 +80,11 @@ run() {
     local fake_pid="" serve_pid="" serve_pgid=""
     echo "== $scenario"
     case $scenario in
-        attach|attach-keep)
+        attach)
             "$python" -I "$fake" attach "$dir/locks" "$calls" > "$dir/fake.out" 2>&1 &
             fake_pid=$!; own "$fake_pid" "$fake"
             wait_for 10 grep -q READY "$dir/fake.out" || { echo "  fake backend did not start" >&2; return 2; }
             env+=(HERMES_BOT_APP_NO_SPAWN=1)
-            [ "$scenario" = attach-keep ] && env+=(HERMES_BOT_APP_KEEP_SESSIONS=1)
             ;;
         spawn)
             printf '#!/bin/sh\nHBA_FAKE_CALLS=%q exec %q -I %q "$@"\n' "$calls" "$python" "$fake" > "$dir/hermes"
@@ -125,33 +111,27 @@ run() {
     fi
     wait_for 30 grep -q "ui message.complete" "$applog" || { echo "  chat turn did not complete" >&2; return 2; }
 
+    check "Bot Chat looked up by title" "$(count 'RPC session\.list' "$calls")" 1
+    check "Bot Chat created once" "$(count 'RPC session\.create' "$calls")" 1
+
     tmux send-keys -t "$session" C-c
-    wait_for 10 grep -qs "RPC session.close" "$calls" || echo "  (session.close never arrived)"
     sleep 0.2
-    tmux send-keys -t "$session" C-c
-    local second; second=$(now)
-    if wait_for 20 bash -c "! kill -0 $app_pid 2>/dev/null"; then check "app exited after Ctrl+C" yes yes
-    else check "app exited after Ctrl+C" no yes; fi
+    tmux send-keys -t "$session" C-c  # a second press while cleanup runs must not break the quit
+    if wait_for 20 bash -c "! kill -0 $app_pid 2>/dev/null"; then check "quit completed after Ctrl+C" yes yes
+    else check "quit completed after Ctrl+C" no yes; fi
     tmux kill-session -t "$session" 2>/dev/null
 
-    local t_close t_done l_close l_delete l_term
-    t_close=$(first_ts 'RPC session\.close' "$calls"); t_done=$(first_ts 'CLOSE_DONE' "$calls")
-    l_close=$(first_line 'RPC session\.close' "$calls"); l_delete=$(first_line 'RPC session\.delete' "$calls")
+    local l_term
     l_term=$(first_line 'SIGNAL SIGTERM' "$calls")
     check "quit requested (cleanup started)" "$(count 'quit requested' "$applog")" 1
-    order "2nd Ctrl+C sent while session.close in flight" "$t_close" "$second" "$t_done"
-    check "session.close calls" "$(count 'RPC session\.close' "$calls")" 1
+    check "bot chats detached" "$(count 'bot chats detached' "$applog")" 1
+    check "session.close calls" "$(count 'RPC session\.close' "$calls")" 0
+    check "session.delete calls" "$(count 'RPC session\.delete' "$calls")" 0
     case $scenario in
-        attach)
-            check "session.delete calls" "$(count 'RPC session\.delete' "$calls")" 1
-            order "order close → delete" "$l_close" "$l_delete" ;;
-        attach-keep)
-            check "session.delete calls" "$(count 'RPC session\.delete' "$calls")" 0 ;;
         spawn)
-            check "session.delete calls" "$(count 'RPC session\.delete' "$calls")" 1
             check "SIGINT reached backend" "$(count 'SIGNAL SIGINT' "$calls")" 0
             check "backend SIGTERM count" "$(count 'SIGNAL SIGTERM' "$calls")" 1
-            order "order close → delete → SIGTERM" "$l_close" "$l_delete" "$l_term"
+            check "SIGTERM seen" "$([ -n "$l_term" ] && echo yes || echo no)" yes
             check "backend in its own process group" "$([ -n "$serve_pid" ] && [ "$serve_pid" = "$serve_pgid" ] && echo yes || echo no)" yes
             local gone=no
             [ -n "$serve_pid" ] && wait_for 5 bash -c "! kill -0 $serve_pid 2>/dev/null" && gone=yes
@@ -167,7 +147,7 @@ run() {
     return 0
 }
 
-scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(attach attach-keep spawn)
+scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(attach spawn)
 for s in "${scenarios[@]}"; do
     run "$s"; rc=$?
     [ $rc -eq 2 ] && { echo "SETUP PROBLEM in $s (logs in $work)" >&2; exit 2; }

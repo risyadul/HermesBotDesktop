@@ -25,6 +25,10 @@ final class AvatarContrastTests: XCTestCase {
     ]
     private let scale: CGFloat = 2
 
+    override func setUp() async throws {
+        try WindowTestGate.requireMetalRendering()
+    }
+
     private static func luminance(_ r: Double, _ g: Double, _ b: Double) -> Double {
         func lin(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
         return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)

@@ -24,7 +24,8 @@ final class SidebarLayoutTests: XCTestCase {
     /// The sidebar column is the sidebar setting + 8 (measured).
     private static let widestSidebarColumn = DS.Size.sidebarMax + 8
 
-    private let defaultsKeys = ["hba.botInspector", DS.Motion.settingKey]
+    private let defaultsKeys = ["hba.botInspector", DS.Motion.settingKey, BotSectionsModel.listKey,
+                                BotSectionsModel.collapsedKey, BotActivityHub.readKey]
     private let envKeys = ["HERMES_BOT_APP_LOCK_DIR", "HERMES_BOT_APP_NO_SPAWN"]
     private static let splitFramesPrefix = "NSSplitView Subview Frames"
     private var savedDefaults: [Any?] = []
@@ -102,8 +103,26 @@ final class SidebarLayoutTests: XCTestCase {
             var json: [String: JSONValue] = ["name": .string(name), "model": "example-model-flash",
                                              "provider": "antigravity", "skill_count": 97]
             if name == "hba-layout" { json["description"] = .string(Self.description) }
+            // A4/A5: two bots filed in a section another app made, so the section block draws too.
+            if name == "reviewer" || name == "assistant" {
+                json["ui_meta"] = ["hermes-bots": ["sectionId": "sec-layout", "sectionName": "Client work and long names"]]
+            }
             return try XCTUnwrap(Bot(.object(json)))
         }
+        model.botMeta.load(model.bots)
+        // A4/A6: every row with a long preview and an age, one unread, one needing attention (the busiest row
+        // the 220 pt sidebar has to fit).
+        let now = Date().timeIntervalSince1970
+        let preview = "Message from 🤖 scout (@scout): " + Self.description
+        func activity(_ last: Double) -> [String: BotRosterActivity] {
+            Dictionary(uniqueKeysWithValues: Self.botNames.map { name in
+                (name, BotRosterActivity(canonical: BotSessionSummary(id: "c-\(name)", preview: preview,
+                                                                      lastActive: name == "planner" ? last : now - 7200)))
+            })
+        }
+        model.botActivity.apply(activity(now - 3600))
+        model.botActivity.apply(activity(now - 60))
+        model.botActivity.noteFailure("mobile-implementer", message: "HTTP 401 Unauthorized")
         model.selection = .bot(try XCTUnwrap(model.bots.last).name)
         let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 120, y: 120), size: size),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -305,6 +324,24 @@ final class SidebarLayoutTests: XCTestCase {
                 window.orderOut(nil)
             }
         }
+    }
+
+    /// A4/A5/A6: the sidebar dragged to its 220 pt minimum with the busiest bot rows (preview, age, unread,
+    /// attention) and a section block: the split, the composer and the inspector still fit and every bot row is
+    /// drawn. The rows' own NSView frames lag the drag (they keep the pre-drag width), so whether the row
+    /// contents truncate inside the column is checked on the screenshot (HBA_LAYOUT_EVIDENCE), not here.
+    func testNarrowestSidebarFitsBusyBotRowsAndSections() throws {
+        let window = try host(size: DS.Size.windowDefault, inspector: true)
+        var f = try sidebarColumn(window)
+        // Just past the minimum: much further and the split collapses the sidebar instead.
+        let excess = f.width - (DS.Size.sidebarMin + 8) + 6
+        drag(window, from: NSPoint(x: f.maxX, y: f.midY), to: NSPoint(x: f.maxX - excess, y: f.midY))
+        f = try sidebarColumn(window)
+        XCTAssertEqual(f.width, DS.Size.sidebarMin + 8, accuracy: 1, "sidebar \(f) after the drag")
+        try assertFits(window, inspector: true, width: DS.Size.windowDefault.width, tag: "sidebar-min-busy-rows")
+        let sidebar = try XCTUnwrap(splitViews(window).first?.arrangedSubviews.first)
+        let rows = views(sidebar).filter { abs($0.frame.height - DS.Size.rowHeight) < 0.5 && $0.frame.width > DS.Size.sidebarMin / 2 }
+        XCTAssertGreaterThanOrEqual(rows.count, Self.botNames.count, "every bot row is drawn (two inside the section)")
     }
 
     /// The sidebar's range is the token range: the drag stops at the maximum, also in a wide window.

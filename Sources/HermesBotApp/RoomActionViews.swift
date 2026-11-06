@@ -25,12 +25,7 @@ struct ActionCard: View {
 
     var body: some View {
         card
-            .padding(.horizontal, DS.Space.s4).padding(.vertical, DS.Space.s3)
-            .frame(maxWidth: DS.Size.cardWidth, alignment: .leading)
-            .background(DS.Palette.attentionSoft, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                .strokeBorder(DS.Palette.attentionRing, lineWidth: DS.Stroke.ring))
-            .dsShadow(DS.Elevation.card)
+            .attentionCard()
             .background {
                 // One ring ripple per approval request id (RoomMotionMemory), never on reopen. Drawn from
                 // the clock on every frame instead of a scheduled `withAnimation`, so it is gone in the
@@ -76,7 +71,7 @@ struct ActionCard: View {
                 if let c = a.command {
                     VStack(alignment: .leading, spacing: DS.Space.s1) {
                         Text("Command").font(DS.Typeface.captionStrong).foregroundStyle(DS.Palette.muted)
-                        CodeBlock(text: c)
+                        CodeBlock(text: c, header: false)
                     }
                 }
                 HStack(spacing: DS.Space.s2) {

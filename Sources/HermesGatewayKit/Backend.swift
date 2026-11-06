@@ -63,13 +63,51 @@ public final class Backend: @unchecked Sendable {
     public let ready: JSONValue
     public let verdicts: [HostRendezvous.Verdict]
     public private(set) var owned: ServeProcess?
-    private let router = EventRouter()
+    let router: EventRouter
+    let requests: ServerRequestRouter
 
-    /// Internal (not private) so tests can wrap a client connected to a local fake gateway.
-    init(mode: Mode, client: GatewayClient, ready: JSONValue, verdicts: [HostRendezvous.Verdict], owned: ServeProcess?) {
+    /// Internal (not private) so tests can wrap a client connected to a local fake gateway. `holdWindow`:
+    /// how long a session-scoped event or request nobody routes yet is kept for a subscriber that is about
+    /// to attach (`EventRouter`); tests shorten it.
+    init(mode: Mode, client: GatewayClient, ready: JSONValue, verdicts: [HostRendezvous.Verdict], owned: ServeProcess?,
+         holdWindow: TimeInterval = UnroutedHold.window) {
         self.mode = mode; self.client = client; self.ready = ready; self.verdicts = verdicts; self.owned = owned
+        router = EventRouter(window: holdWindow)
+        requests = ServerRequestRouter(window: holdWindow)
         client.onEvent = { [router] type, payload, raw in router.dispatch(type: type, payload: payload, raw: raw) }
-        client.onDisconnect = { [router] reason in router.disconnected(reason) }
+        client.onDisconnect = { [router, requests] reason in
+            requests.disconnected()
+            router.disconnected(reason)
+        }
+        client.onRequest = { [requests, weak client] id, method, params in
+            guard let client else { return }
+            requests.route(ServerRequest(wireId: id, method: method, params: params), client: client)
+        }
+    }
+
+    /// Wraps a connected client and advertises `client.capabilities {server_requests: true}` once, right
+    /// after `gateway.ready` (`contracts/liveness.py:29-48`, handler `methods_voice.py:442-450`). Without it
+    /// every approval/clarify/sudo request fails fast for this connection (`server_requests.py:120-157`).
+    /// Handlers are installed before the call, so no request can arrive unrouted. A backend without the
+    /// method (older build) is logged and tolerated.
+    static func make(mode: Mode, client: GatewayClient, ready: JSONValue, verdicts: [HostRendezvous.Verdict],
+                     owned: ServeProcess?, holdWindow: TimeInterval = UnroutedHold.window,
+                     log: @Sendable (String) -> Void = { _ in }) async -> Backend {
+        let b = Backend(mode: mode, client: client, ready: ready, verdicts: verdicts, owned: owned, holdWindow: holdWindow)
+        await b.advertiseCapabilities(log: log)
+        return b
+    }
+
+    func advertiseCapabilities(log: @Sendable (String) -> Void = { _ in }) async {
+        do {
+            let r = try await client.call("client.capabilities", ["server_requests": true], timeout: 20)
+            let methods = (r["server_requests"]?.array ?? []).compactMap(\.string)
+            requests.declinesNotShown = r["declines_not_shown"]?.bool ?? false
+            log("client.capabilities → \(methods.count) server request methods, declines_not_shown=\(requests.declinesNotShown)")
+        } catch {
+            requests.declinesNotShown = false
+            log("client.capabilities failed: \(Redaction.describe(error))")
+        }
     }
 
     /// `log` receives token-free lines only.
@@ -85,7 +123,7 @@ public final class Backend: @unchecked Sendable {
                 let client = GatewayClient(url: found.wsURL)
                 let ready = try await client.connect()
                 log("attached: \(found) — gateway.ready received")
-                return Backend(mode: .attached(found), client: client, ready: ready, verdicts: verdicts, owned: nil)
+                return await make(mode: .attached(found), client: client, ready: ready, verdicts: verdicts, owned: nil, log: log)
             }
         } else {
             log("discovery skipped (forceSpawn)")
@@ -103,8 +141,8 @@ public final class Backend: @unchecked Sendable {
         do {
             let ready = try await client.connect()
             log("connected to owned backend — gateway.ready received")
-            return Backend(mode: .spawned(pid: serve.pid, port: port), client: client, ready: ready,
-                           verdicts: verdicts, owned: serve)
+            return await make(mode: .spawned(pid: serve.pid, port: port), client: client, ready: ready,
+                              verdicts: verdicts, owned: serve, log: log)
         } catch {
             serve.stop(); throw error
         }
@@ -129,12 +167,20 @@ public final class Backend: @unchecked Sendable {
     // MARK: - events
 
     /// Subscribe to events whose `params.session_id` equals `sessionId` ("" = session-less broadcasts).
+    /// Events of that session that arrived unrouted within the hold window are replayed first, in order.
     @discardableResult
     public func subscribe(sessionId: String, _ handler: @escaping EventRouter.Handler) -> UUID {
         router.add(sessionId: sessionId, handler)
     }
 
-    public func unsubscribe(_ token: UUID) { router.remove(token) }
+    public func unsubscribe(_ token: UUID) { router.remove(token); requests.remove(token) }
+
+    /// Routes server→client requests whose `params.session_id` equals `sessionId` to `handler`; requests of
+    /// that session still held unrouted are handed over first, in order. Remove with `unsubscribe`.
+    @discardableResult
+    public func onServerRequest(sessionId: String, _ handler: @escaping @Sendable (ServerRequest) -> Void) -> UUID {
+        requests.add(sessionId: sessionId, handler)
+    }
 
     /// Called once when the gateway socket is gone (token-free reason). No reconnect in M1.
     @discardableResult
@@ -144,45 +190,4 @@ public final class Backend: @unchecked Sendable {
 
     /// Taps every event (evidence logging).
     public func tapAll(_ handler: @escaping EventRouter.Handler) { router.tap = handler }
-}
-
-public final class EventRouter: @unchecked Sendable {
-    public typealias Handler = @Sendable (_ type: String, _ payload: JSONValue?, _ raw: JSONValue) -> Void
-    private let lock = NSLock()
-    private var handlers: [UUID: (String, Handler)] = [:]
-    private var disconnectHandlers: [UUID: @Sendable (String) -> Void] = [:]
-    private var tapHandler: Handler?
-    /// Taps every event. Guarded by `lock`: it can be set while events are being routed.
-    public var tap: Handler? {
-        get { lock.withLock { tapHandler } }
-        set { lock.withLock { tapHandler = newValue } }
-    }
-
-    func addDisconnect(_ h: @escaping @Sendable (String) -> Void) -> UUID {
-        let id = UUID()
-        lock.withLock { disconnectHandlers[id] = h }
-        return id
-    }
-
-    func disconnected(_ reason: String) {
-        let targets = lock.withLock { Array(disconnectHandlers.values) }
-        targets.forEach { $0(reason) }
-    }
-
-    func add(sessionId: String, _ h: @escaping Handler) -> UUID {
-        let id = UUID()
-        lock.withLock { handlers[id] = (sessionId, h) }
-        return id
-    }
-
-    func remove(_ id: UUID) {
-        lock.withLock { _ = handlers.removeValue(forKey: id); _ = disconnectHandlers.removeValue(forKey: id) }
-    }
-
-    func dispatch(type: String, payload: JSONValue?, raw: JSONValue) {
-        let sid = raw["params"]?["session_id"]?.string ?? ""
-        let (tap, targets) = lock.withLock { (tapHandler, handlers.values.filter { $0.0 == sid }.map(\.1)) }
-        tap?(type, payload, raw)
-        targets.forEach { $0(type, payload, raw) }
-    }
 }

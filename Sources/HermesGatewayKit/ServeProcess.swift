@@ -203,6 +203,41 @@ public final class ServeProcess: @unchecked Sendable {
         return isExecutableFile(path) ? nil : "it is not a regular executable file"
     }
 
+    /// The symlink-resolved path of `configuration.hermesExecutable` once every launch check passes (named
+    /// usably, an executable regular file, trusted owner/mode, trusted directory), else the error `start()`
+    /// throws. Also used by `BackgroundServe` and `GatewayStatus`, so every hermes they run passes the same checks.
+    static func checkedExecutable(_ configuration: Configuration, log logPath: String) -> Result<String, ServeError> {
+        let exe = configuration.hermesExecutable.path
+        let search = configuration.executableSearch
+        if let why = configuration.executableProblem {
+            return .failure(.invalidBinary(path: search.first ?? exe, reason: why, log: logPath))
+        }
+        guard isExecutableFile(exe), let resolved = resolvedPath(exe) else {
+            // A path named on its own (override or given) that exists is wrong, not missing.
+            if search.count <= 1, let why = explicitBinaryProblem(exe) {
+                return .failure(.invalidBinary(path: exe, reason: why, log: logPath))
+            }
+            return .failure(.binaryNotFound(tried: search.contains(exe) ? search : [exe], log: logPath))
+        }
+        if let why = binaryTrustProblem(path: resolved) {
+            return .failure(.untrustedBinary(path: exe, reason: resolved == exe ? why : "\(why) (it resolves to \(resolved))",
+                                             log: logPath))
+        }
+        return .success(resolved)
+    }
+
+    /// `hermes` found the way the spawn fallback finds it (`Configuration.resolveExecutable`: override, then
+    /// the search list) and checked by `checkedExecutable`. `environment`/`home` are injectable for tests.
+    static func trustedExecutable(environment: [String: String], home: URL, log: String) -> Result<String, ServeError> {
+        let r = Configuration.resolveExecutable(environment: environment, home: home)
+        var c = Configuration(hermesExecutable: r.url ?? URL(fileURLWithPath: r.tried.first ?? "/nonexistent/hermes"),
+                              hermesHome: home.appendingPathComponent(".hermes"), lockDir: nil,
+                              logFile: URL(fileURLWithPath: log))
+        c.executableSearch = r.tried
+        c.executableProblem = r.problem
+        return checkedExecutable(c, log: log)
+    }
+
     public let configuration: Configuration
     public private(set) var port: Int?
     /// Session token for `?token=` on /api/ws. Never logged.
@@ -260,21 +295,10 @@ public final class ServeProcess: @unchecked Sendable {
         appendLog(Data("--- ServeProcess start \(Date()) ---\n".utf8))
 
         // Checked before Process.run(), so a missing binary never surfaces as a raw NSCocoaErrorDomain error.
-        let exe = configuration.hermesExecutable.path
-        let search = configuration.executableSearch
-        if let why = configuration.executableProblem {
-            throw failBeforeLaunch(.invalidBinary(path: search.first ?? exe, reason: why, log: logPath))
-        }
-        guard Self.isExecutableFile(exe), let resolved = Self.resolvedPath(exe) else {
-            // A path named on its own (override or given) that exists is wrong, not missing.
-            if search.count <= 1, let why = Self.explicitBinaryProblem(exe) {
-                throw failBeforeLaunch(.invalidBinary(path: exe, reason: why, log: logPath))
-            }
-            throw failBeforeLaunch(.binaryNotFound(tried: search.contains(exe) ? search : [exe], log: logPath))
-        }
-        if let why = Self.binaryTrustProblem(path: resolved) {
-            throw failBeforeLaunch(.untrustedBinary(path: exe, reason: resolved == exe ? why : "\(why) (it resolves to \(resolved))",
-                                                    log: logPath))
+        let resolved: String
+        switch Self.checkedExecutable(configuration, log: logPath) {
+        case .success(let path): resolved = path
+        case .failure(let e): throw failBeforeLaunch(e)
         }
 
         let parent = ProcessInfo.processInfo.environment

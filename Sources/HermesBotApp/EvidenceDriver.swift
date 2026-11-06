@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import SwiftUI
 import HermesGatewayKit
 
 // Scripted verification (no clicks). Debug builds only: none of this, nor the `screencapture`
@@ -16,6 +17,10 @@ import HermesGatewayKit
 //   HERMES_BOT_APP_ROOM_MANIFEST=<path>            append created rooms to that JSON-lines manifest
 //   HERMES_BOT_APP_EVIDENCE=<dir>                  write window snapshots + ui-log.json there
 //   HERMES_BOT_APP_AUTOQUIT=1                      quit after the reply completed / room settled (normal cleanup)
+//   HERMES_BOT_APP_AUTOSWITCH="<seconds>|<items>"   switch panes like sidebar clicks: items are `room:<index>`
+//                                                  (sidebar order) or `bot:<profile>`, comma-separated (read only)
+//   HERMES_BOT_APP_AUTOATTACH="<path>,<path>"       after AUTOSWITCH, add those files as chips to the open
+//                                                  room or Bot Chat composer (nothing is sent)
 
 /// Scripted-run state, stored on `AppModel` (`evidence`).
 struct EvidenceState {
@@ -37,12 +42,50 @@ extension AppModel {
         guard let spec = env["HERMES_BOT_APP_AUTOCHAT"], let bar = spec.firstIndex(of: "|") else { return }
         evidence.autoQuit = env["HERMES_BOT_APP_AUTOQUIT"] == "1"
         let name = String(spec[..<bar]), prompt = String(spec[spec.index(after: bar)...])
-        guard let bot = bots.first(where: { $0.name == name }), let backend else { log("autochat: no bot \(name)"); return }
+        guard let bot = bots.first(where: { $0.name == name }), backend != nil else { log("autochat: no bot \(name)"); return }
         selection = .bot(bot.name)
+        let chat = chat(for: bot)
+        chat.open()
         Task {
             try? await Task.sleep(nanoseconds: 800_000_000)  // let the chat view appear
+            while chat.phase == .loading { try? await Task.sleep(nanoseconds: 100_000_000) }
             snapshot("1-selected")
-            chat(for: bot).submit(prompt, backend: backend, title: "hba-app-\(Int(Date().timeIntervalSince1970))")
+            guard chat.isReady else { log("autochat: Bot Chat did not open: \(chat.phase)"); return }
+            chat.draft = prompt
+            log("autochat: send accepted=\(chat.submit())")
+        }
+    }
+
+    /// Rapid pane switching (the quick group/group/bot hops that showed an older room under the new
+    /// pane), through the same non-animated transaction a sidebar click uses. Opens chats like a click does;
+    /// sends nothing.
+    func autoswitch() {
+        guard let spec = ProcessInfo.processInfo.environment["HERMES_BOT_APP_AUTOSWITCH"],
+              let bar = spec.firstIndex(of: "|"), let gap = Double(spec[..<bar]) else { return }
+        let items: [SidebarItem] = spec[spec.index(after: bar)...].split(separator: ",").compactMap { part in
+            let kv = part.split(separator: ":", maxSplits: 1).map(String.init)
+            guard kv.count == 2 else { return nil }
+            if kv[0] == "room", let i = Int(kv[1]), rooms.indices.contains(i) { return .room(rooms[i].roomId) }
+            if kv[0] == "bot", bots.contains(where: { $0.name == kv[1] }) { return .bot(kv[1]) }
+            return nil
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            for item in items {
+                log("autoswitch → \(item)")
+                withTransaction(SidebarView.selectionTransaction) { selection = item }
+                try? await Task.sleep(nanoseconds: UInt64(gap * 1_000_000_000))
+            }
+            log("autoswitch done")
+            if let files = ProcessInfo.processInfo.environment["HERMES_BOT_APP_AUTOATTACH"] {
+                let urls = files.split(separator: ",").map { URL(fileURLWithPath: String($0)) }
+                switch selection {
+                case .room(let id)?: roomModel(id)?.addAttachments(urls)
+                case .bot(let name)?: chats[name]?.addAttachments(urls)
+                case .board?, .archive?, nil: break
+                }
+                log("autoattach → \(urls.count) file(s)")
+            }
         }
     }
 

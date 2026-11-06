@@ -133,13 +133,18 @@ final class AvatarStore: ObservableObject {
                     let r = try await backend.client.call("profiles.get_asset", ["name": .string(bot.name), "asset": "avatar"])
                     guard r["found"]?.bool == true, let url = r["data"]?.string, let comma = url.firstIndex(of: ","),
                           let data = Data(base64Encoded: String(url[url.index(after: comma)...])),
-                          let image = NSImage(data: data) else { return }
+                          ProfileAvatar.isSafeToDecode(data), let image = NSImage(data: data) else { return }
                     images[bot.name] = image
                 } catch {
                     AppModel.shared.log("profiles.get_asset \(bot.name) failed: \(Redaction.describe(error))")
                 }
             }
         }
+    }
+
+    /// A saved avatar (Edit sheet) shows at once; nil forgets it (removed, or the bot was deleted).
+    func replace(_ profile: String, data: Data?) {
+        images[profile] = data.flatMap(NSImage.init(data:))
     }
 
     func identity(profile: String, title: String? = nil) -> BotIdentity {

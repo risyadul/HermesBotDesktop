@@ -4,36 +4,80 @@ import SwiftUI
 
 struct BotChatView: View {
     @ObservedObject var chat: ChatModel
-    let backend: Backend?
     @ObservedObject private var avatars = AvatarStore.shared
-    @State private var draft = ""
-    @FocusState private var composerFocused: Bool
     /// Persisted inspector visibility. The inspector binds to the @State copy below: an @AppStorage write
     /// reaches the view outside the toggle's transaction, so the no-animation path still slid the panel.
     @AppStorage("hba.botInspector") private var storedInspector = true
     @State private var showInspector = UserDefaults.standard.object(forKey: "hba.botInspector") as? Bool ?? true
+    @State private var dropTargeted = false
+    /// Open/closed Thought and tool rows, kept across row re-creation (DisclosureStore).
+    @StateObject private var disclosure = DisclosureStore()
+    /// The transcript stays invisible until it has been scrolled to its last row (`settle`).
+    @State private var transcriptSettled = false
+    /// B13: the find bar's state; nil while it is closed.
+    @State private var find: ChatFind?
+    @State private var findFocus = 0
+    /// B6: follow new output unless the user scrolled up (geometry in `scroll`, only changes published);
+    /// messages that arrived below meanwhile.
+    @State private var scroll = TranscriptScrollTracker()
+    @State private var following = true
+    @State private var unread = UnreadCounter()
     @Environment(\.motionEnabled) private var motion
 
     private var identity: BotIdentity { avatars.identity(profile: chat.bot.name, title: chat.bot.title) }
 
     var body: some View {
         VStack(spacing: 0) {
-            if chat.lines.isEmpty {
-                emptyChat
-            } else {
-                transcript
+            if find != nil {
+                ChatFindBar(find: Binding(get: { find ?? ChatFind() }, set: { find = $0 }), lines: chat.lines,
+                            focusRequest: findFocus, onClose: { find = nil })
+                    .transition(motion ? .move(edge: .top).combined(with: .opacity) : .identity)
             }
-            composer
+            switch chat.phase {
+            case .idle, .loading: loadingChat
+            case .failed(let message): failedChat(message)
+            case .ready:
+                if chat.lines.isEmpty && chat.requests.isEmpty { emptyChat } else { transcript }
+            }
+            ChatComposer(chat: chat, identity: identity)
         }
         // The chat column takes the width the sidebar and inspector leave. Any intrinsic minimum here is
         // inflated by the inspector split (on top of the sidebar inset) and widens it past the window,
         // clipping the inspector at the 820 pt minimum (InspectorLayoutTests).
         .frame(minWidth: 0, maxWidth: .infinity)
         .background(DS.Palette.window)
+        .overlay { if dropTargeted { DropHighlight() } }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard chat.isReady, !files.isEmpty else { return false }
+            chat.addDropped(files)  // B11: folders attach as @folder: context
+            return true
+        } isTargeted: { dropTargeted = $0 && chat.isReady }
+        .task { chat.open() }
         .navigationTitle(chat.bot.title)
         .navigationSubtitle("@\(chat.bot.name)" + (chat.bot.model.map { " · \($0)" } ?? ""))
         .toolbar {
             ToolbarItem(placement: .navigation) { AvatarView(identity: identity, size: DS.Size.avatarHero) }
+            ToolbarItem(placement: .primaryAction) {  // A15, RoutinesView.swift
+                RoutinesToolbarButton(bot: chat.bot) { chat.showRoutines() }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { toggleFind() } label: { Label("Find in Chat", systemImage: "magnifyingglass") }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .help("Find in this chat (⌘F)")
+                    .disabled(!chat.isReady)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { ChatExport.save(chat) } label: { Label("Export Conversation", systemImage: "square.and.arrow.up") }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .help("Export this chat as Markdown (⇧⌘E)")
+                    .disabled(!chat.isReady || chat.lines.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                // The bot row's actions (Edit, Duplicate, Delete, Open in New Window, Mute) in the pane too.
+                Menu { BotManageMenu(bot: chat.bot, model: AppModel.shared) } label: { Label("Bot", systemImage: "ellipsis.circle") }
+                    .help("Bot actions")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     // System inspector animation with motion on; a no-animation transaction with it off.
@@ -48,110 +92,265 @@ struct BotChatView: View {
                 .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showInspector) { _, shown in storedInspector = shown }
+        // B3 confirm + edit, B11 URL dialog + image zoom.
+        .chatSheets(chat, motion: motion)
+        // B4: a branch opens beside the chat, read-write.
+        .motionSheet(isPresented: Binding(get: { chat.branch != nil }, set: { if !$0 { chat.closeBranch() } }), motion: motion) {
+            if let branch = chat.branch { BranchChatSheet(chat: branch, onClose: { chat.closeBranch() }) }
+        }
+        // Presented from the pane (in the window's view hierarchy), not from the toolbar item that opens it.
+        .motionSheet(isPresented: $chat.routinesShown, motion: motion) {
+            RoutinesSheet(bot: chat.bot, context: .current(), onClose: { chat.routinesShown = false })
+        }
+        .animation(motion ? DS.Motion.ease : nil, value: find != nil)
+    }
+
+    /// ⌘F opens the find bar, or puts the caret back in its field when it is already open.
+    private func toggleFind() {
+        if find == nil { find = ChatFind() } else { findFocus += 1 }
     }
 
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                // Older bubbles lazy, the ones seen on open laid out eagerly (EagerTail).
-                let lines = chat.lines
-                let tail = EagerTail.start(of: lines) { EagerTail.lines($0.text) }
-                VStack(alignment: .leading, spacing: DS.Space.timeline) {
-                    LazyVStack(alignment: .leading, spacing: DS.Space.timeline) {
-                        ForEach(lines[..<tail]) { line in transcriptRow(line) }
+                // Older rows lazy, the ones seen on open laid out eagerly (EagerTail).
+                let items = TranscriptItem.build(chat.lines)
+                let tail = EagerTail.start(of: items) { $0.approximateLines }
+                let gaps = TranscriptItem.gaps(items)
+                let full = ChatCopy.fullResponses(chat.lines)
+                let changed = ChangedFiles.cards(chat.lines, busy: chat.busy)  // B16
+                VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(items[..<tail]) { item in
+                            transcriptRow(item, full: full, changed: changed).padding(.top, gaps[item.id] ?? 0)
+                        }
                     }
-                    ForEach(lines[tail...]) { line in transcriptRow(line) }
+                    ForEach(items[tail...]) { item in
+                        transcriptRow(item, full: full, changed: changed).padding(.top, gaps[item.id] ?? 0)
+                    }
+                    ServerRequestCards(chat: chat, identity: identity)
+                        .padding(.top, chat.requests.isEmpty ? 0 : DS.Space.timeline)
                 }
                 .padding(.horizontal, DS.Space.s5).padding(.top, DS.Space.s4).padding(.bottom, DS.Space.s3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .animation(motion ? DS.Motion.spring : nil, value: chat.lines.map(\.id))
+                .animation(motion ? DS.Motion.spring : nil, value: chat.requests.map(\.id))
+                .onGeometryChange(for: TranscriptEdges.self) { g in
+                    let f = g.frame(in: .named(TranscriptEdges.space))
+                    return TranscriptEdges(top: f.minY, bottom: f.maxY)
+                } action: { e in
+                    scroll.edges = e
+                    trackScroll()
+                }
+            }
+            .coordinateSpace(.named(TranscriptEdges.space))
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                scroll.viewport = h
+                trackScroll()
             }
             .defaultScrollAnchor(.bottom)
+            .environmentObject(disclosure)
+            .environment(\.findQuery, find?.query ?? "")
+            .opacity(transcriptSettled ? 1 : 0)
+            .onAppear { settle(proxy) }
+            .messageJumpTarget(.bot(chat.bot.name), proxy: proxy)  // D10: Search Messages → this message
             .onChange(of: chat.lines.last?.text) { _, _ in
-                if let id = chat.lines.last?.id { proxy.scrollTo(id, anchor: .bottom) }
+                // B6: new output follows only while the user is at the bottom; their own new message always does.
+                if following || chat.lines.last?.role == .user { scrollToEnd(proxy) }
+                unread.update(chat.lines, following: following)
+                if find != nil { find?.refresh(chat.lines) }
+            }
+            .onChange(of: chat.requests.last?.id) { _, id in
+                if let id, following { proxy.scrollTo("request-\(id)", anchor: .bottom) }
+            }
+            .onChange(of: find?.currentMatch) { _, match in
+                guard let match else { return }
+                withDSAnimation(motion, DS.Motion.ease) { proxy.scrollTo(match.lineId, anchor: .center) }
+            }
+            .overlay(alignment: .bottom) {
+                if !following {
+                    ScrollToBottomButton(unread: unread.count) { scrollToEnd(proxy, animated: true) }
+                        .padding(.bottom, DS.Space.s3)
+                        .transition(motion ? .scale(scale: DS.Motion.pressedScale).combined(with: .opacity) : .identity)
+                }
+            }
+            .animation(motion ? DS.Motion.ease : nil, value: following)
+        }
+    }
+
+    /// B6: the scroll view moved or its content changed size. Only a change of `following` reaches the view.
+    private func trackScroll() {
+        guard transcriptSettled, scroll.viewport > 0,
+              scroll.follow.update(top: scroll.edges.top, bottom: scroll.edges.bottom, viewport: scroll.viewport) else { return }
+        following = scroll.follow.following
+        unread.update(chat.lines, following: following)
+    }
+
+    /// The last row (or the last open request card) at the bottom of the view; follows again.
+    private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        scroll.follow.resume()
+        if !following { following = true }
+        if unread.count > 0 { unread.update(chat.lines, following: true) }
+        let request = chat.requests.last.map { "request-\($0.id)" }
+        let last = TranscriptItem.build(chat.lines).last?.id
+        withDSAnimation(motion && animated, DS.Motion.ease) {
+            if let request { proxy.scrollTo(request, anchor: .bottom) } else if let last { proxy.scrollTo(last, anchor: .bottom) }
+        }
+    }
+
+    /// Reopening a long Bot Chat first drew it some rows above the end, then jumped down once the eagerly laid
+    /// out tail had its real heights (the bottom anchor works from estimates on the first pass). The transcript
+    /// is scrolled to its last row, again on the next runloop turn after that layout, and only then shown.
+    private func settle(_ proxy: ScrollViewProxy) {
+        let last = TranscriptItem.build(chat.lines).last?.id
+        if let last { proxy.scrollTo(last, anchor: .bottom) }
+        DispatchQueue.main.async {
+            if let last { proxy.scrollTo(last, anchor: .bottom) }
+            transcriptSettled = true
+        }
+    }
+
+    private func transcriptRow(_ item: TranscriptItem, full: [UUID: String], changed: [UUID: [ChangedFile]]) -> some View {
+        let fromUser: Bool
+        let lastId: UUID
+        switch item {
+        case .line(let l, _): fromUser = l.role == .user; lastId = l.id
+        case .tools(let ls, _): fromUser = false; lastId = ls[ls.count - 1].id
+        }
+        return VStack(alignment: .leading, spacing: DS.Space.s2) {
+            copyable(row(item), item, full: full)
+            // B16: the files a finished turn edited, under its last line.
+            if let files = changed[lastId] {
+                ChangedFilesCard(files: files).padding(.leading, DS.Size.contentInset)
+            }
+        }
+            .overlay { if find?.currentMatch?.lineId == item.id { FindCurrentRing() } }
+            .id(item.id)
+            .transition(motion ? .arrive(from: fromUser ? .bottomTrailing : .bottomLeading) : .identity)
+    }
+
+    /// B2: Copy message (and Copy full response for a reply in several parts) on hover and in the context menu.
+    @ViewBuilder private func copyable<V: View>(_ view: V, _ item: TranscriptItem, full: [UUID: String]) -> some View {
+        if case .line(let line, _) = item, ChatCopy.copyable(line) {
+            let bot = chat.bot
+            // B3/B4: Edit / Restore / Branch on sent messages, Regenerate / Branch on replies.
+            let actions = line.role == .user ? BotChatActions.user(line, chat: chat) : BotChatActions.reply(line, chat: chat)
+            view.messageCopyActions(line, fullResponse: full[line.id], onCreateTask: {
+                AppModel.shared.composeTask(from: .botChat(text: line.text, fromUser: line.role == .user, bot: bot.name, botTitle: bot.title))
+            }, readAloud: ReadAloudItem.reply(line, lines: { [chat] in chat.lines }), actions: actions)  // B17, B3/B4
+        } else {
+            view
+        }
+    }
+
+    @ViewBuilder private func row(_ item: TranscriptItem) -> some View {
+        switch item {
+        case .line(let line, let header):
+            if TranscriptItem.isBotSide(line.role) {
+                botSide(header: header, note: line.role == .bot ? (line.interim ? "interim" : (line.streaming ? "streaming" : nil)) : nil,
+                        combines: line.role == .bot) {
+                    botContent(line)
+                }
+            } else {
+                bubble(line)
+            }
+        case .tools(let lines, let header):
+            botSide(header: header, note: nil, combines: false) { ToolGroupView(lines: lines).padding(.leading, -DS.Space.s2) }
+        }
+    }
+
+    /// The first bot-side item of a turn carries the avatar and name; the rest line up under its text.
+    @ViewBuilder private func botSide<Content: View>(header: Bool, note: String?, combines: Bool = true,
+                                                     @ViewBuilder content: () -> Content) -> some View {
+        if header {
+            // Thought and tool rows hold their own buttons: kept as separate accessibility elements.
+            MemberMessage(identity: identity, author: chat.bot.title, time: 0, trailingNote: note,
+                          combinesAccessibility: combines) { content() }
+        } else {
+            content()
+                .frame(maxWidth: DS.Size.memberWidth, alignment: .leading)
+                .padding(.leading, DS.Size.contentInset)
+        }
+    }
+
+    /// Thought and tool rows have their own hover inset: pulled left so their labels line up with the text.
+    @ViewBuilder private func botContent(_ line: ChatLine) -> some View {
+        switch line.role {
+        case .thought: ThoughtRow(line: line).padding(.leading, -DS.Space.s2)
+        case .tool: ToolActivityRow(line: line).padding(.leading, -DS.Space.s2)
+        default:
+            if let seconds = line.turnDuration, !line.streaming {
+                // B5: how long the turn took, under its finished reply.
+                VStack(alignment: .leading, spacing: DS.Space.s1) {
+                    StreamingText(text: line.text, streaming: false, caret: identity.color)
+                    TurnDurationLabel(seconds: seconds)
+                }
+            } else {
+                StreamingText(text: line.text, streaming: line.streaming, caret: identity.color)
             }
         }
     }
 
-    private func transcriptRow(_ line: ChatLine) -> some View {
-        bubble(line).id(line.id)
-            .transition(motion ? .arrive(from: line.role == .user ? .bottomTrailing : .bottomLeading) : .identity)
-    }
-
-    /// `empty-state` (new 1:1 chat variant): centred in the pane, the bot's own avatar instead of a symbol.
-    /// No `.fixedSize(vertical:)` on these texts (unlike text inside a ScrollView): the split view measures
-    /// the pane at a near-zero width, where a fixed-height text wraps one glyph per line and becomes the
-    /// whole window's minimum height, pushing the sidebar, the inspector and the composer off screen
+    /// `empty-state` (new Bot Chat variant, A16): centred in the pane, the bot's own face large (96 pt, as in
+    /// Hermes Desktop's `chat-empty.tsx`) over its name and a short hint, so an empty conversation still says
+    /// whose it is. No `.fixedSize(vertical:)` on these texts (unlike text inside a ScrollView): the split view
+    /// measures the pane at a near-zero width, where a fixed-height text wraps one glyph per line and becomes
+    /// the whole window's minimum height, pushing the sidebar, the inspector and the composer off screen
     /// (BotChatLayoutTests).
     private var emptyChat: some View {
         VStack(spacing: DS.Space.s3) {
-            AvatarView(identity: identity, size: DS.Size.avatarEmpty)
+            AvatarView(identity: identity, size: DS.Size.avatarChatEmpty)
                 .padding(.bottom, DS.Space.s1)
-            Text("Chat with \(chat.bot.title)").font(DS.Typeface.titleState).foregroundStyle(DS.Palette.ink)
-            if let d = chat.bot.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
-                Text(d).font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: DS.Size.proseNarrow)
-            }
-            Text(ProcessInfo.processInfo.environment["HERMES_BOT_APP_KEEP_SESSIONS"] == "1"
-                 ? "Separate from group chats. The session is kept when the app quits."
-                 : "Separate from group chats. The session is deleted when the app quits.")
+                .accessibilityHidden(true)
+            Text(chat.bot.title).font(DS.Typeface.titleState).foregroundStyle(DS.Palette.ink)
+                .lineLimit(1).truncationMode(.tail)
+                .accessibilityAddTraits(.isHeader)
+            Text(Self.emptyHint).font(DS.Typeface.body).foregroundStyle(DS.Palette.muted)
+                .multilineTextAlignment(.center)
+            Text(Self.sharedChatNote)
                 .font(DS.Typeface.meta).foregroundStyle(DS.Palette.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: DS.Size.proseNarrow)
         }
-        .padding(DS.Space.s6)
+        .padding(DS.Space.s5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s2) {
-            // Return goes through `send()` too (`.onSubmit` ignores the Button's disabled state), so
-            // the gate lives in `send()`/`ChatModel.submit`, not in `.disabled`.
-            ComposerBox(placeholder: "Message \(chat.bot.title)", draft: $draft, canSend: canSend,
-                        onSend: send, focus: $composerFocused)
-            HStack(spacing: DS.Space.s3) {
-                KeyHint(keys: "Return", label: "send")
-                Spacer()
-                if chat.busy {
-                    HStack(spacing: DS.Space.s2) {
-                        WorkingDots(color: identity.nameColor)
-                        Text("\(chat.bot.title) is replying").font(DS.Typeface.caption).foregroundStyle(DS.Palette.muted)
-                    }
-                    .transition(.opacity)
-                }
-            }
-            .animation(motion ? DS.Motion.ease : nil, value: chat.busy)
+    /// The empty Bot Chat's hint (Desktop `chatEmpty`).
+    nonisolated static let emptyHint = "Say something to get started."
+
+    /// The Bot Chat is the bot's one continuous chat, kept by Hermes (never deleted on quit).
+    nonisolated static let sharedChatNote = "This is the bot's one ongoing chat, shared with Hermes Desktop and kept when the app quits. Group chats are separate."
+
+    private var loadingChat: some View {
+        EmptyStateView(symbol: "bubble.left.and.text.bubble.right", title: "Opening \(chat.bot.title)'s Bot Chat",
+                       message: "Loading the conversation from Hermes.") {
+            ProgressView().controlSize(.small).accessibilityLabel("Loading")
         }
-        .padding(.horizontal, DS.Space.s4).padding(.top, DS.Space.s2).padding(.bottom, DS.Space.s3)
     }
 
-    private var canSend: Bool {
-        backend != nil && !chat.busy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// Clears the draft only when the model accepted it: Return while a turn runs keeps the draft.
-    private func send() {
-        guard let backend else { return }
-        if chat.submit(draft, backend: backend, title: "hba-app-\(Int(Date().timeIntervalSince1970))") { draft = "" }
+    private func failedChat(_ message: String) -> some View {
+        EmptyStateView(symbol: "exclamationmark.triangle", title: "Can't open the Bot Chat", message: message) {
+            Button("Retry") { chat.open() }
+                .buttonStyle(DSButtonStyle(kind: .primary))
+                .accessibilityLabel("Retry opening the Bot Chat")
+        }
     }
 
     @ViewBuilder private func bubble(_ line: ChatLine) -> some View {
         switch line.role {
         case .user:
-            UserBubble(text: line.text, time: 0)
-        case .bot:
-            MemberMessage(identity: identity, author: chat.bot.title, time: 0,
-                          trailingNote: line.interim ? "interim" : (line.streaming ? "streaming" : nil)) {
-                StreamingText(text: line.text, streaming: line.streaming, caret: identity.color)
+            if let notice = SystemNotice.parse(line.text) {
+                SystemNoticeRow(notice: notice, id: line.id)
+            } else {
+                UserBubble(text: line.text, time: 0, mentionHandles: chat.mentionHandles)  // B1: tagged bots highlighted
             }
+        case .bot, .thought, .tool:
+            botContent(line)
         case .error:
-            HStack(alignment: .top, spacing: DS.Space.s2) {
-                Image(systemName: "exclamationmark.triangle.fill").font(DS.Typeface.iconSmall)
-                Text(line.text).textSelection(.enabled)
-            }
-            .font(DS.Typeface.meta).foregroundStyle(DS.Palette.danger)
-            .padding(.leading, DS.Size.contentInset)
+            BotChatActions.errorCard(line, chat: chat)  // B10
+        case .system:
+            SystemNoteRow(text: line.text)
         }
     }
 }
@@ -177,7 +376,7 @@ struct StreamingText: View {
                 Caret(color: caret)
             }
         } else {
-            MessageBody(text: text)
+            MessageBody(text: text).equatable()
         }
     }
 }

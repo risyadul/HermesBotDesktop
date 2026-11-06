@@ -107,12 +107,12 @@ final class InspectorLayoutTests: XCTestCase {
         let bot = try XCTUnwrap(model.bots.last)
         model.selection = .bot(bot.name)
         if transcript {
-            // A never-connected client: the submit adds the user line, the session open fails fast and
-            // adds an error line. Nothing leaves the process.
-            let backend = Backend(mode: .spawned(pid: 0, port: 9), client: GatewayClient(url: URL(string: "ws://127.0.0.1:9")!),
-                                  ready: .null, verdicts: [], owned: nil)
-            XCTAssertTrue(model.chat(for: bot).submit(String(repeating: "A long message that wraps in the chat column. ", count: 6),
-                                                      backend: backend, title: "hba-layout"))
+            // An in-memory Bot Chat whose history holds a long exchange. Nothing leaves the process.
+            let long = String(repeating: "A long message that wraps in the chat column. ", count: 6)
+            model.chats[bot.name] = ChatModel(bot: bot, opener: { _ in
+                FakeChatLink(history: [ChatHistoryMessage(role: .user, text: long),
+                                       ChatHistoryMessage(role: .assistant, text: long)])
+            })
         }
         let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 120, y: 120), size: size),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

@@ -24,6 +24,14 @@ enum DS {
         static let attention = dynamic(light: 0x955A00, dark: 0xF0BE5E)
         static let attentionSoft = dynamic(light: 0xFDF3E1, dark: 0x3A2F1A)
         static let statusOK = Color(hex: 0x1C7A82)
+        /// Find in chat (B13): every match's text background, and the ring around the current match's message.
+        static let findMatch = dynamic(light: 0xFFE58A, dark: 0x5C4A00)
+        static let findCurrent = dynamic(light: 0xC99700, dark: 0xE0B000)
+        /// Links and @mentions of bots in message text: the one blue in the app, so "clickable / addressed"
+        /// reads at a glance (graphite stays the accent for controls). ≥ 4.5:1 on window and user bubble.
+        static let linkLight: UInt32 = 0x0B63CE
+        static let linkDark: UInt32 = 0x6CB4FF
+        static let link = dynamic(light: linkLight, dark: linkDark)
         /// Translucent so they also read over the sidebar material (solid equivalents in DESIGN.md).
         static let hairline = dynamic(light: (0x000000, 0.09), dark: (0xFFFFFF, 0.10))
         static let hover = dynamic(light: (0x000000, 0.045), dark: (0xFFFFFF, 0.06))
@@ -91,6 +99,13 @@ enum DS {
     }
 
     enum Size {
+        /// `media-thumb` / `media-chip` (DESIGN.md Components): inline image bounds (aspect fit, never
+        /// upscaled), file chip maximum width, and the decode size (2x the bounds, sharp on Retina).
+        static let mediaThumb = CGSize(width: 320, height: 240)
+        static let mediaChipMax: CGFloat = 320
+        static let mediaDecodePixels: CGFloat = 640
+        /// Approval / sudo command box: taller commands scroll inside it (indicator always visible).
+        static let commandMaxHeight: CGFloat = 220
         static let sidebarWidth: CGFloat = 260
         static let sidebarMin: CGFloat = 220
         /// The sidebar column is the setting + 8 (measured, macOS 26). 272 + 8 + `detailMin` 540 fills the
@@ -119,6 +134,8 @@ enum DS {
         static let avatarMessage: CGFloat = 32
         static let avatarInspector: CGFloat = 36
         static let avatarEmpty: CGFloat = 44
+        /// Bot Chat before its first message: the bot's large face over its name (Desktop `chat-empty.tsx`).
+        static let avatarChatEmpty: CGFloat = 96
         /// Room stack: two 18 pt tiles, the second offset by 10 pt, inside the 28 pt row slot.
         static let stackTile: CGFloat = 18
         static let stackOffset: CGFloat = 10
@@ -140,6 +157,8 @@ enum DS {
         static let inspectorMax: CGFloat = 260
         static let popoverWidth: CGFloat = 280
         static let sheetWidth: CGFloat = 460
+        /// Open Recent Session: a read-only transcript sheet, inside the 820 × 520 window minimum.
+        static let recentSessionSheet = CGSize(width: 560, height: 440)
         static let settingsWidth: CGFloat = 420
         /// Reading measure for empty-state sentences.
         static let proseNarrow: CGFloat = 380
@@ -148,6 +167,16 @@ enum DS {
         /// Composer text field vertical inset so one line sits centred on the 28 pt Send button.
         static let fieldInset: CGFloat = 5
         static let composerLines = 1...6
+        /// The Bot Chat composer's text field never gets narrower than this: a narrow row moves the mic, then
+        /// Stop, from the field row to the row below (`ComposerFieldLayout`).
+        static let composerFieldMin: CGFloat = 140
+        /// Bot Chat composer controls: model menu label cap, context gauge bar, queue panel height cap,
+        /// hover copy buttons on messages.
+        static let controlLabelMax: CGFloat = 150
+        static let gaugeWidth: CGFloat = 28
+        static let gaugeHeight: CGFloat = 4
+        static let queueMaxHeight: CGFloat = 132
+        static let messageAction: CGFloat = 22
     }
 
     enum Stroke {
@@ -214,6 +243,8 @@ enum DS {
         static let arriveOffset: CGFloat = 10
         static let arriveScale: CGFloat = 0.97
         static let paneOffset: CGFloat = 12
+        /// Incoming detail pane: short, so a quick run of switches never shows a pane mid-fade for long.
+        static let pane = Animation.easeOut(duration: 0.16)
         /// Approval ring: one ripple, growing this far, starting after the card settled.
         static let ringGrow: CGFloat = 10
         static let ringDelay: Double = 0.45

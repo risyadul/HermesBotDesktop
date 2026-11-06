@@ -6,6 +6,12 @@ WS framing, error envelope), which stays valid; this file adds the connection pr
 chat methods the app now uses.
 M2 (2026-11-03): §7 is the final `groups.*` contract the Group Chat uses (room
 update model, approve/stop/retry). Where §7 and groups-contract.md differ, §7 wins.
+M3 (2026-11-05, desktop parity): §8-§13 document what the app now does beyond the M1 flow:
+canonical Bot Chat (§8), server→client requests (§9), tool activity (§10), slash commands (§11),
+attachments (§12), `MEDIA:` files (§13). §8-§13 replace the ephemeral `hba-` 1:1 flow of §3.1/§3.2/§3.4
+for the app's Bot Chat; those sections stay as the record of what was run in M1. Wire facts in §8-§13
+come from backend source (citations below) and the kit's fake-gateway unit tests. **No live run was done
+for any of §8-§13**; see §14.
 Reference source (read-only): [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) @ `8a7a5a905fc6` (local checkout `~/.hermes/hermes-agent`).
 Paths below are relative to that checkout.
 
@@ -163,7 +169,13 @@ notes after a client-side socket close). Rules now:
 
 Implemented in `Sources/HermesGatewayKit/BotChat.swift` (`BotChatSession`).
 
-### 3.1 `session.create` [run]
+> **Replaced (M3).** §3.1, §3.2 and §3.4 describe the M1 flow: a throwaway `hba-` session
+> (`close_on_disconnect: true`, `session.title hba-…`, `session.close` + `session.delete` on quit). The app's
+> Bot Chat now opens the bot's canonical chat instead (§8): `close_on_disconnect: false`, title `"Bot Chat"`,
+> teardown = detach only. The M1 flow is kept in the kit as `BotChatSession.open` (non-canonical sessions) and
+> is the evidence base for §3.2's title-race findings. The M1 text below is history, not current behavior.
+
+### 3.1 `session.create` [run] — M1 flow, replaced by §8
 
 - Params used: `{profile: <bot name>, close_on_disconnect: true, cols: 100}`
   (`SessionCreateParams`, `tui_gateway/contracts/sessions.py:119-148`; handler
@@ -178,7 +190,7 @@ Implemented in `Sources/HermesGatewayKit/BotChat.swift` (`BotChatSession`).
 - The creating socket becomes the session's transport (`"transport": current_transport()`, `:442`).
   That binding is what routes the turn's events to this client (§4).
 
-### 3.2 `session.title` (set before the first prompt) [run]
+### 3.2 `session.title` (set before the first prompt) [run] — M1 flow, see §8 for the canonical title
 
 - Params: `{session_id, title}`. Result `{pending: false, title}`.
 - With no row yet, the handler persists the row now and writes the title with `user` provenance
@@ -224,7 +236,7 @@ Implemented in `Sources/HermesGatewayKit/BotChat.swift` (`BotChatSession`).
   - D, two synchronous `submit`s: `[true, false]`, exactly one more `prompt.submit` frame.
 - A client-supplied `_turn_author` is refused with 4124 (`methods_prompt.py:761-764`) [src].
 
-### 3.4 Teardown [run]
+### 3.4 Teardown [run] — M1 flow, replaced by §8.5
 
 - `session.close {session_id}` → `{closed: true, messages: []}` (`methods_session.py:2202-2206`).
   The stored row stays resumable.
@@ -232,8 +244,9 @@ Implemented in `Sources/HermesGatewayKit/BotChat.swift` (`BotChatSession`).
   - It takes the STORED id.
   - It refuses with 4023 while the session is live in this process, hence close first
     (`methods_session.py:1181-1205`).
-- App policy (M1): app chats are ephemeral. On quit the app closes and deletes them;
-  `HERMES_BOT_APP_KEEP_SESSIONS=1` keeps them.
+- App policy (M1, **replaced by §8.5**): app chats were ephemeral. On quit the app closed and deleted them;
+  `HERMES_BOT_APP_KEEP_SESSIONS=1` kept them. The canonical Bot Chat is never closed or deleted. The
+  close + delete path remains in the kit only for non-canonical sessions.
 - Crash path [run]: an app SIGKILL leaves the stored row. `close_on_disconnect` reaps only the live
   session. The leftover in `app-spawn-sigkill` was deleted afterwards with
   `bot-chat-harness --delete researcher <id>`.
@@ -289,8 +302,9 @@ Taken from `evidence/m1/attach-run1/wire.log`, attached to Electron desktop-serv
 - `error {message}` is a session-level failure outside a turn (`:98`) [src].
 - Bot Chat silence: for the canonical Bot Chat (title exactly `"Bot Chat"`, `tools/bot_mode_probe.py:31`)
   deltas are withheld while the buffer could still be a silence marker (`prompt_turn.py:31-42`, `744-767`).
-  A client must keep the streamed text when `message.complete.text` is `""`. The app uses `hba-` titles,
-  so this path was not exercised.
+  A client must keep the streamed text when `message.complete.text` is `""`. The M1 `hba-` sessions never hit
+  this path. The canonical chat (§8) does; the transcript keeps the streamed text when the final is empty
+  (§4.5), not run live.
 - Observed chunking [run]: with example-model-flash via antigravity, the reply text arrives as 2–7
   `message.delta` frames in a 0.2–0.7 s burst, after 8–22 s of `thinking`/`reasoning` events.
   - App attach run: `ui message.delta` at 23.575 → 24.300 s, the bubble growing 109 → 870 chars over
@@ -383,14 +397,14 @@ Coverage:
 
 - Spawn with the REAL lock dir, i.e. the true production "no Electron" case. Only a private empty lock
   dir was used, because Electron could not be stopped. The code path differs only by the env var.
-- `session.interrupt`, busy-path statuses (`queued`/`steered`/`redirected`), tool calls, live
-  `message.interim`, a live `response_transformed`/`response_previewed` turn, approvals and other
-  server→client requests inside a 1:1 turn. Multi-turn on one session is now proven (§3.3). The app never sends
-  `client.capabilities`, so it is treated as a client that does not answer requests
-  (`session_transports.py` `_session_client_answers_requests`) [src].
-- Reconnect/replay (`session.events.since`, `session.resume`) after a socket drop.
-- Canonical Bot Chat (`"Bot Chat"` title, hidden canonical row, bot-mode protocol prompt) vs the app's
-  ephemeral `hba-` sessions.
+- `session.interrupt`, busy-path statuses (`queued`/`steered`/`redirected`), live `message.interim`, a live
+  `response_transformed`/`response_previewed` turn. Multi-turn on one session is proven (§3.3).
+- Everything in §8-§13 (canonical chat, server→client requests, tool activity, slash commands, attachments,
+  `MEDIA:` files): implemented and unit-tested against a fake gateway, **not run against a live backend**.
+  The M1 statement that the app never sends `client.capabilities` is obsolete: it now sends it after
+  `gateway.ready` (§9.1). Details of what is unproven: §14.
+- Reconnect/replay (`session.events.since`) after a socket drop. (`session.resume` is used to open the
+  canonical chat, §8.3, but not as a reconnect after a drop.)
 - One `session.info` frame for the 1:1 session also appeared on the spawned backend's stdout
   (`~/Library/Logs/HermesBotApp/serve.log`), besides the one on the WS. The emitting path was not
   traced. Draining stdout already covers it.
@@ -407,8 +421,7 @@ Coverage:
   - Live typing for members needs either a backend change or polling `room.activity` only.
 - `--isolated` publishes `host-serve`. While the app's spawned backend lives, a terminal `hermes serve`
   attaches to it, and quitting the app takes that backend away from such a CLI client.
-- Leftover rows after a crash (§3.4). A startup sweep of the app's own `hba-app-*` rows would be a cheap
-  fix if ephemeral chats stay the policy.
+- Leftover rows after a crash (§3.4). Moot for Bot Chat since M3 (the chat is canonical and kept, §8.5).
 - Group Chat transcripts need the same settling rules as §4.5 (authoritative final, interim
   segments, the transform flag) once member replies are rendered; `ChatTranscript` is per-session
   today and does not model several authors per turn.
@@ -444,12 +457,26 @@ Errors use the M0 envelope; app/harness render them only through `Redaction.desc
 | `groups.approve` | `{room_id, member_id, task_id, execution_generation, choice: once\|deny, request_id}` | `{approved: true, result: {resolved: 1}}` | `:437` |
 | `groups.retry` | `{room_id, task_id}` | `{retried: true, task: {room_id, task_id, thread_id, turn_id, status: "queued", execution_generation, cancel_generation}}` | `:448` |
 | `groups.disband` | `{room_id, cancel_id}` | `{tombstone: {disbanded_at, event: room.disbanded}}` | `:397` |
+| `groups.rename` | `{room_id, event_id: "hba-rename-<uuid>", name}` | `{room: {…room, revision + 1, event: room.renamed}}`; name stripped, 1–200 chars; no worker needed; 4117 room error, 5117 other | `:483` → `hosted_rooms.rename_room` |
 
 App rules on top of the wire:
 - Room ids are minted by the app: `hba-` + 12 hex (`AppModel.createRoom`). Members are the user's bots
   with `member_id = handle = profile = profile name` and `display_name` from `profiles.list`; names that
   fail the identifier rule (`^[A-Za-z0-9][A-Za-z0-9._:-]*$`, ≤128) or are `all`/`everyone` are not
   offered (`RoomMember.forBot`) [src + test]. Create needs 2–6 bots in the UI.
+- Threads [src + test]: the room composer sends `thread_id: "main"`; the thread pane sends the thread's id.
+  "Reply in thread" on a `main` message starts `hba-t-<seq>` (anchored on that message), on a thread message
+  continues its thread (including ids other clients minted). The policy plans each thread on its own and a
+  member's prompt holds only that thread's messages (`hosted_room_discussion.py` `_pending_discussion`,
+  `_thread_messages`), so the first message of an anchored thread quotes the anchor (`> Author: …`,
+  `RoomThreads.opening`). `groups.log` carries `payload.thread_id` on user/member messages and on
+  `turn.*`/`room.activity`; events without one count as `main`.
+- Sidebar digests [src + test]: `RoomDigestHub` lists rooms every 5 s (an unsettled room) or 15 s, reads
+  `groups.log` only for rooms whose `latest_seq` moved (≤ 40 events from the last seq held), and asks
+  `groups.state` only for rooms with an unsettled discussion (approvals exist only while a turn runs). The
+  open room feeds it from its own polls. "Needs you" = a member message matching `@user` (Hermes Desktop's
+  rule, not inside e-mail addresses or longer handles) newer than the user's last message and than the seq
+  last on screen (persisted per room), or a pending approval.
 - `groups.send` `text` ≤ 64 KiB (`hosted_room_discussion.py:198-203`). `RoomComposer` blocks a
   second submit while one send is in flight; a user may post while bots work (the newer message
   supersedes the older one in the same thread) [src + test].
@@ -968,3 +995,553 @@ Trial 306 reruns from the final candidate (all attach-only or isolated; console 
   refused, 0 `groups.send`; failed disband (5114) → `open`, send accepted. Real NSEvent Return (keyCode
   36) into `_SystemTextFieldFieldEditor`: live room → draft cleared, 1 send; Return while that send is in
   flight → draft kept, still 1; after it finished → sent (2); after disband → draft kept, 0 new sends.
+
+
+## 8. Canonical Bot Chat (M3, desktop parity)
+
+Status: **[src + test] only; no live run.** Code: `Sources/HermesGatewayKit/CanonicalBotChat.swift`
+(`BotChatSession.openCanonical`), `BotChat.swift` (`detach`, `close`). Tests:
+`Tests/HermesGatewayKitTests/CanonicalBotChatTests.swift` (fake gateway). Research with full citations:
+`.omc/research/wire-parity.md` §1. Backend paths are relative to the reference checkout (header).
+
+Identity: a bot's one forever chat is **(profile, session titled exactly `"Bot Chat"`)**, the same chat Hermes
+Desktop opens. There is no session-id pin; never pick by recency or visibility. Constant
+`SessionDB.CANONICAL_BOT_CHAT_TITLE` (`hermes_state.py:1610`), `tools/bot_mode_probe.py:31`. `UNIQUE(title)`
+makes it at most one row per profile DB; a hidden "Bot Chat" row cannot be renamed
+(`hermes_state_titles.py:100-109`).
+
+### 8.1 Find: `session.list` with `title` [src + test]
+
+- Params: `{profile, title: "Bot Chat", include_hidden: true, limit: 200}` (`contracts/sessions.py:222-225`).
+  With `title` the handler does an exact, window-free `get_session_by_title`
+  (`methods_session.py:522-555`). Hidden rows resolve; a Bot Chat archived by accident is auto-unarchived by
+  the lookup (`:526-537`).
+- Result `{sessions: [row]}`, at most one. `id` = registry id; `resolved_id` = compression-lineage tip, always
+  present on a title lookup. **The app opens `resolved_id`, else `id`** (`CanonicalRow.openId`); identity stays
+  `id`. A row matches when its lineage root title (`root_title`) is `"Bot Chat"`, or the root title is empty and
+  its title is `"Bot Chat"` (mirrors Desktop `isCanonicalBotChatHistory`).
+- **Fail closed**: any error or a missing `sessions` array throws `BotChatError.lookupFailed`; it is never read
+  as "no chat" (Desktop: "not starting a new chat", `canonical-chat.ts:282-319`).
+
+### 8.2 Absence confirmation, create, title [src + test]
+
+Only an empty lookup leads to create, and only after confirming absence:
+
+1. `profiles.list {include_sessions: true}`: if the bot's row still carries `canonical_session.id`
+   (`methods_profiles.py:160-193`), the empty lookup is unconfirmed → `BotChatError.absenceUnconfirmed`, no mint
+   (Desktop `canonical-chat.ts:328-338`).
+2. `session.create {profile, title: "Bot Chat", hidden: true, follow_profile_config: true,
+   close_on_disconnect: false, source: "desktop", cols}`. `title` goes on create (not only via
+   `session.title`) because `pending_title` also feeds the agent's `_session_title_hint`, which turns on the
+   Bot Mode prompt section before any DB row exists (`server.py:1091-1093`, `agent/system_prompt.py:344-365`).
+   The row is still lazy.
+3. `session.title {session_id, title: "Bot Chat"}` at once, to materialize the row with `user` provenance and
+   close the duplicate-mint race (`methods_session.py:1226-1255`; Desktop `canonical-chat.ts:493-511`). An
+   RPC error on this call other than 4022 is tolerated (older gateway: the first prompt persists the row from
+   `pending_title`).
+4. **4022** "Title 'Bot Chat' is already in use by session X" (or a message containing "already in use"):
+   re-run the lookup and adopt the winner via resume (§8.3); the stray lazy session is abandoned and pruned by
+   the backend. If the re-lookup finds nothing → `lookupFailed`.
+- No kickoff prompt on open. The user speaks first (Desktop only sends one on genuine new-bot creation).
+- Single-flight per `(backend, profile)` (`CanonicalFlight`): concurrent opens share one result, so a double
+  click cannot mint twice.
+
+### 8.3 Resume with history [src + test]
+
+`session.resume {session_id: <resolved_id || id>, profile, cols, source: "desktop", close_on_disconnect: false,
+inline_images: false}`, cold (no `defer_history`/`omit_messages`) so the reply carries the transcript
+(`contracts/sessions.py:183-195`, modes `methods_session.py:1058-1093`).
+- The reply `session_id` is the **runtime** id. `messages` decode to `ChatHistoryMessage`
+  (`BotChatSession.history`): roles user/assistant/tool/system; rows with `display_kind: "hidden"` and empty
+  non-tool rows are dropped; tool rows keep only `name` + `context` (history has no tool results,
+  `session_history.py:285-364`). `inline_images: false` yields `[image]` placeholders, not data URIs.
+- `open_requests` of the reply become `BotChatSession.openRequests` (§9.5).
+- **4007** "session no longer live; retry resume" and **4009** "session disconnect interrupt settling" are
+  retried once after 0.5 s (`session_lifecycle.py:819-828`). Other errors propagate.
+- If the session is already live in this process (e.g. Desktop on the same backend), resume reattaches to the
+  same runtime id alongside the other clients; both get every event and every server→client request
+  (`methods_session.py:877-900`, `session_transports.py`).
+
+### 8.4 `source: "desktop"` and `close_on_disconnect: false` [src]
+
+Matches Desktop (which sends neither `close_on_disconnect` nor, on create, `source`; the app sets `source`
+explicitly). With `close_on_disconnect: false` a dropped socket detaches instead of reaping the runtime; with
+`source: "desktop"` automatic orphan cleanup does not end the DB row (`session_lifecycle.py:60, 363-367,
+420-424`). This is what keeps the chat alive across app restarts and next to Desktop.
+
+### 8.5 Teardown = detach only [src + test]
+
+`BotChatSession.close(deleteStored:)` on a canonical session only calls `detach()` (stops routing events,
+requests and disconnects to this client) and returns the note "canonical Bot Chat: detached only". It sends
+**no** `session.close`, **no** `session.delete`, **no** rename (`session.close` is per runtime, not per
+client: it would pop the shared session and end the row, even for Desktop, `methods_session.py:2202-2206`,
+`session_lifecycle.py:400-440`). Consequences:
+- The M1 "chats are deleted on quit" behavior no longer applies to Bot Chat; the app no longer reads
+  `HERMES_BOT_APP_KEEP_SESSIONS`.
+- Bots can message other bots from this chat: `message_agent` is authorized only for a session titled
+  `"Bot Chat"` on an install where some profile has `ui_meta['hermes-bots']` (`tools/bot_mode_dm.py:123-138`,
+  `tools/bot_mode_probe.py:110-129`). [src; not exercised]
+
+### 8.6 4090 `SESSION_NOT_OWNED` [src + test]
+
+`prompt.submit` answers error **4090** with `data.reason == "SESSION_NOT_OWNED"` while another live backend
+process holds the session's active lease (`methods_prompt.py:774-777`, `session_lifecycle.py:120-136`,
+`hermes_cli/active_sessions.py:100-117`). `BotChatSession.send` maps 4090 to `BotChatError.sessionNotOwned`
+("<bot>'s Bot Chat is running in another Hermes app. Open it in the Hermes app that runs it."). The app does
+not take the lease over; it relies on attach-first (§1) to land on the process that hosts the session.
+The lease lifetime across processes was not traced (research "Unknowns").
+
+### 8.7 Session-id changes: `session.info` and `session.reclaimed` [src + test]
+
+Two things can change a canonical chat's ids under an open `BotChatSession`
+(`BotChat.swift`, tests `BotChatRebindTests`, `CanonicalBotChatTests`):
+- **Compression moves the stored id.** `session.info {stored_session_id}` (compress rotates the lineage tip)
+  updates `storedSessionId` in place (`BotChat.swift`, the `session.info` case of event delivery). The
+  runtime id is unchanged. `BotChatSession.compress` also returns `CompressOutcome` with the replacement
+  `history` when the backend sends `messages` (§11.4). Identity stays the title, so the next open (§8.1)
+  finds the right tip.
+- **The backend reclaims the runtime.** `session.reclaimed {session_id, stored_session_id, reason}` is a
+  session-less broadcast (idle TTL, LRU cap, orphan reap). `attach()` subscribes to it globally; `reclaimed(_:)`
+  matches it to this chat by runtime id (or by stored id when the payload has no runtime id) and ignores it once
+  detached or while a recovery runs. A canonical chat emits `.other("session.reclaimed")`, then
+  `resumeAfterReclaim()` does the §8.1 lookup again and a cold `session.resume` (`cols` as at open, 4007/4009
+  retried once), and `rebind(to:stored:)` moves event and server-request subscriptions to the new runtime id.
+  It then emits `.other("session.resumed")` and re-emits the resume's `open_requests` as new requests (§9.5).
+  If lookup or resume fails it emits `.error("Hermes closed this Bot Chat's live session and it could not be
+  reopened: …")`. A non-canonical session only reports `session.reclaimed`.
+  `ChatModel` reacts to both events (`ChatModel.swift`).
+
+## 9. Server→client requests (M3)
+
+Status: **[src + test]; no live run.** Code: `ServerRequests.swift`, `Backend.swift`
+(`advertiseCapabilities`), `GatewayClient.swift` (`respond`/`respondError`, `onRequest`). Tests:
+`Tests/HermesGatewayKitTests/ServerRequestTests.swift`. Research: `.omc/research/wire-parity.md` §4.
+
+### 9.1 Advertise [src + test]
+
+Once per connection, right after `gateway.ready`: `client.capabilities {server_requests: true}` →
+`{server_requests: [methods], declines_not_shown: bool}` (`contracts/liveness.py:29-48`,
+`methods_voice.py:442-450`). Handlers are installed before the call, so no request can arrive unrouted.
+- Without an advertising client every request fails fast with no frame: approval is withdrawn (not denied),
+  clarify returns `outcome: "undelivered"`, value prompts return `""` (`server_requests.py:120-157`,
+  `session_transports.py:38-47`).
+- A backend without the method (older build): the failure is logged, `declines_not_shown` is treated as
+  false, and the app keeps running.
+
+### 9.2 Frames [src + test]
+
+Request: `{"jsonrpc":"2.0","id":"srq-…","method":M,"params":{"session_id":sid,…}}` (`server_requests.py:84-86`).
+A frame with `id` + `method` is a request; the answer echoes the **wire id exactly as received** (string or
+number) as `{"id":…,"result":{…}}` or `{"id":…,"error":{code,message}}`. First answer wins; later ones are
+dropped (`:364-366`). Routing is by `params.session_id` to the `BotChatSession` that owns it.
+
+### 9.3 Handled methods [src + test]
+
+| method | app surface | answer |
+|---|---|---|
+| `approval` | approval card: command (already redacted), description, choices ⊆ `once|session|always|deny` (all four when none offered) | `{choice, all}` |
+| `clarify` | question list with optional choices and `multi_select` | `{answers: {qid: str\|null}}`; `{}` (no `answers`) cancels all |
+| `sudo`, `secret` | masked input | `{value}`; `""` declines |
+
+- **Approval, two paths.** A live `approval` request is answered by replying to the frame
+  (`BotChatSession.answer`). Desktop instead answers through RPC `approval.respond {session_id, choice, all?,
+  request_id?}` → `{resolved}` (`contracts/prompt_voice.py:296-331`; `apps/desktop/src/store/prompts.ts:377-406`).
+  The app does not use that RPC: every approval it shows comes with an open frame (live, or re-shown from
+  `open_requests` on resume), so it always replies to the frame. `request_id` in that RPC is the approval
+  **queue** id from the params, not the `srq-` id.
+  The app calls `approval.received` once per approval card when the card is on screen
+  (`ChatModel+Requests.swift`, `BotChatSession.approvalReceived`); not run live.
+- **Clarify early lock.** `clarify.lock {request_id, question_id, answer}` → `{status: ok|expired}`
+  (`prompt_voice.py:253-274`) is not used: the card answers the whole batch at once. Replayed batches carry
+  `params.answers` (`ClarifyPrompt.replayAnswers`).
+- **Wire tap.** Server→client request frames are logged as `{id, method, params:<omitted>}`, answers as
+  `{id, result:<omitted>}`, and outbound `clarify.lock` / `approval.respond` params are omitted too.
+- Defaults: `sudo`/`secret` prompt text falls back to "sudo password" / "value".
+
+### 9.4 Decline policy [src + test]
+
+| case | reply |
+|---|---|
+| Unknown method | error `-32601` "method not found: M" (settles as unanswered, `server_requests.py:299-306`) |
+| Known but not shown here: `terminal.read`, `preview.read`, `preview.act`, `window.read`, `tour`, `setup_choose`, `vault.unlock_prompt`, `vault.save_login`, `vault.code`, `display.install.sudo` | error **4404** "This window is not showing the session." (Desktop's text, `gateway-event/server-requests.ts:116`) |
+| `approval`/`clarify`/`sudo`/`secret` for a session no open chat owns | held up to 5 s (≤256 frames) for a chat that is attaching, then 4404 |
+| User stops the turn with a request open | error `-32603` "session interrupted" (`BotChatSession.decline`, Desktop `server-requests.ts:269-277`) |
+
+- The backend attaches our socket to a session inside `session.resume` / `session.create`, before the reply,
+  so events and requests can precede the reply that lets the chat subscribe. Unrouted session-scoped events
+  and requests are therefore held (`UnroutedHold`: ≤256 frames, ≤5 s) and replayed in order to the first
+  subscriber of that session id; only an unclaimed request is declined, when its hold expires.
+- 4404 only settles once **every** attached client declined, so Desktop can still answer
+  (`server_requests.py:107-111, 260-284`). That holds only if the backend advertised `declines_not_shown`:
+  when it did not, the first error would settle the request for everyone, so the app **sends nothing** for
+  4404 cases (Desktop does the same). `-32601` is always sent.
+
+### 9.5 Cancel and replay [src + test]
+
+- `request.cancel {id, method, reason: timeout|interrupted|shutdown|resolved|session_closed}` → clear only that
+  request (`ChatEvent.requestCancelled`; `contracts/server_requests.py:252-267`).
+- `approval.cancelled {request_ids, …}` → `ChatEvent.approvalsCancelled(requestIds)`; the ids are approval
+  **queue** ids (match `ApprovalPrompt.requestId`).
+- `open_requests: [{id, method, params}]` on `session.resume` become `BotChatSession.openRequests` and are shown
+  as if just received, also after a reclaim re-resume (§8.7) (`server_requests.py:15-18, 339-344`; `server.py:781-794`). Not wired for
+  `session.activate`/`session.events.since` (the app does not call them).
+- Timeouts are backend-side: clarify 300 s default (`<=0` unlimited), value prompts 300 s
+  (`server.py:1398-1413`); approval uses its own queue timeout (default value not confirmed).
+
+## 10. Tool activity (M3)
+
+Status: **[src + test]; no live run.** Code: `ToolActivity.swift`, `ChatTranscript.swift`
+(`ToolLine`, `startTool`/`completeTool`). Tests: `ChatTranscriptToolTests.swift`.
+
+Events (`contracts/events.py:268-308`; emitters `tool_progress.py:276-368`):
+- `tool.generating {name}`: transient "drafting <tool>" status, not a row. Cleared by `tool.start` and at the
+  end of the turn (`ChatTranscript.draftingTool`).
+- `tool.start {tool_id, name, context?, preview?, labels?}`: a running tool row keyed by `tool_id`. Text =
+  `context` (≈80 chars), else `preview`; label = `labels[].text` joined with " · " (render `text`, never parse
+  tool names, `contracts/common.py:136-154`).
+- `tool.complete {tool_id, name, duration_s?, summary?, error?}`: finishes the row (duration, summary). The
+  contract has no error field; like Desktop, a truthy `error` marks the call failed. A turn that ends with a
+  tool still running settles it as failed.
+- Gating: emitted only when `display.tool_progress != "off"` (default `"all"`), except card tools (`clarify`,
+  `delegate_task`, file edits, todo) which always emit (`server.py:1969-1977, 2132-2160`).
+- Resumed history has tool rows with `name` + `context` only (done state, no `tool_id`, no result).
+- Not used: `args`/`result`/`inline_diff`/`todos`, `tool.output_risk`, `todo.updated`, `status.update`
+  (decoded as `ChatEvent.status`, not rendered as rows). `message.interim` commentary is sealed as its own
+  segment (§4.5). Unknown event types become `ChatEvent.other`.
+
+## 11. Slash commands (M3)
+
+Status: **[src + test]; no live run.** Code: `SlashCommands.swift`. Tests: `SlashCommandTests.swift`.
+Research: `.omc/research/wire-parity.md` §2. The backend does not interpret `/text` sent through
+`prompt.submit` (it would reach the model literally), so commands go through dedicated RPCs.
+
+### 11.1 Catalog [src + test]
+
+`commands.catalog {session_id}` (profile and cwd scoped, `methods_tools.py:503-536`) → `categories[].pairs`,
+`pairs`, `canon`, `commands{name: {argument_mode, desktop, desktop_subcommands}}`, `warning`. The app keeps a
+built-in only when `commands[name].desktop` is null (hides terminal-only, messaging-only, settings, advanced,
+composer-voice ones); skills, quick and plugin commands have no `desktop` entry and are kept. Duplicate names
+collapse (categories first). `desktop_subcommands` narrows commands such as `/skills`. The popover filter
+returns prefix matches first, then substring matches. `complete.slash` is not used.
+
+### 11.2 Execution [src + test]
+
+1. `slash.exec {session_id, command: "name args"}` (no leading slash). Plain `{output, warning?}` is a system
+   line (a `warning` is prefixed); a result with `type` is a directive.
+2. On an RPC error → `command.dispatch {session_id, name, arg}` (quick > plugin > bundle > skill > built-in,
+   `methods_tools.py:1093-1110`). If that fails with "not a quick/plugin/(bundle/)skill command" (4018), the
+   **original** `slash.exec` error is rethrown as the real failure. A transport error (socket gone) skips the
+   fallback.
+3. Directives (`type`): `exec`/`plugin` → output line; `alias` → re-run `/<target> <arg>` (up to 3 hops, then
+   the alias is returned); `send`/`skill` → show `notice` if any, then `prompt.submit {session_id, text:
+   message}` showing `display`, never the expanded `message`; `prefill` → `message` into the composer (e.g.
+   `/undo`) with `notice`. Unknown `type` → "invalid directive" error.
+4. Subcommand gate: a command with `desktop_subcommands` runs only with an allowed first word; otherwise a
+   system line says what is available.
+
+### 11.3 Client-side rewrites [src + test]
+
+`SlashInvocation.classify(text, canonical:)` runs before anything is sent. Not a command: empty, `/` alone,
+or `//…`.
+
+| typed | canonical Bot Chat | other session |
+|---|---|---|
+| `/new`, `/reset`, `/clear` | rewritten to `session.compress` with notice "Bot chats are one continuous conversation — compacting instead." (Desktop rewrites to `/compact`, `plugins/hermes-bots/plugin.tsx:771-799`) | unavailable |
+| `/compress [focus]`, `/compact [focus]` | `session.compress` | same |
+| `/stop` | `session.interrupt` | same |
+| `/help`, `/commands` | shows the catalog | same |
+| `/title` | unavailable: "The Bot Chat keeps its name" | unavailable |
+| Desktop-owned actions and pickers: `/branch /fork /yolo /reasoning /wake /handoff /profile /skin /browser /journey /btw /bg /background /pet /hatch /generate-pet /model /resume /sessions /switch /save /status /learning /memory-graph`, Ink-only `/density /details /logs /mouse /pets` | unavailable: "/x is not available in Herald." | same |
+| anything else | `slash.exec` path | same |
+
+### 11.4 `session.compress` [src + test]
+
+`session.compress {session_id, focus_topic?}` with a **660 s** timeout (LLM-bound, Desktop
+`use-prompt-actions/slash.ts:82-89`) → `CompressOutcome {compressed, message?, before_messages?,
+after_messages?, history?}`. `history` is set only when the reply has a `messages` array. Following a changed
+session id: §8.7.
+
+## 12. Attachments in Bot Chat (M3)
+
+Status: **[src + test]; no live run.** Code: `ChatAttachments.swift`. Tests: `ChatAttachmentTests.swift`.
+Research: `.omc/research/wire-parity.md` §5, §6. All attach RPCs take the **runtime** `session_id` and must run
+before `prompt.submit` on that session (`server.py:1253-1260`); unknown session → 4001.
+
+### 12.1 RPCs [src + test]
+
+| kind (by extension) | call | result used |
+|---|---|---|
+| image: `png jpg jpeg gif webp bmp tiff tif svg ico` (`hermes_cli/cli_terminal_input.py:33-36`) | `image.attach {session_id, path}` | `name`, `path`; queued on the session and consumed by the next turn (`prompt_turn.py:147-149`) |
+| `pdf` | `pdf.attach {session_id, path}` | `filename`, `pages_attached`, `pages[].path` (kept for rollback); the backend renders pages to PNG with **`pdftoppm`**, max **25 pages** per call (4019), 50 MB (`methods_prompt.py:972-1027, 1288-1328`). **5028** (`pdftoppm` missing or failed) → the PDF is sent with `file.attach` instead |
+| anything else | `file.attach {session_id, path, name}` | `ref_text` (`@file:<ref>`), required; a missing `ref_text` is an error |
+| take back a staged image / every PDF page path | `image.detach {session_id, path}` | `count` |
+
+When: chips are LOCAL until Send (only `ChatAttachments.check` runs at pick time). `BotChatSession.submit(_:files:)`
+runs the attach RPCs in order and then `prompt.submit`, in one task. If a file fails, or `prompt.submit`
+fails, every image and PDF page path staged by that send is detached again (`StageFailure` names the file),
+so nothing stays queued on the shared Bot Chat for someone else's turn [src + test].
+
+Paths are absolute host paths (valid for a loopback backend, like Desktop; bytes variants are for remote
+backends and are not used). `tools/path_security.py` is **not** applied to attach RPCs: the backend checks
+only existence and extension. `attached: false` in a result is an error with the backend's `message`.
+Backend errors 4015/4016/4017/4018/4019/5028 reach the user as `RPCError` text.
+
+### 12.2 Prompt text, ref_text prefix rule [src + test]
+
+Images and PDF pages are queued server-side; the prompt text need not mention them. **Files are not queued:
+the client must put each `ref_text` in the prompt.** `ChatAttachments.promptText`: all `ref_text` lines (one
+per line), a blank line, then the user text (Desktop `submit.ts:218-234`). With no text and no refs, images get
+the caption "What do you see in this image?"; otherwise `""`. Always use `ref_text` verbatim: a raw
+`@file:/abs/path` outside the workspace blocks the whole turn with an `error` event unless it sits in a
+Hermes-staged dir (`prompt_turn.py:704-719`, `agent/context_references.py:487-535`).
+
+### 12.3 Client-side checks [src + test]
+
+Before any RPC (`ChatAttachments.check`): resolve symlinks; must exist (`notFound`) and be a regular file
+(`notRegularFile`); images ≤ 25 MB; PDFs ≤ 50 MB, readable by `CGPDFDocument` and ≤ 25 pages (`tooManyPages`,
+`unreadablePDF`). `file.attach` has no backend size cap and none is added client-side. A `.pdf` needs
+`pdftoppm` on the **backend** host; the app does not fall back to `file.attach` when it is missing (5028 is
+shown).
+
+### 12.4 Group Chat attachments travel as file references (backend is text-only) [src + test]
+
+`groups.send` validates `payload` as an exact field set `{text, thread_id}` and rejects any extra key such as
+`attachments` (`gateway/hosted_room_discussion.py:60, 198-203`; handler `methods_groups.py:382-393`; RoomLink
+catalog `attachments=False`, `methods_groups.py:162`). The app's payload stays exactly
+`{text: ..., thread_id: "main"}` (§7.1), so the user cannot attach files in a room. Desktop avoids this by
+orchestrating Group Chat itself over per-member sessions (`plugins/hermes-bots/group-turns.ts`), which the app
+does not do.
+
+The app therefore sends files as references (`RoomAttachments.swift`, `RoomAttachmentStore.swift`): each file is
+copied to `~/Library/Application Support/HermesBotApp/Room Attachments/<room_id>/<random>/<name>` (0700
+folders; removed on disband) and the text gets a trailing block
+
+    [Attached files: local copies on this Mac, open them with your file tools]
+    - /absolute/path/of/the/copy
+
+which the room's (local) members read with their file tools. The payload is still exactly `{text, thread_id}`.
+The app folds a well-formed block back into attachments (`RoomAttachments.split`); other clients show it as
+text. Limits: 10 files of 50 MB per message (the room's text cap is 64 KiB).
+
+Privacy: the block puts absolute paths (with the macOS user name) into room history, which Hermes Desktop and
+the room's bots see; the backend is local. Because room history is shared state, the app checks and thumbnails
+only paths that are its own copies for that room (`RoomAttachmentStore.contains`); any other path in a user
+message waits for a click, like a protected folder. A send that fails keeps its copies (a timed-out send may
+still have been posted) and gives the chips and text back to the composer.
+
+## 13. Files from bots: `MEDIA:` tags (M3)
+
+Status: **[src + test]; no live run.** Code: `MediaTags.swift` (parser, `MediaSafety`), `MediaViews.swift`
+(UI). Tests: `MediaTagsTests.swift`, `Tests/HermesBotAppTests/MediaViewsTests.swift`. Research:
+`.omc/research/wire-parity.md` §7.
+
+### 13.1 Where tags appear [src]
+
+The gateway passes model text through unchanged: `MEDIA:<path>` is raw in `message.delta`,
+`message.complete.text`, history `text` and `message.member.text`. No event has a structured media list
+(`contracts/events.py:183-213`). Extraction is the client's job, in both Bot Chat and Group Chat.
+
+### 13.2 Regex [src + test]
+
+Port of `MEDIA_TAG_CLEANUP_RE` (`gateway/platforms/base.py:1328-1333`, used by `gateway/stream_consumer.py:966`),
+case-insensitive:
+
+```
+[`"'*_]{0,3}MEDIA:\s*(`[^`\n]+?`|"[^"\n]+?"|'[^'\n]+?'|(?:~/|/|[A-Za-z]:[/\\])\S+?(?:[^\S\n]+\S+?)*?\.(?:EXT))
+  (?=[\s`"'*_,;:)\]}\[<CJK terminators>]|MEDIA:|\.(?:\s|$)|$)[`"'*_]{0,3}\.?
+```
+
+`EXT` = `MEDIA_DELIVERY_EXTS` longest first (`base.py:1289-1301`): images, video, audio, documents, data,
+geo, slides and archives (`png jpg jpeg gif webp bmp tiff svg`, `mp4 mov avi mkv webm 3gp`, `mp3 m2a wav ogg opus
+m4a flac`, `pdf docx doc odt rtf txt md epub`, `xlsx xls ods csv tsv json xml yaml yml`, `kmz kml geojson gpx`,
+`pptx ppt odp key`, `zip tar gz tgz bz2 xz 7z rar apk ipa`, `html htm`). Anchors: `~/`, `/`, `X:\`.
+
+### 13.3 What is parsed and what is ignored [src + test]
+
+- Parsed: backtick/double/single-quoted paths (escape hatch for odd names), unquoted paths with interior spaces
+  when they end in a known extension, up to 3 `*`/`_`/quote markers around the tag, glued tags split at
+  `MEDIA:`; a sentence-final `.` is not part of the path. A leading `~/` is expanded to the home directory.
+  Refs are de-duplicated on the expanded path and kept in order. Kinds: image, audio, video, pdf, file.
+- **Ignored (tag stays as text)**: tags inside fenced code blocks, inline code spans and `>` blockquote lines
+  (masked before matching; a backtick path *directly after* `MEDIA:` is a quoted path, not a code span); tags
+  with an unknown or no extension (the Python delivers those only after on-disk validation,
+  `MEDIA_EXTENSIONLESS_TAG_RE`, not ported); a whole tag inside inline code (Python keeps it only when the file
+  exists). JSON-string masking and `<|eos|>` are not ported.
+- Directives `[[audio_as_voice]]` and `[[as_document]]` are removed from display and recorded on the ref.
+- Parse settled or accumulated text, not single deltas (a tag can split across chunks): a half tag mid-stream
+  stays plain text until it completes (`Components.swift` calls `MediaTags.split` on the full bubble text).
+
+### 13.4 Display stripping [src + test]
+
+`MediaTags.split` deletes deliverable tags (overlapping spans merged, back to front), collapses runs of 3+
+newlines to a blank line and right-trims, like `strip_media_directives_for_display` (`base.py:3352-3360`).
+Text with no `MEDIA:`/directive is returned unchanged.
+
+### 13.5 `MediaSafety` deny rules [src + test]
+
+Port of `validate_media_delivery_path` (`base.py:1168-1204`, denylists `:829-854`). `MediaSafety.check`:
+- Path must be absolute (`notAbsolute`), exist after `realpath` (`notFound`), and be a regular file
+  (`notRegularFile`). Both the resolved target **and** the lexical path are checked against the rules below
+  (`forbidden`).
+- Denied system prefixes: `/etc /private/etc /System /bin /sbin /usr /dev /proc /sys /root /boot /var/log
+  /var/lib /var/run /private/var/{log,db,run,root} /Library/Keychains`; `/usr/local` is allowed.
+- Denied under the home dir: `.ssh .aws .gnupg .kube .docker .config .azure .gcloud Library/Keychains`; under
+  `~/.hermes`: `pairing mcp-tokens sessions browser-profile auth credentials`, `state.db*`, `kanban.db*`,
+  `config.yaml`, and any name containing `token secret auth credential password oauth apikey api_key`.
+- Denied by name anywhere: `.env`, `.env.*`, `*.env`, `id_rsa*/id_dsa*/id_ecdsa*/id_ed25519*`, `*.pem *.key *.p12 *.pfx`.
+- Not ported: strict mode (`HERMES_MEDIA_DELIVERY_STRICT`, `HERMES_MEDIA_ALLOW_DIRS`, recency).
+
+### 13.6 Open only on click, re-check, symlink extension rule [src + test]
+
+(`MediaViews.swift`, `MediaResolver`.) Images render as an inline thumbnail, everything else as a file chip;
+the disk check and thumbnail decode run lazily off the main thread and are cached per path. **Nothing opens
+without a user click.** Every Open / Reveal runs `MediaSafety.check` again at click time (the file may have
+changed). **Symlink extension rule**: the resolved target must keep the tagged extension (case-insensitive);
+otherwise the ref is unavailable with "The file's real name does not match the attachment, so it will not be
+opened." (a `report.pdf` link to `run.command` would otherwise launch a script on Open). Matches Desktop's rule
+that guest content never opens the OS shell without a trusted click (`apps/desktop/AGENTS.md:83-89`).
+
+## 14. M3 not proven (honest status)
+
+Nothing in §8-§13 was run against a live backend. Tests are unit tests against in-process fake gateways and
+pure functions (`swift test`); the backend behavior is read from source (citations above), as in
+`.omc/research/wire-parity.md` ("Nothing here was exercised live").
+
+- Canonical chat: the lookup, 4022 adoption, resume with history, `message_agent`/bot-to-bot messaging, and
+  coexisting with Hermes Desktop on one session. 4090 across two backend processes. Lease lifetime.
+  Whether `hidden: true` from create survives until `session.title` materializes the row (Desktop relies on
+  it; not traced). §8.7 against a live backend: a real `session.reclaimed` and a real compression-rotated
+  stored id (both covered by in-process fakes only).
+- Server→client requests: a real approval, clarify, sudo or secret round trip; 4404 settling with Desktop
+  attached; `approval.respond` against a live backend; `approval.received`.
+- Tool activity: a live turn with tools; behavior with `display.tool_progress` off.
+- Slash commands: a live `commands.catalog`, `slash.exec` → `command.dispatch` fallback, each directive type,
+  and `session.compress` (including its 660 s timeout).
+- Attachments: a live `image.attach`, `pdf.attach` (needs `pdftoppm` on the backend), `file.attach` with a real
+  turn; `ref_text` handling for paths outside the workspace.
+- `MEDIA:` files: a real bot sending a file; the UI check on Open / Reveal.
+- App wiring: the app uses the canonical flow (`BotChatSession.openCanonical`, detach-only teardown); the
+  M1 `BotChatSession.open` is kept in the kit only for non-canonical sessions and the harnesses. The UI itself
+  (cards, composer, chips, media views) is covered by headless model tests and window layout tests, not by a
+  live run against a backend.
+
+## 15. Bot Chat controls (P1: B7, B8, B9)
+
+Kit: `ChatControls.swift`; app: `ChatModel+Queue.swift`, `ChatModel+Controls.swift`. All [src + test] against
+`tui_gateway` and Hermes Desktop's composer; none proven against a live backend yet.
+
+- **Steer (B8):** `session.redirect {session_id, text}` → `{status: redirected | queued | rejected, text}`
+  (`methods_session_interrupt.py`). `queued` = turn-build window or compression in flight (the backend runs it
+  next). `4010` = the agent has no active-turn redirect. The app records the user line before the RPC (the
+  redirect aborts the model request, so its events can race the reply), keeps it on `redirected` / `queued`,
+  and on `rejected` or an error takes it back and puts the text in its local queue. Only turns this client
+  started are steered; a turn joined from a resume or started by another client is never redirected (Return
+  queues). Slash commands and files are never steered.
+- **Queue (B8):** client-side, per chat, like Desktop's composer queue. Entries are sent with the normal
+  `prompt.submit` path one at a time when the chat is idle: on `session.info running:false` at once, else 1 s
+  after `message.complete` / `error`. Stop parks the queue; Send now while busy promotes the entry and
+  interrupts without parking.
+- **Model (B7):** `model.options {session_id, profile, explicit_only: true}` (Desktop `requestModelOptions`);
+  `config.set {session_id, key: "model", value: "<model> --provider <slug> --session"}` (+
+  `confirm_expensive_model: true` after a `confirm_required` reply). Always `--session`:
+  `resolve_persist_behavior` then never writes `config.yaml`, so a pick changes this chat only (Desktop uses
+  `--session` for secondary surfaces; the app treats every Bot Chat that way). `deferred: true` = picked
+  mid-turn, applied at the next turn start. `4009` from an older backend refusing a mid-turn switch keeps the
+  pick (Desktop `isBusySessionModelSwitch`).
+- **Reasoning (B7):** `config.set {session_id, key: "reasoning", value: <none|minimal|low|medium|high|xhigh|max|ultra>}`
+  with no `scope`: session-scoped (`create_reasoning_override`). Display words the same key accepts (`show`,
+  `hide`, …) write global display config and are refused client-side.
+- **Model / effort / usage state:** `session.info` carries `model`, `provider`, `reasoning_effort`,
+  `reasoning_effort_wire`, `usage` (`server.py` `_session_info`); the kit emits `.info` before the frame's
+  `.idle` / `.other`. The resume reply's `info` seeds it on open.
+- **Context (B9):** `usage.context_used / context_max / context_percent / context_estimated / compressions`
+  from `session.info`, the `session.usage {usage}` event, `message.complete.usage`, or `session.usage`
+  (fetched after a turn without usage and after compaction). The popover reads `session.context_breakdown`.
+- **Compacting (B9):** `status.update` `compacting` (auto) / `compressing` (manual) starts it; `compacted` /
+  `ready`, the first model output or tool start after it, the turn's end, an error, a disconnect or
+  `session.info running:false` ends it (Desktop `store/compaction.ts`).
+
+## 16. Bot Chat P3 (B3, B4, B10, B11, B14, B16)
+
+Kit: `ChatRewind.swift`, `ChatRecovery.swift`, `ContextRefs.swift`, `ChatApprovalMode.swift`, `ChangedFiles.swift`;
+app: `ChatModel+Rewind.swift`, `ChatModel+Attachments.swift`. All [src + test] against `tui_gateway` and Hermes
+Desktop (`apps/desktop/src`); none proven against a live backend (tests use `FakeGateway` / `FakeChatLink`; no
+prompt was sent and no real session was rewound or branched).
+
+### 16.1 Rewind: regenerate, edit, restore (B3) [src + test]
+
+There is no separate rewind RPC. Desktop's rewind core (`use-prompt-actions/rewind.ts` `runRewindSubmit`) sends
+ONE `prompt.submit` that carries a truncation address; the gateway cuts the transcript before that user turn,
+archives what it drops and runs `text` as the new turn (`methods_prompt.py` `_parse_truncation_params`,
+`_resolve_truncation_ordinal`, `_truncate_history_for_submit`). Desktop does this in every chat surface,
+including a bot's canonical Bot Chat (the same core serves the primary chat and tiles), so the app rewinds the
+canonical chat in place: it is cut back, never closed, deleted or reset.
+
+- **Payload (durable-row mode, what the app sends):** `{session_id, text, confirm_truncate: true,
+  truncate_before_row_id: <row>, confirm_empty_truncate: true, [confirm_deep_truncate: true],
+  [rebind_survivor_row_ids: [...]]}`. `confirm_truncate` marks the submit as a rewind (without it the gateway
+  answers `4029`); `confirm_empty_truncate` lets the durable target be the first turn (`4028` otherwise);
+  `confirm_deep_truncate` only after the user agreed to archive later user turns (`4033` when missing; the
+  current backend logs and allows it for old clients, the next refuses). Ordinal-only cuts are refused on a
+  durable session (`4004`), so `truncate_before_user_ordinal` is never sent; renderer ids are never sent as
+  `truncate_before_message_id`.
+- **Row ids:** history rows carry `row_id` (`session_history.py` `_history_to_messages`); `prompt.submit`
+  answers `user_row_id` for the turn it staged; a resume reply may lack stamps, so a missing id is resolved by
+  content in `session.history {session_id}` (stamped, `include_row_ids=True`) exactly as Desktop's
+  `resolveDurableRowId`: a unique text match, or the last match when the target is the newest turn. Unresolved:
+  the prompt is resubmitted plainly (no truncation fields) and the transcript shows it as a new turn plus a note.
+- **Survivors:** the reply's `survivor_row_id_map {old: new|null}` (or legacy `survivor_user_row_ids`) rebinds
+  the kept rows' cached ids (Desktop `rebindSurvivorRowIds`).
+- **Confirmations (app):** Restore always asks (Desktop's checkpoint dialog); Regenerate and Edit ask when the cut
+  archives later user turns; a `4033` reply re-asks and reruns with `confirm_deep_truncate`. A confirmed plan is
+  re-made against the current transcript and dropped if the target or the later-turn count changed.
+- **App rules:** only while the chat is idle (Desktop interrupts a live turn first; the app does not interrupt
+  another client's turn on the shared chat). `4018` (stale target), `4030`, `4009` and other errors put the
+  transcript back and say so. Edit sends only the edited text (attachments are not resent, as in Desktop).
+
+### 16.2 Branch into a new chat (B4) [src + test]
+
+`session.branch {session_id, idempotency_key, count}` (`methods_session_branch.py` `_branch_live`, Desktop
+`branchLoadedSession` / `forkBranch`): a NEW stored session in the same profile holding the first `count`
+visible user/assistant rows (rows with text, hidden ones included), with its own live runtime. Reply:
+`{session_id, stored_session_id, title, parent, message_count, info, messages}`. `count` follows Desktop's
+`selectBranchMessages`: the target is found in `session.history` by `row_id`, else by role + text ordinal; without
+a match, the transcript's own visible user/bot lines up to it are counted. `idempotency_key` is
+`branch-<ms>-<random>` per attempt. The app opens the reply as a non-canonical `BotChatSession` (history from
+`messages`, model from `info`) in a side sheet; closing it detaches only. The branch is persisted at once
+(`_persist_branch`), so it becomes the bot's newest non-canonical session, which the sidebar's **Open Recent
+Session** (A17, `profiles.list` `last_session`) shows; the sidebar keeps one Bot Chat per bot.
+
+### 16.3 Error cards (B10) [src + test]
+
+`message.complete {status: "error", error, error_surface: {layer, code, retryable, provider?, model?}}`
+(`session_auto_continue.py`, `prompt_turn.py`, `agent/error_surface.py`). Buttons per Desktop
+`errorRecoveryPlan`: Retry unless `retryable: false` (kept for the `auth` layer); Switch Provider for `auth`,
+`billing`, `endpoint`, `provider` (opens the composer's model list; picks are `--session` as in §15). Retry =
+regenerate of that turn (§16.1). Copy Diagnostics = Desktop's `formatErrorDiagnostics` lines, each passed through
+`Redaction.scrub` plus provider-key patterns (`ErrorDiagnostics.redact`). Dismiss removes the line locally.
+
+### 16.4 Attachments: URL, folder, long paste, zoom (B11) [src + test]
+
+- **URL / folder:** no RPC. As Desktop's `addContextRefAttachment`, the prompt gets `@url:<url>` /
+  `@folder:<path>` lines first (quoted with Desktop's `formatRefValue` rule), then the text; the gateway expands
+  the directives when the turn runs. File chips still stage with §12.1 (`file.attach` refs are added by the kit).
+- **Long paste:** over 3,000 characters (Desktop `LARGE_PASTE_ATTACHMENT_THRESHOLD`, UTF-16 length), the text is
+  written to `pasted_content_<stamp>_<hex>.txt` in the app's paste folder and sent as a file chip (§12.1).
+- **Image zoom:** client-only; the click re-checks the path (`MediaSafety`, §13.6) and a Quick Look rendition is
+  shown.
+
+### 16.5 Approval mode (B14) [src + test]
+
+Desktop's status-bar menu (`approval-mode-menu.tsx`, `store/approval-mode.ts`) is per PROFILE, not per session:
+`config.get {key: "approvals.mode", profile}` and `config.set {key: "approvals.mode", value: manual|smart|off,
+profile}` (`methods_config.py`, `methods_config_set.py`; a blank profile is omitted). The write re-emits
+`session.info` (`approval_mode`) to every live session, which the app also reads. Unknown values read as
+`manual`.
+
+### 16.6 Changed files (B16) [src + test]
+
+From live `tool.complete` events only (history has no results or diffs): tools `edit_file`, `patch`,
+`write_file` that finished with a diff (`inline_diff`, else `result.inline_diff` / `result.diff`); path from
+`args.path|file|filepath`, else `result.path|file|filepath|resolved_path` (Desktop `deriveChangedFiles`,
+`fileEditPath`, `countDiffLineStats`). Reveal in Finder runs `MediaSafety` at click time (§13.5).

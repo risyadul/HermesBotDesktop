@@ -28,6 +28,16 @@ struct RoomRow: Identifiable, Equatable {
     let id: Int
     let kind: Kind
     let time: Double
+    /// The thread of the row's event (`main` for the room composer's messages).
+    var threadId: String = RoomThreads.main
+
+    /// A user or member message: the rows that carry per-message actions and a thread label.
+    var isMessage: Bool {
+        switch kind {
+        case .user, .member: return true
+        default: return false
+        }
+    }
 }
 
 enum RoomPresentation {
@@ -41,9 +51,10 @@ enum RoomPresentation {
             let time = e?.createdAt ?? 0
             switch line.kind {
             case .user:
-                out.append(RoomRow(id: line.id, kind: .user(text: line.text), time: time))
+                out.append(RoomRow(id: line.id, kind: .user(text: line.text), time: time, threadId: line.threadId))
             case .member:
-                out.append(RoomRow(id: line.id, kind: .member(memberId: e?.memberId, author: line.author, text: line.text), time: time))
+                out.append(RoomRow(id: line.id, kind: .member(memberId: e?.memberId, author: line.author, text: line.text), time: time,
+                                   threadId: line.threadId))
             case .error:
                 out.append(RoomRow(id: line.id, kind: .failure(memberId: e?.memberId, author: line.author, text: line.text), time: time))
             case .status:
@@ -93,6 +104,33 @@ enum RoomPresentation {
         return f.uppercased() + s.dropFirst()
     }
 
+    /// What Copy puts on the pasteboard for a message row: the text as written. A user message's files are
+    /// listed after its text, one path per line (the attachments block itself is wire format). Nil for rows
+    /// that are not messages.
+    static func copyText(_ row: RoomRow) -> String? {
+        switch row.kind {
+        case .member(_, _, let text): return text
+        case .user(let text):
+            // The quote an anchored thread's first message opens with is not the user's text.
+            let parts = RoomAttachments.split(text)
+            let body = row.threadId == RoomThreads.main ? parts.text : RoomThreads.body(of: parts.text)
+            return ([body] + parts.paths).filter { !$0.isEmpty }.joined(separator: "\n")
+        default: return nil
+        }
+    }
+
+    /// The label of a thread: its first message, on one line, cut short; "Thread" when that is empty.
+    static func threadTitle(_ thread: RoomThreadSummary?) -> String {
+        let text = RoomDigest.previewText(thread?.title ?? "")
+        let short = text.count > threadTitleLimit ? String(text.prefix(threadTitleLimit - 1)) + "…" : text
+        return short.isEmpty ? "Thread" : short
+    }
+
+    static let threadTitleLimit = 48
+
+    /// "1 reply" / "3 replies" under a message a thread hangs off.
+    static func replyCount(_ n: Int) -> String { n == 1 ? "1 reply" : "\(n) replies" }
+
     static func passText(_ passes: [RoomRow.Pass]) -> String {
         let names = passes.map(\.author)
         switch names.count {
@@ -141,19 +179,22 @@ enum RoomPresentation {
         var out: [String: MemberState] = [:]
         for m in room.members {
             if approvals.contains(m.memberId) { out[m.memberId] = .needsApproval; continue }
-            if let t = terminals.last(where: { $0.memberId == m.memberId }) {
-                switch t.kind {
-                case "turn.settled": out[m.memberId] = t.payload["passed"]?.bool == true ? .passed : .replied
-                case "turn.cancelled": out[m.memberId] = .cancelled
-                case "turn.failed": out[m.memberId] = .failed
-                case "turn.deferred": out[m.memberId] = .deferred
-                default: out[m.memberId] = pending ? .waiting : .idle
-                }
-            } else {
-                out[m.memberId] = pending ? .waiting : .idle
-            }
+            let t = terminals.last(where: { $0.memberId == m.memberId })
+            out[m.memberId] = t.flatMap(turnState) ?? (pending ? .waiting : .idle)
         }
         return out
+    }
+
+    /// The state a `turn.*` event leaves its member in; nil for any other kind. Shared by the ribbon and the
+    /// Activity panel's "This round" list, so both say the same thing.
+    static func turnState(_ e: RoomEvent) -> MemberState? {
+        switch e.kind {
+        case "turn.settled": return e.payload["passed"]?.bool == true ? .passed : .replied
+        case "turn.cancelled": return .cancelled
+        case "turn.failed": return .failed
+        case "turn.deferred": return .deferred
+        default: return nil
+        }
     }
 
     /// The room-level chip that leads the ribbon (same rules as the M2 status pill).
@@ -200,6 +241,7 @@ struct RoomNote: Equatable {
             return n == 0 ? "Stopped. No turn was running." : "Stopped \(n) running turn\(n == 1 ? "" : "s")."
         }
         if raw.hasPrefix("groups.retry → ") { return "Retry sent (\(raw.dropFirst("groups.retry → ".count)))." }
+        if raw.hasPrefix("groups.rename → ") { return "Renamed to \(raw.dropFirst("groups.rename → ".count))." }
         if raw == "disbanded" { return "Room disbanded." }
         if raw.hasPrefix("send failed, message not posted: ") {
             return "Message not sent: " + raw.dropFirst("send failed, message not posted: ".count)

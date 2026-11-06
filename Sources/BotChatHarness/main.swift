@@ -113,6 +113,7 @@ do {
             box.add(["t": .number(t), "type": "message.delta", "text": .string(d)])
             streamed.addWire(d)
         case .reasoning(let d): box.add(["t": .number(t), "type": "reasoning.delta", "chars": .number(Double(d.count))])
+        case .reasoningAvailable(let d): box.add(["t": .number(t), "type": "reasoning.available", "chars": .number(Double(d.count))])
         case .interim(let s, _): box.add(["t": .number(t), "type": "message.interim", "text": .string(s)])
         case .status(let k, let s): box.add(["t": .number(t), "type": "status.update", "kind": .string(k), "text": .string(s)])
         case .completed(let c):
@@ -129,6 +130,12 @@ do {
             box.add(["t": .number(t), "type": "client.disconnected", "message": .string(m)]); say("disconnected: \(m)")
             done.continuation.yield(("", "disconnected", m)); done.continuation.finish()
         case .other(let type): box.add(["t": .number(t), "type": .string(type)])
+        case .idle: box.add(["t": .number(t), "type": "session.info", "running": false])
+        case .resumed: box.add(["t": .number(t), "type": "session.resumed"])
+        case .info: box.add(["t": .number(t), "type": "session.info"])
+        case .usage: box.add(["t": .number(t), "type": "session.usage"])
+        case .toolGenerating, .toolStarted, .toolCompleted, .request, .requestCancelled, .approvalsCancelled:
+            box.add(["t": .number(t), "type": "kit.parity-event"])
         }
     }
     let submit = try await chat.send(prompt)

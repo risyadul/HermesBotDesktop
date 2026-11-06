@@ -20,7 +20,16 @@ struct TurnRibbon: View {
                                state: states[m.memberId] ?? .idle, bump: memory.bumps[m.memberId] ?? 0)
                 }
             }
-            .padding(.horizontal, DS.Space.s4).padding(.vertical, DS.Space.gutter)
+            .padding(.leading, DS.Space.s4).padding(.trailing, DS.Space.s5).padding(.vertical, DS.Space.gutter)
+        }
+        // More chips than fit (a 6-bot room) scroll sideways: the trailing edge fades so the cut-off chip
+        // reads as "more", not as a clipped layout.
+        .mask {
+            HStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: DS.Space.s5)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Turn status")
@@ -124,16 +133,30 @@ struct UserBubble: View {
     let text: String
     let time: Double
     var mentionHandles: Set<String> = []
+    /// Files sent with the message (Group Chat `RoomAttachments`), under its text.
+    var attachments: [MediaRef] = []
+    /// The room the message was sent in: its attachments are that room's copies (`RoomAttachmentList`).
+    var roomId = ""
+    /// Bot Chat Find in chat (B13): matches highlighted; empty elsewhere.
+    @Environment(\.findQuery) private var find
 
     var body: some View {
         HStack {
             Spacer(minLength: DS.Size.userBubbleInset)
             VStack(alignment: .trailing, spacing: DS.Space.s0) {
-                Text(Self.mentions(text, handles: mentionHandles))
-                    .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
-                    .lineSpacing(DS.Typeface.proseLineSpacing)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !text.isEmpty {
+                    Text(Self.mentions(text, handles: mentionHandles, find: find))
+                        .font(DS.Typeface.body).foregroundStyle(DS.Palette.ink)
+                        .tint(DS.Palette.link)
+                        .lineSpacing(DS.Typeface.proseLineSpacing)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !attachments.isEmpty {
+                    RoomAttachmentList(refs: attachments, roomId: roomId)
+                        .padding(.top, text.isEmpty ? 0 : DS.Space.s2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if time > 0 { TimeLabel(time: time) }
             }
             .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.s2)
@@ -144,20 +167,15 @@ struct UserBubble: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("You: \(text)")
+        .accessibilityLabel("You: \(text)" + (attachments.isEmpty ? "" : ", \(attachments.count) attached file\(attachments.count == 1 ? "" : "s")"))
     }
 
-    /// @mentions of real members (and @all/@everyone) in bold ink: graphite is the accent.
-    static func mentions(_ text: String, handles: Set<String>) -> AttributedString {
-        var a = AttributedString(text)
-        guard let re = try? NSRegularExpression(pattern: "(?<![\\w@])@([A-Za-z0-9][A-Za-z0-9._:-]*)") else { return a }
-        let ns = text as NSString
-        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            let h = ns.substring(with: m.range(at: 1))
-            guard handles.contains(h) || ["all", "everyone"].contains(h.lowercased()),
-                  let r = Range(m.range, in: text), let ar = Range(r, in: a) else { continue }
-            a[ar].font = DS.Typeface.bodyStrong
-        }
+    /// The user's text with its http(s) links clickable (blue, underlined) and @mentions of real members (and
+    /// @all/@everyone) in semibold blue, as in the bots' messages.
+    static func mentions(_ text: String, handles: Set<String>, find: String = "") -> AttributedString {
+        var a = TextStyling.linkified(text)
+        TextStyling.highlightMentions(&a, handles: handles)
+        TextStyling.highlightFind(&a, query: find)
         return a
     }
 }
@@ -167,6 +185,8 @@ struct MemberMessage<Content: View>: View {
     let author: String
     let time: Double
     var trailingNote: String? = nil
+    /// Read as one element (default). Off when the content holds its own controls (Thought, tool rows).
+    var combinesAccessibility = true
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -182,7 +202,7 @@ struct MemberMessage<Content: View>: View {
             }
             .frame(maxWidth: DS.Size.memberWidth, alignment: .leading)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: combinesAccessibility ? .combine : .contain)
     }
 }
 
