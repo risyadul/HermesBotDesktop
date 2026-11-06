@@ -76,6 +76,24 @@ final class PackageScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("<key>CFBundleIconFile</key><string>AppIcon</string>"))
     }
 
+    /// --debug wraps a debug build in the same Herald.app (ad-hoc, no zip) and never takes a Developer ID or notary
+    /// profile, so a debug build cannot be shipped.
+    func testDebugDryRunPlansAnUnzippedAdHocDebugApp() throws {
+        let r = try run(["--debug", "--dry-run"])
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.contains("configuration: debug\n"), r.out)
+        XCTAssertTrue(r.out.contains("app: dist/Herald.app\n"), r.out)
+        XCTAssertTrue(r.out.contains("zip: none (debug build)\n"), r.out)
+        XCTAssertTrue(r.out.contains("signing: ad-hoc"), r.out)
+        for env in [["DEVELOPER_ID_APPLICATION": "Developer ID Application: Test (TEAM)"], ["NOTARY_PROFILE": "p"]] {
+            let refused = try run(["--debug", "--dry-run"], env: env)
+            XCTAssertEqual(refused.status, 1, "\(env)")
+            XCTAssertTrue(refused.err.contains("--debug builds are for local testing"), refused.err)
+        }
+        let release = try run(["0.2.0", "--dry-run"])
+        XCTAssertTrue(release.out.contains("configuration: release\n"), release.out)
+    }
+
     func testUniversalDryRunPlansBothArchitecturesAndAdHocSigning() throws {
         let r = try run(["0.2.0", "--universal", "--dry-run"])
         XCTAssertEqual(r.status, 0, r.err)
@@ -137,7 +155,8 @@ final class PackageScriptTests: XCTestCase {
         }
         let help = try run(["--help"])
         XCTAssertEqual(help.status, 0)
-        XCTAssertTrue(help.out.hasPrefix("Usage: scripts/package-app.sh [version] [--universal] [--dry-run]"), help.out)
+        XCTAssertTrue(help.out.hasPrefix("Usage: scripts/package-app.sh [version] [--universal] [--debug] [--dry-run]"), help.out)
+        XCTAssertTrue(help.out.contains("--debug      a debug build"), help.out)
         XCTAssertTrue(help.out.contains("NOTARY_PROFILE"), help.out)
     }
 }

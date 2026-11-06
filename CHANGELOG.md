@@ -169,6 +169,9 @@ Full list: [README](README.md#before-you-start-what-this-app-does-to-your-hermes
 - **The app is now called Herald** (was Hermes Bot): window titles, menus, Services, Shortcuts and
   `dist/Herald.app` / `Herald-<version>-macos-<arch>.zip`. The bundle id is unchanged
   (`io.github.risyadul.hermesbot`), so settings, permissions and the login item carry over.
+- **`scripts/package-app.sh --debug`:** the debug build wrapped as `dist/Herald.app` (name, icon, Info.plist,
+  Shortcuts metadata), ad-hoc signed and not zipped, for trying the real app locally; `swift run` gives a bare
+  executable without them. Refused with a Developer ID or notary profile.
 - **App icon:** a winged speech bubble on graphite, in every size from the Dock to Finder lists
   (`Resources/AppIcon.icns`, drawn by `scripts/app-icon.swift`; `scripts/make-icon.sh` rebuilds it).
 - Bot Chats are no longer deleted when you quit; quitting only disconnects. Quit cleanup ends within about 5 s.

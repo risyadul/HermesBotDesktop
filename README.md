@@ -149,6 +149,9 @@ have **not been tested** with this app yet.
    swift build
    .build/debug/HermesBotApp        # or: swift run HermesBotApp (the package has several executables)
    ```
+   This runs a bare executable: the menu says "HermesBotApp", there is no Herald icon, and notifications,
+   Services and Shortcuts are off. For the real app from your build, run `scripts/package-app.sh --debug` and
+   open `dist/Herald.app`.
 5. **First chat:** pick a bot in the sidebar and send a message. For Group Chat, press **+**, choose 2–6
    bots, and send the opening message. If something is missing on first run, the app shows a setup screen
    instead of an error: **Hermes not found** (install it, or set `HERMES_BOT_APP_HERMES_BIN`; Try Again),
@@ -639,6 +642,7 @@ bundle yourself:
 scripts/package-app.sh 0.2.0 --universal   # dist/Herald.app + dist/Herald-0.2.0-macos-universal.zip
 scripts/package-app.sh 0.2.0               # this Mac's architecture only: ...-macos-arm64.zip or -x86_64.zip
 scripts/package-app.sh 0.2.0 --universal --dry-run   # print the plan (architectures, signing) and stop
+scripts/package-app.sh --debug             # a debug build as dist/Herald.app (ad-hoc, no zip), for local testing
 scripts/package-app.sh --help
 ```
 
