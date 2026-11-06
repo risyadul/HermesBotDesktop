@@ -110,6 +110,7 @@ extension AppModel {
     /// avatar and the roster row.
     func botDeleted(_ name: String) {
         releaseBot(name)
+        ChatDraftStore.app?.save("", for: name)
         botMeta.forget(name)
         AvatarStore.shared.replace(name, data: nil)
         bots.removeAll { $0.name == name }

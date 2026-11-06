@@ -186,6 +186,8 @@ struct MarkdownTableLayout: Layout {
 
     struct Cache {
         var ideal: [CGFloat] = []
+        var measuredWidths: [CGFloat]?
+        var measuredHeights: [CGFloat] = []
     }
 
     func makeCache(subviews: Subviews) -> Cache {
@@ -230,14 +232,22 @@ struct MarkdownTableLayout: Layout {
         return heights
     }
 
+    private func rowHeights(_ widths: [CGFloat], subviews: Subviews, cache: inout Cache) -> [CGFloat] {
+        if cache.measuredWidths == widths { return cache.measuredHeights }
+        let heights = rowHeights(widths, subviews: subviews)
+        cache.measuredWidths = widths
+        cache.measuredHeights = heights
+        return heights
+    }
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let widths = Self.widths(ideal: cache.ideal, available: proposal.width)
-        return CGSize(width: widths.reduce(0, +), height: rowHeights(widths, subviews: subviews).reduce(0, +))
+        return CGSize(width: widths.reduce(0, +), height: rowHeights(widths, subviews: subviews, cache: &cache).reduce(0, +))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         let widths = Self.widths(ideal: cache.ideal, available: bounds.width)
-        let heights = rowHeights(widths, subviews: subviews)
+        let heights = rowHeights(widths, subviews: subviews, cache: &cache)
         var y = bounds.minY
         for r in heights.indices {
             var x = bounds.minX

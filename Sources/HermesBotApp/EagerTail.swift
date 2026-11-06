@@ -20,8 +20,8 @@ enum EagerTail {
 
     /// Index of the first tail row: everything before it goes in the lazy head. Rounded down to a
     /// multiple of `step` (a bigger tail, never a smaller one).
-    static func start<Item>(of items: [Item], minRows: Int = minRows, minLines: Int = minLines,
-                            lines: (Item) -> Int) -> Int {
+    static func start<Items: RandomAccessCollection>(of items: Items, minRows: Int = minRows, minLines: Int = minLines,
+                            lines: (Items.Element) -> Int) -> Int where Items.Index == Int {
         var start = items.count, total = 0
         while start > 0 && (items.count - start < minRows || total < minLines) {
             start -= 1

@@ -22,14 +22,26 @@ final class ChatModel: ObservableObject, Identifiable {
     /// Replaced when the roster is re-listed after an edit (title, description, model).
     @Published var bot: Bot
     @Published private(set) var phase: Phase = .idle
-    @Published var transcript = ChatTranscript()
+    @Published var transcript = ChatTranscript() {
+        didSet {
+            transcriptPresentationNeedsUpdate = true
+            transcriptPresentationCanReuseHistory = false
+        }
+    }
+    /// Formatting the whole history belongs to transcript changes, not composer edits or layout passes.
+    private var transcriptPresentation: BotTranscriptPresentation?
+    private var transcriptPresentationNeedsUpdate = true
+    private var transcriptPresentationCanReuseHistory = false
     /// The composer text. Owned here so it survives switching bots, and so `/undo`-style prefill can set it.
     /// Kept across launches per bot (B12, `drafts`), except while it holds a queued message being edited.
-    @Published var draft = "" {
-        didSet { if draft != oldValue, editingQueueId == nil { drafts?.save(draft, for: bot.name) } }
+    let composerDraft: ComposerDraftState
+    var draft: String {
+        get { composerDraft.text }
+        set { composerDraft.text = newValue }
     }
     /// B12: where drafts persist (UserDefaults in the app; nil in tests unless one injects a suite).
     let drafts: ChatDraftStore?
+    let draftPersistence: DraftPersistence?
     /// B12: ↑/↓ prompt history browsing state (ChatModel+Composer.swift).
     var history = PromptHistory()
     /// B1: the roster @mentions resolve against (the app's bots; set by AppModel, empty by default).
@@ -58,7 +70,12 @@ final class ChatModel: ObservableObject, Identifiable {
     /// Stop paused the queue: entries wait until Resume, Send now or a steer.
     @Published var queueParked = false
     /// The queued message being edited in the composer (its text is the draft meanwhile).
-    @Published var editingQueueId: UUID?
+    @Published var editingQueueId: UUID? {
+        didSet {
+            // Save the user's own pending draft before loading queue text into its editor.
+            if editingQueueId != nil { flushDraft() }
+        }
+    }
     /// The composer draft from before Edit, restored when the edit is saved or cancelled.
     var draftBeforeEdit = ""
     /// Fallback drain after `message.complete` / `error` when no `session.info running:false` follows.
@@ -129,6 +146,15 @@ final class ChatModel: ObservableObject, Identifiable {
 
     var lines: [ChatLine] { transcript.lines }
     var busy: Bool { transcript.busy }
+    var presentation: BotTranscriptPresentation {
+        if !transcriptPresentationNeedsUpdate, let transcriptPresentation { return transcriptPresentation }
+        let result = BotTranscriptPresentation(lines: lines, busy: busy, previous: transcriptPresentation,
+                                              reuseHistory: transcriptPresentationCanReuseHistory)
+        transcriptPresentation = result
+        transcriptPresentationNeedsUpdate = false
+        transcriptPresentationCanReuseHistory = false
+        return result
+    }
     var deltaCount: Int { transcript.deltaCount }
     var streamingText: String { transcript.lastBotText }
     var isReady: Bool { phase == .ready }
@@ -137,7 +163,12 @@ final class ChatModel: ObservableObject, Identifiable {
         self.bot = bot
         self.opener = opener
         self.drafts = drafts
-        draft = drafts?.draft(for: bot.name) ?? ""
+        composerDraft = ComposerDraftState(drafts?.draft(for: bot.name) ?? "")
+        draftPersistence = drafts.map { DraftPersistence(store: $0, bot: bot.name) }
+        composerDraft.onChange = { [weak self] text in
+            guard let self, !self.closed, self.editingQueueId == nil else { return }
+            self.draftPersistence?.schedule(text)
+        }
     }
 
     // MARK: - open / close
@@ -193,6 +224,7 @@ final class ChatModel: ObservableObject, Identifiable {
 
     /// Detach only: the canonical chat stays in Hermes for Hermes Desktop and the next launch.
     func close() {
+        flushDraft()
         closed = true
         openTask?.cancel()
         catalogTask?.cancel()
@@ -211,6 +243,9 @@ final class ChatModel: ObservableObject, Identifiable {
         sentTemporaryFiles = []
         queuedTemporaryFiles = []
     }
+
+    /// Pane switches and shutdown flush the latest own draft, never queued-message edit text.
+    func flushDraft() { draftPersistence?.flush() }
 
     /// User-facing, token-free text for an open/send failure.
     static func message(_ error: Error, bot: Bot) -> String {
@@ -399,8 +434,26 @@ final class ChatModel: ObservableObject, Identifiable {
 
     func apply(_ e: ChatEvent) {
         let wasBusy = busy
-        transcript.apply(e)
-        compacting = CompactionPhase.next(compacting, after: e)
+        let canReuse = !transcriptPresentationNeedsUpdate || transcriptPresentationCanReuseHistory
+        switch e {
+        case .status, .other, .request, .requestCancelled, .approvalsCancelled, .resumed, .info, .usage:
+            // These events do not mutate transcript rows. Calling a mutating no-op would still fire
+            // @Published/didSet and discard the entire presentation cache.
+            break
+        case .toolGenerating:
+            let neededUpdate = transcriptPresentationNeedsUpdate
+            let reuseHistory = transcriptPresentationCanReuseHistory
+            transcript.apply(e)
+            transcriptPresentationNeedsUpdate = neededUpdate
+            transcriptPresentationCanReuseHistory = reuseHistory
+        case .started, .delta, .interim, .reasoning, .reasoningAvailable:
+            transcript.apply(e)
+            transcriptPresentationCanReuseHistory = canReuse
+        default:
+            transcript.apply(e)
+        }
+        let nextCompacting = CompactionPhase.next(compacting, after: e)
+        if compacting != nextCompacting { compacting = nextCompacting }
         switch e {
         case .started: onTurnEvent?("message.start", self)
         case .delta: onTurnEvent?("message.delta", self)

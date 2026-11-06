@@ -125,28 +125,49 @@ struct RoomThreadPane<Row: View>: View {
     let row: (RoomRow) -> Row
     let identity: (RoomMember) -> BotIdentity
     @FocusState private var focused: Bool
+    @State private var scroll = TranscriptScrollTracker()
+    @State private var following = true
+    @Environment(\.motionEnabled) private var motion
 
     var body: some View {
-        let summary = model.timeline.threads.first { $0.id == thread }
-        let rows = RoomPresentation.rows(lines: model.timeline.lines(thread: thread, room: model.room), events: model.timeline.events)
-        let anchor = RoomThreads.anchorSeq(of: thread).flatMap { seq in
-            RoomPresentation.rows(lines: model.lines.filter { $0.id == seq }, events: model.timeline.events).first
-        }
+        let presentation = model.threadPresentation(thread: thread)
+        let summary = presentation.summary
+        let rows = presentation.rows
+        let anchor = presentation.anchor
         VStack(spacing: 0) {
             header(summary, anchorOnly: rows.isEmpty)
             Hairline()
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.timeline) {
-                    if let anchor {
-                        row(anchor)
-                        RoundDivider(text: rows.isEmpty ? "Reply to start the thread" : RoomPresentation.replyCount(summary?.messageCount ?? rows.count))
+            let data = ThreadTimelineRows(anchor: anchor, messages: rows,
+                                          divider: rows.isEmpty ? "Reply to start the thread" : RoomPresentation.replyCount(summary?.messageCount ?? rows.count))
+            TranscriptTable(items: data, revision: UUID(), structureRevision: ObjectIdentifier(presentation),
+                            tracker: scroll, onFollowChange: { following = $0 }, sameContent: ==) { item in
+                Group {
+                    switch item {
+                    case .anchor(let anchor): row(anchor)
+                    case .divider(let text): RoundDivider(text: text)
+                    case .message(let message): row(message)
                     }
-                    ForEach(rows) { r in row(r).id(r.id) }
                 }
-                .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.s3)
+                .padding(.horizontal, DS.Space.s3).padding(.top, DS.Space.timeline)
+                .padding(.bottom, item.id == data.last?.id ? DS.Space.s3 : 0)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .environment(\.motionEnabled, motion)
             }
-            .defaultScrollAnchor(.bottom)
+            .onChange(of: thread) { _, _ in
+                scroll.follow.resume()
+                following = true
+                scroll.scrollToLatest?()
+            }
+            .overlay(alignment: .bottom) {
+                if !following {
+                    ScrollToBottomButton(unread: 0) {
+                        scroll.follow.resume()
+                        following = true
+                        scroll.scrollToLatest?()
+                    }
+                    .padding(.bottom, DS.Space.s3)
+                }
+            }
             composer
         }
         .background(DS.Palette.window)
@@ -168,19 +189,10 @@ struct RoomThreadPane<Row: View>: View {
         .padding(.horizontal, DS.Space.s3).padding(.vertical, DS.Space.s2)
     }
 
-    private var draft: Binding<String> {
-        Binding(get: { model.draft(thread) }, set: { model.setDraft($0, thread: thread) })
-    }
-
     private var composer: some View {
-        ComposerBox(placeholder: "Reply in thread", draft: draft,
-                    canSend: model.composer.canSend && !model.draft(thread).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                    onSend: { _ = model.submit(thread: thread) }, focus: $focused,
-                    onTab: { MentionSuggestions.acceptFirst(&draft.wrappedValue, members: model.room.members) })
-            .overlay(alignment: .topLeading) {
-                MentionSuggestions(draft: draft, members: model.room.members, identity: identity)
-                    .alignmentGuide(.top) { $0[.bottom] + DS.Space.s1 }
-            }
+        RoomDraftComposer(state: model.draftStates.state(for: thread), placeholder: "Reply in thread",
+                          members: model.room.members, acceptsMessages: model.composer.canSend,
+                          identity: identity, focus: $focused, onSend: { _ = model.submit(thread: thread) })
             .padding(DS.Space.s3)
     }
 }

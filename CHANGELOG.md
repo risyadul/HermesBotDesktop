@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep typing independent of chat history updates, and coalesce Bot Chat draft persistence while retaining
+  drafts across panes and windows. Editing a queued message cannot overwrite the saved unsent draft.
+- Render Bot Chat, Group Chat and thread timelines with reusable native table cells instead of an eager
+  message tail. Streaming updates reuse completed-turn indexes and refresh visible content only.
+- Parse long Markdown replies outside the main actor with a bounded, cancellable queue; retain readable
+  text during parsing and reuse table height measurements at the same width.
+- Group Chat keeps your place while you read older messages instead of scrolling down on every room event;
+  a scroll-to-bottom button shows how many new messages arrived. Sidebar and inspector resizing no longer
+  count as an upward scroll gesture.
+
 ## [0.1.0] - 2026-11-06
 
 First public release of Herald.

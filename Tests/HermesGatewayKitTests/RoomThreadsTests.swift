@@ -93,6 +93,25 @@ final class RoomThreadsTests: XCTestCase {
         XCTAssertNil(t.threads.first?.anchorSeq, "the anchor message is not in the log: no anchor to show")
     }
 
+    func testAnchorsAtFirstAndLastEventAndWithinGaps() {
+        // Pages may arrive unsorted; the timeline keeps the applied seq order even when it detects gaps.
+        let t = timeline([member(90, "alpha", thread: "hba-t-90"),
+                          user(1, "first"),
+                          user(20, "middle"),
+                          user(30, "first anchor", thread: "hba-t-1"),
+                          user(40, "middle anchor", thread: "hba-t-20"),
+                          user(50, "missing anchor", thread: "hba-t-21"),
+                          user(60, "outside", thread: "hba-t-91")])
+        XCTAssertTrue(t.gapDetected)
+        let summaries = Dictionary(t.threads.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(summaries["hba-t-1"]?.anchorSeq, 1)
+        XCTAssertEqual(summaries["hba-t-20"]?.anchorSeq, 20)
+        XCTAssertEqual(summaries["hba-t-90"]?.anchorSeq, 90)
+        XCTAssertNil(summaries["hba-t-21"]?.anchorSeq)
+        XCTAssertNil(summaries["hba-t-91"]?.anchorSeq)
+        XCTAssertTrue(RoomTimeline().threads.isEmpty)
+    }
+
     func testPhasesArePerThread() {
         let main = user(1), side = user(2, "q", thread: "hba-t-1")
         let t = timeline([main, side])

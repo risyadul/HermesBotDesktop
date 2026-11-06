@@ -10,11 +10,21 @@ struct ServerRequestCards: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s3) {
             ForEach(chat.requests) { r in
-                card(r)
-                    .onAppear { chat.cardShown(r) }
-                    .id("request-\(r.id)")
+                ServerRequestRow(chat: chat, identity: identity, request: r)
             }
         }
+    }
+
+}
+
+/// A top-level list row keeps each approval/clarification an independent scroll target.
+struct ServerRequestRow: View {
+    @ObservedObject var chat: ChatModel
+    let identity: BotIdentity
+    let request: ServerRequest
+
+    var body: some View {
+        card(request).onAppear { chat.cardShown(request) }.id("request-\(request.id)")
     }
 
     @ViewBuilder private func card(_ r: ServerRequest) -> some View {

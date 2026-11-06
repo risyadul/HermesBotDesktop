@@ -85,6 +85,46 @@ final class BotChatComposerLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(frame.width, 60, "the field keeps room to type")
     }
 
+    /// A response updates the timeline while the editor retains its selection and shared draft binding.
+    func testStreamingKeepsTheDraftEditorAndSelection() throws {
+        try WindowTestGate.requireWindows()
+        guard NSScreen.main != nil else { throw XCTSkip("no window server session") }
+        let link = FakeChatLink(history: [ChatHistoryMessage(role: .user, text: "history")])
+        let bot = try XCTUnwrap(Bot(["name": "hba-editor", "model": "test-model"]))
+        let chat = ChatModel(bot: bot, opener: { _ in link })
+        chat.log = { _ in }
+        let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 1100, height: 700),
+                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(rootView: Host(chat: chat))
+        window.setContentSize(NSSize(width: 1100, height: 700))
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil); chat.close() }
+        XCTAssertTrue(spin(until: { chat.isReady }))
+        chat.draft = "start a response"
+        XCTAssertTrue(chat.submit())
+        chat.draft = "continue typing while the bot replies"
+        spin(0.2)
+        let content = try XCTUnwrap(window.contentView)
+        let field = try XCTUnwrap(all(content).compactMap { $0 as? NSTextField }.first { $0.isEditable })
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
+        let selection = NSRange(location: 9, length: 6)
+        editor.setSelectedRange(selection)
+        for _ in 0..<20 {
+            chat.apply(.delta(" another token"))
+            spin(0.005)
+        }
+        let sameField = try XCTUnwrap(all(content).compactMap { $0 as? NSTextField }.first { $0.isEditable })
+        XCTAssertTrue(field === sameField, "streaming must not replace the native input")
+        XCTAssertTrue(window.firstResponder as AnyObject? === editor)
+        XCTAssertEqual(editor.selectedRange(), selection)
+        XCTAssertEqual(editor.string, chat.draft)
+        chat.draft = "a programmatic prefill from another window"
+        spin(0.05)
+        XCTAssertEqual(field.stringValue, chat.draft, "the isolated editor still follows shared draft updates")
+    }
+
     /// Live UI test 2026-11-06 (round 2) flagged unlabeled tiny AX buttons. The ⌘Return "Queue message" button
     /// that keeps the shortcut working while a reply runs is `accessibilityHidden` and stays so; this pins
     /// that the shortcut still queues from the window. (The four 6 × 4.5 pt buttons in the report are the

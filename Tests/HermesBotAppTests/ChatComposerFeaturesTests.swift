@@ -241,6 +241,7 @@ final class ChatComposerFeaturesTests: XCTestCase {
         let store = ChatDraftStore(defaults: suite)
         let m = try await ready(FakeChatLink(), drafts: store)
         m.draft = "unsent thought"
+        m.flushDraft()  // Pane switches/shutdown commit the coalesced draft before a relaunch.
         XCTAssertEqual(store.draft(for: "fake"), "unsent thought")
         XCTAssertEqual(store.draft(for: "writer"), "", "drafts are per bot")
         let relaunched = ChatModel(bot: bot, opener: { _ in FakeChatLink() }, drafts: store)

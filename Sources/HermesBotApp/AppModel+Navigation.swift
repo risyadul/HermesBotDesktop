@@ -112,7 +112,8 @@ extension AppModel {
 /// lets the pane settle at the bottom first (BotChatView `settle`, the room's bottom anchor).
 struct MessageJumpTarget: ViewModifier {
     let item: SidebarItem
-    let proxy: ScrollViewProxy
+    let scrollTo: (MessageAnchor) -> Void
+    var beforeJump: () -> Void = {}
     @ObservedObject var jumps: MessageJumpCenter = AppModel.shared.jumps
     @Environment(\.motionEnabled) private var motion
 
@@ -128,18 +129,26 @@ struct MessageJumpTarget: ViewModifier {
         guard jumps.pending?.item == item else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay) {
             guard let anchor = jumps.take(for: item) else { return }
+            beforeJump()
             withDSAnimation(motion, DS.Motion.ease) {
-                switch anchor {
-                case .chatLine(let id): proxy.scrollTo(id, anchor: .center)
-                case .roomSeq(let seq): proxy.scrollTo(seq, anchor: .center)
-                }
+                scrollTo(anchor)
             }
         }
     }
 }
 
 extension View {
-    func messageJumpTarget(_ item: SidebarItem, proxy: ScrollViewProxy) -> some View {
-        modifier(MessageJumpTarget(item: item, proxy: proxy))
+    func messageJumpTarget(_ item: SidebarItem, proxy: ScrollViewProxy, beforeJump: @escaping () -> Void = {}) -> some View {
+        messageJumpTarget(item, beforeJump: beforeJump) { anchor in
+            switch anchor {
+            case .chatLine(let id): proxy.scrollTo(id, anchor: .center)
+            case .roomSeq(let seq): proxy.scrollTo(seq, anchor: .center)
+            }
+        }
+    }
+
+    func messageJumpTarget(_ item: SidebarItem, beforeJump: @escaping () -> Void = {},
+                           scrollTo: @escaping (MessageAnchor) -> Void) -> some View {
+        modifier(MessageJumpTarget(item: item, scrollTo: scrollTo, beforeJump: beforeJump))
     }
 }

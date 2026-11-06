@@ -14,6 +14,7 @@ import SwiftUI
 /// messages (B12, ChatModel+Composer.swift).
 struct ChatComposer: View {
     @ObservedObject var chat: ChatModel
+    @ObservedObject private var draftState: ComposerDraftState
     let identity: BotIdentity
     @FocusState private var focused: Bool
     @State private var menu = SlashMenuState()
@@ -26,6 +27,12 @@ struct ChatComposer: View {
     @State private var attachWidth = ComposerFieldLayout.iconWidth
     @State private var primaryWidth = ComposerFieldLayout.primaryWidth
     @Environment(\.motionEnabled) private var motion
+
+    init(chat: ChatModel, identity: BotIdentity) {
+        self.chat = chat
+        self.identity = identity
+        draftState = chat.composerDraft
+    }
 
     private var fieldLayout: ComposerFieldLayout {
         ComposerFieldLayout(rowWidth: fieldRowWidth, busy: chat.busy, attachWidth: attachWidth, primaryWidth: primaryWidth)
@@ -75,7 +82,7 @@ struct ChatComposer: View {
             Text(c.message)
         }
         .padding(.horizontal, DS.Space.s4).padding(.top, DS.Space.s2).padding(.bottom, DS.Space.s3)
-        .onChange(of: chat.draft) { _, d in
+        .onChange(of: draftState.text) { _, d in
             menu.draftChanged(d)
             if d == "/" && chat.catalog == nil { chat.loadCatalog() }
         }
@@ -86,7 +93,7 @@ struct ChatComposer: View {
             paste.install(canAttach: { chat.isReady && chat.branch == nil }, attach: { chat.addDropped($0) },
                           pasteText: { chat.branch == nil && chat.attachLongPaste($0) })  // B11: a long paste becomes a text attachment
         }
-        .onDisappear { paste.remove() }
+        .onDisappear { paste.remove(); chat.flushDraft() }
     }
 
     private var field: some View {
@@ -99,23 +106,18 @@ struct ChatComposer: View {
             HStack(alignment: .bottom, spacing: ComposerFieldLayout.spacing) {
                 attachMenu
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { attachWidth = $0 }
-                TextField(placeholder, text: $chat.draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(DS.Typeface.body)
-                    .lineLimit(DS.Size.composerLines)
-                    .padding(.vertical, DS.Size.fieldInset)
-                    .focused($focused)
-                    .onSubmit(send)
-                    .onKeyPress(.upArrow) { moveMenu(-1) == .handled ? .handled : recall(up: true) }
-                    .onKeyPress(.downArrow) { moveMenu(1) == .handled ? .handled : recall(up: false) }
-                    .onKeyPress(.tab) { acceptMenu() || acceptMention() ? .handled : .ignored }
-                    .onKeyPress(.escape) {
+                ChatDraftField(owner: chat, state: draftState, placeholder: placeholder,
+                               label: "Message \(chat.bot.title)", focus: $focused, onSend: send,
+                               onUp: { moveMenu(-1) == .handled ? .handled : recall(up: true) },
+                               onDown: { moveMenu(1) == .handled ? .handled : recall(up: false) },
+                               onTab: { acceptMenu() || acceptMention() ? .handled : .ignored },
+                               onEscape: {
                         if !menuItems.isEmpty { menu.dismiss(chat.draft); return .handled }
                         guard chat.editingQueueId != nil else { return .ignored }
                         chat.cancelQueueEdit()
                         return .handled
-                    }
-                    .accessibilityLabel("Message \(chat.bot.title)")
+                    })
+                    .equatable()
                 if layout.micInRow { micButton }
                 if chat.busy && layout.stopInRow { stopButton }
                 Button(Self.primaryLabel(chat.composerAction), action: send)
@@ -158,7 +160,7 @@ struct ChatComposer: View {
 
     /// B17 dictation; in the field row, or leading the row below when the field row is narrow.
     private var micButton: some View {
-        DictationButton(dictation: dictation, text: $chat.draft).disabled(!chat.isReady)
+        DictationButton(dictation: dictation, text: $draftState.text).disabled(!chat.isReady)
     }
 
     private var stopButton: some View {
