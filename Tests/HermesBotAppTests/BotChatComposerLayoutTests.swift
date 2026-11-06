@@ -25,6 +25,13 @@ final class BotChatComposerLayoutTests: XCTestCase {
     }
 
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+    /// Runs the main run loop until `condition` holds or `timeout` passes. A fixed wait is not enough on the
+    /// hosted runners (the Intel VM can take seconds to open the chat), so state checks poll instead.
+    private func spin(until condition: () -> Bool, timeout: Double = 10) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline { spin(0.05) }
+        return condition()
+    }
     private func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
 
     func testFullComposerFitsTheMinimumWindowWithTheInspector() throws {
@@ -55,7 +62,7 @@ final class BotChatComposerLayoutTests: XCTestCase {
         defer { window.orderOut(nil) }
         spin(0.8)
 
-        XCTAssertTrue(chat.isReady)
+        XCTAssertTrue(spin(until: { chat.isReady }), "the chat did not open")
         chat.draft = "go"
         XCTAssertTrue(chat.submit())
         chat.apply(.delta("Working on it"))
@@ -97,7 +104,7 @@ final class BotChatComposerLayoutTests: XCTestCase {
         window.orderFrontRegardless()
         defer { window.orderOut(nil) }
         spin(0.8)
-        XCTAssertTrue(chat.isReady)
+        XCTAssertTrue(spin(until: { chat.isReady }), "the chat did not open")
         chat.draft = "go"
         XCTAssertTrue(chat.submit())
         chat.apply(.delta("Working on it"))
@@ -109,7 +116,7 @@ final class BotChatComposerLayoutTests: XCTestCase {
                                                    context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
                                                    isARepeat: false, keyCode: 36))
         XCTAssertTrue(window.performKeyEquivalent(with: event), "⌘Return was not handled")
-        spin(0.3)
+        _ = spin(until: { !chat.queue.isEmpty }, timeout: 5)
         XCTAssertEqual(chat.queue.map(\.text), ["a follow-up"], "⌘Return queues the draft while the reply runs")
     }
 }
