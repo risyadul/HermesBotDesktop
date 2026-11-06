@@ -109,10 +109,11 @@ final class DictationTests: XCTestCase {
     }
 
     func testSilenceStopsDictation() async {
-        dictation.initialTimeout = 0.05
-        dictation.silenceTimeout = 0.05
         let draft = Draft("")
         await listen(draft)
+        // Shortened only now: a 0.05 s initial timeout could end dictation before `listen` saw it listening on a
+        // slow CI runner. The partial re-arms the timer with this value.
+        dictation.silenceTimeout = 0.05
         engine.send(.partial("one"))
         await eventually { self.dictation.state == .idle }
         XCTAssertEqual(engine.stops, 1)
