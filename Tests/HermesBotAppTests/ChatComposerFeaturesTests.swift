@@ -13,16 +13,15 @@ final class ChatComposerFeaturesTests: XCTestCase {
     private var suite: UserDefaults!
     private var suiteName = ""
 
-    // Async overrides: Swift 6.1 treats the synchronous ones as nonisolated in a @MainActor class.
+    // Async overrides: Swift 6.1 treats the synchronous ones as nonisolated in a @MainActor class. No `super`
+    // calls: XCTestCase's are empty, and awaiting them sends the non-Sendable test case off the main actor.
     override func setUp() async throws {
-        try await super.setUp()
         suiteName = "hba.tests.drafts.\(UUID().uuidString)"
         suite = UserDefaults(suiteName: suiteName)
     }
 
     override func tearDown() async throws {
         suite.removePersistentDomain(forName: suiteName)
-        try await super.tearDown()
     }
 
     private func ready(_ link: FakeChatLink, drafts: ChatDraftStore? = nil) async throws -> ChatModel {
