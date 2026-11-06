@@ -10,12 +10,13 @@ final class RoomTemplateMuteTests: XCTestCase {
     private var suite: String!
     private var defaults: UserDefaults!
 
-    override func setUp() {
+    // Async overrides: Swift 6.1 treats the synchronous ones as nonisolated in a @MainActor class.
+    override func setUp() async throws {
         suite = "RoomTemplateMuteTests-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suite)
     }
 

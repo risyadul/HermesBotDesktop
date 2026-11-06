@@ -13,15 +13,16 @@ final class ChatComposerFeaturesTests: XCTestCase {
     private var suite: UserDefaults!
     private var suiteName = ""
 
-    override func setUp() {
-        super.setUp()
+    // Async overrides: Swift 6.1 treats the synchronous ones as nonisolated in a @MainActor class.
+    override func setUp() async throws {
+        try await super.setUp()
         suiteName = "hba.tests.drafts.\(UUID().uuidString)"
         suite = UserDefaults(suiteName: suiteName)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         suite.removePersistentDomain(forName: suiteName)
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func ready(_ link: FakeChatLink, drafts: ChatDraftStore? = nil) async throws -> ChatModel {
