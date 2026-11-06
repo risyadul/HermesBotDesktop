@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// Window-modal sheet whose presentation follows the motion gate (BLOCK-003B, review run320).
+// Window-modal sheet whose presentation follows the motion gate.
 //
 // SwiftUI's `.sheet` on macOS always runs the AppKit slide + parent dimmer fade: a no-animation
 // `Transaction` does not reach it. This presenter runs the same AppKit sheet (`beginSheet`/`endSheet`)

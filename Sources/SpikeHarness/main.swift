@@ -1,7 +1,7 @@
 import Foundation
 import HermesGatewayKit
 
-// Headless M0 harness: same RoundTrip the SwiftUI shell runs, printing a timestamped log and
+// Headless M0 harness: runs RoundTrip (RoundTrip.swift), printing a timestamped log and
 // writing evidence (roundtrip.json + wire.log) to ./evidence/<stamp>/ (override: argv[1]).
 // Exit 0 only when a bot reply AND turn.settled were read back through groups.log.
 

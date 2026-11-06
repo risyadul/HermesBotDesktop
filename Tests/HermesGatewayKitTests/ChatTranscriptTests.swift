@@ -1,7 +1,7 @@
 import XCTest
 @testable import HermesGatewayKit
 
-/// BLOCK-002 (submit gate) and BLOCK-003 (completion reconciliation) of review run300.
+/// The submit gate and completion reconciliation.
 final class ChatTranscriptTests: XCTestCase {
     private func bots(_ t: ChatTranscript) -> [String] { t.lines.filter { $0.role == .bot }.map(\.text) }
     private func complete(_ text: String?, status: String? = "complete", previewed: Bool = false,

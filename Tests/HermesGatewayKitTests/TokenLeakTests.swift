@@ -3,7 +3,7 @@ import Network
 import XCTest
 @testable import HermesGatewayKit
 
-/// BLOCK-001 of review run300: no error text that leaves the kit may carry the WS token.
+/// Token leaks: no error text that leaves the kit may carry the WS token.
 /// Runs against an in-process fake gateway on 127.0.0.1 (never the user's backend).
 final class TokenLeakTests: XCTestCase {
     private let secret = "hbaTestSecret_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
@@ -131,6 +131,9 @@ final class FakeGateway: @unchecked Sendable {
     private var frames: [JSONValue] = []
     /// Every request frame received, in order (GroupChatTests checks `groups.*` param shapes).
     var received: [JSONValue] { recLock.withLock { frames } }
+    private var responseFrames: [JSONValue] = []
+    /// Client responses to server→client requests (frames with `id` and no `method`), in order.
+    var responses: [JSONValue] { recLock.withLock { responseFrames } }
     /// Optional per-method answer (`method`, `params`) → result; a result object with `__error`
     /// (`{code, message}`) is sent as a JSON-RPC error. nil → the built-in answers below.
     private var _responder: (@Sendable (String, JSONValue) -> JSONValue?)?
@@ -180,7 +183,23 @@ final class FakeGateway: @unchecked Sendable {
         return UInt16(bigEndian: addr.sin_port)
     }
 
+    /// Sends one server frame (event or server→client request) to every connected client.
+    func push(_ frame: JSONValue) {
+        let text = frame.compactJSON()
+        queue.async { self.conns.forEach { self.send($0, text) } }
+    }
+
     func dropAll() { queue.sync { conns.forEach { $0.forceCancel() }; conns.removeAll() } }
+
+    /// Like `push`, but sends at once: ONLY from inside a `responder` (it runs on the gateway queue), so the
+    /// frame goes out BEFORE that call's reply.
+    func pushInline(_ frame: JSONValue) {
+        let text = frame.compactJSON()
+        conns.forEach { send($0, text) }
+    }
+
+    /// Like `dropAll`, but ONLY from inside a `responder`: the socket drops before that call is answered.
+    func dropInline() { conns.forEach { $0.forceCancel() }; conns.removeAll() }
 
     func stop() { dropAll(); listener.cancel() }
 
@@ -198,6 +217,9 @@ final class FakeGateway: @unchecked Sendable {
         c.receiveMessage { [weak self] data, _, _, error in
             guard let self, error == nil else { return }
             if let data, let v = try? JSONDecoder().decode(JSONValue.self, from: data),
+               v["method"] == nil, v["id"] != nil {
+                self.recLock.withLock { self.responseFrames.append(v) }
+            } else if let data, let v = try? JSONDecoder().decode(JSONValue.self, from: data),
                let id = v["id"]?.int, let method = v["method"]?.string {
                 if method != "gateway.ping" { self.recLock.withLock { self.frames.append(v) } }
                 var result: JSONValue

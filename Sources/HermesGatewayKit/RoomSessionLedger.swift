@@ -1,6 +1,6 @@
 import Foundation
 
-// Durable record of the member-session keys a cleanup has PROVEN to be this card's (review BLOCK-003C).
+// Durable record of the member-session keys a cleanup has PROVEN to be this card's.
 //
 // Deleting a member row does not end every writer of that id. The model title upgrade of a member's first
 // turn runs in a daemon thread (`agent/title_generator.py:642-687`) that `session.close` does not wait for
@@ -87,7 +87,7 @@ public enum SessionLedger {
 }
 
 /// Where the cleaner writes ledger records. Throwing means "not recorded": the cleaner then does not
-/// delete that key (a deleted key nobody remembers is exactly the BLOCK-003C failure).
+/// delete that key (a deleted key nobody remembers is exactly how a re-created key would be missed).
 public protocol SessionLedgerRecorder: Sendable {
     func record(_ entry: SessionLedgerEntry) throws
 }

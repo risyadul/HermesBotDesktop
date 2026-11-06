@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HermesGatewayKit
 
-/// `RoomPoller` lifecycle (review BLOCK-001): a stopped/restarted loop must never apply, publish or
+/// `RoomPoller` lifecycle: a stopped/restarted loop must never apply, publish or
 /// sleep on a response that arrives late, and only one loop is current. Deterministic: log replies
 /// are held until the test releases them.
 @MainActor
@@ -121,7 +121,7 @@ final class RoomPollerTests: XCTestCase {
         XCTAssertEqual(src.stateCalls, 1)
     }
 
-    // MARK: composer availability (review BLOCK-002)
+    // MARK: composer availability
 
     func testComposerRefusesWhileClosingAndAfterClose() {
         var c = RoomComposer()

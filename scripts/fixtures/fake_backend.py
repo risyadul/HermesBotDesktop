@@ -1,8 +1,14 @@
 # Fake Hermes backend for scripts/sigint-regression.sh. Never touches a real Hermes home.
-# Speaks just enough of /api/ws JSON-RPC for one Bot Chat turn and its cleanup.
+# Speaks just enough of /api/ws JSON-RPC for the canonical "Bot Chat" flow and one turn:
+#   client.capabilities; profiles.list (include_sessions -> canonical_session); session.list title lookup;
+#   session.create + session.title (first open) or session.resume (later opens); commands.catalog;
+#   prompt.submit -> message.start / message.delta / message.complete events.
+# session.close / session.delete are answered but only recorded: the app must never send them for a Bot Chat.
 #   attach: fake_backend.py attach <lockdir> <calls.log>   (writes host-serve rendezvous record)
 #   spawn:  fake_backend.py serve --host H --port 0 [...]  (calls log from HBA_FAKE_CALLS)
 import base64, hashlib, json, os, signal, struct, sys, threading, time
+
+CANONICAL_TITLE = "Bot Chat"
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 mode = sys.argv[1]
@@ -12,6 +18,9 @@ else:
     # ServeProcess gives the child a clean env; the generated fake `hermes` wrapper sets this.
     lock, calls_path = None, os.environ["HBA_FAKE_CALLS"]
 wlock = threading.Lock()
+# profile -> stored id of its canonical Bot Chat (shared by every connection of this process)
+canonical = {}
+n_sess = 0
 
 def record(s):
     with wlock, open(calls_path, "a") as f:
@@ -35,6 +44,36 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(head + data); self.wfile.flush()
     def event(self, typ, sid, payload):
         self.frame({"jsonrpc": "2.0", "method": "event", "params": {"type": typ, "session_id": sid, "payload": payload}})
+    def answer(self, m, p):
+        global n_sess
+        if m == "client.capabilities":
+            return {"server_requests": ["approval", "clarify", "sudo", "secret"], "declines_not_shown": True}
+        if m == "profiles.list":
+            row = {"name": "fixture", "model": "fixture"}
+            if p.get("include_sessions"):
+                stored = canonical.get("fixture")
+                row["canonical_session"] = {"id": stored, "title": CANONICAL_TITLE} if stored else None
+            return {"profiles": [row]}
+        if m == "groups.list": return {"rooms": [], "has_more": False}
+        if m == "session.list":
+            stored = canonical.get(p.get("profile"))
+            if p.get("title") == CANONICAL_TITLE and stored:
+                return {"sessions": [{"id": stored, "title": CANONICAL_TITLE, "root_title": CANONICAL_TITLE}]}
+            return {"sessions": []}
+        if m == "session.create":
+            with wlock: n_sess += 1; n = n_sess
+            if p.get("title") == CANONICAL_TITLE: canonical[p.get("profile")] = f"stored-{n}"
+            return {"session_id": f"live-{n}", "stored_session_id": f"stored-{n}", "messages": [], "info": {}}
+        if m == "session.title": return {"title": p.get("title"), "pending": False}
+        if m == "session.resume":
+            with wlock: n_sess += 1; n = n_sess
+            return {"session_id": f"live-{n}", "stored_session_id": p.get("session_id"), "messages": [], "info": {},
+                    "running": False, "status": "idle"}
+        if m == "commands.catalog": return {"pairs": [], "commands": {}}
+        if m == "session.close": return {"closed": True}
+        if m == "session.delete": return {"deleted": p.get("session_id")}
+        return {}
+
     def do_GET(self):
         if self.path.startswith("/api/ws"):
             self.server.send_lock = threading.Lock()
@@ -45,7 +84,6 @@ class Handler(BaseHTTPRequestHandler):
             if proto: self.send_header("Sec-WebSocket-Protocol", proto.split(",")[0].strip())
             self.send_header("Sec-WebSocket-Accept", acc); self.end_headers()
             self.event("gateway.ready", None, {})
-            n_sess = 0
             try:
                 while True:
                     h = self.rfile.read(2)
@@ -60,19 +98,10 @@ class Handler(BaseHTTPRequestHandler):
                     if op != 1: continue
                     v = json.loads(data); m = v.get("method"); p = v.get("params") or {}
                     record(f"RPC {m} {json.dumps(p.get('session_id'))}")
-                    res = {}
-                    if m == "profiles.list": res = {"profiles": [{"name": "fixture", "model": "fixture"}]}
-                    elif m == "groups.list": res = {"rooms": [], "has_more": False}
-                    elif m == "session.create":
-                        n_sess += 1
-                        res = {"session_id": f"live-{n_sess}", "stored_session_id": f"stored-{n_sess}"}
-                    elif m == "session.close":
-                        # slow close: the runner sends its 2nd Ctrl+C while this is in flight
-                        time.sleep(1.5); record("CLOSE_DONE"); res = {"closed": True}
-                    elif m == "session.delete": res = {"deleted": p.get("session_id")}
-                    elif m == "prompt.submit":
+                    res = self.answer(m, p)
+                    if m == "prompt.submit":
                         sid = p.get("session_id")
-                        self.frame({"jsonrpc": "2.0", "id": v["id"], "result": {"status": "accepted"}})
+                        self.frame({"jsonrpc": "2.0", "id": v["id"], "result": {"status": "streaming"}})
                         def stream(sid=sid):
                             time.sleep(0.2); self.event("message.start", sid, {})
                             for w in ["synthetic ", "fixture ", "reply"]:

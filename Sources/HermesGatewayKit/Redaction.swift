@@ -11,6 +11,10 @@ import Foundation
 /// - Every consumer that turns an error into text uses `Redaction.describe(_:)` (second line): known
 ///   error types keep their description, anything else is reduced to `domain code: localized message`
 ///   and `userInfo` is never rendered. The result is then scrubbed for token-shaped substrings.
+/// An error whose `description` holds no secrets, so `Redaction.describe` keeps it (still scrubbed)
+/// instead of reducing it to `domain code: message`. For harness-local failure types.
+public protocol RedactionSafeError: Error, CustomStringConvertible {}
+
 public enum Redaction {
     public static let mask = "[REDACTED]"
 
@@ -22,7 +26,7 @@ public enum Redaction {
         case let e as GatewayClient.RPCError: text = e.description
         case let e as ServeProcess.ServeError: text = e.description
         case let e as Backend.Failure: text = e.description
-        case let e as RoundTrip.Failure: text = String(describing: e)
+        case let e as RedactionSafeError: text = e.description
         case is CancellationError: text = "cancelled"
         default:
             // Never `"\(error)"`: for NSError/URLError that renders userInfo, including the failing URL.

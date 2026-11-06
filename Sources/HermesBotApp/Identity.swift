@@ -33,6 +33,8 @@ struct BotIdentity: Equatable {
     let profile: String
     let title: String
     let slot: Int
+    /// Roster-unique monogram (`Monogram.assign`); nil = the title's own two letters.
+    var uniqueMonogram: String? = nil
 
     var hex: UInt32 { DS.Palette.bots[slot] }
     /// Avatar tile / chip border: the base colour in both modes.
@@ -51,10 +53,59 @@ struct BotIdentity: Equatable {
         })
     }
 
-    var monogram: String {
-        let parts = title.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).filter { !$0.isEmpty }
-        let letters = parts.count >= 2 ? [parts[0].first, parts[1].first] : [title.first, title.dropFirst().first]
-        return String(letters.compactMap { $0 }).uppercased()
+    var monogram: String { uniqueMonogram ?? Monogram.base(title) }
+}
+
+/// Two-letter monograms, unique within one roster. Only letters and digits count: the base is the first
+/// characters of the first two words (or the first two of one word; a one-character title doubles it,
+/// "R" → RR). Bots whose bases collide ("reviewer", "researcher" → RE) each take their first letter plus
+/// the first letter after the prefix they share ("RV", "RS"), moving on to later letters when that pair
+/// is taken. Deterministic: names are placed in sorted profile order.
+enum Monogram {
+    static func base(_ title: String) -> String {
+        let words = title.split(whereSeparator: { !isMonogramCharacter($0) }).map { $0.map(upper) }
+        guard let first = words.first?.first else { return "?" }
+        let second = words.count >= 2 ? words[1][0] : words[0].dropFirst().first ?? first
+        return String([first, second])
+    }
+
+    private static func isMonogramCharacter(_ c: Character) -> Bool { c.isLetter || c.isNumber }
+
+    /// One character in, one out: "ß" uppercases to "SS", which would make a three-letter monogram.
+    private static func upper(_ c: Character) -> Character { String(c).uppercased().first ?? c }
+
+    /// `bots`: (profile, title). Returns profile → monogram.
+    static func assign(_ bots: [(profile: String, title: String)]) -> [String: String] {
+        var titles: [String: String] = [:]
+        for b in bots where titles[b.profile] == nil { titles[b.profile] = b.title }
+        let profiles = titles.keys.sorted()
+        let bases = Dictionary(uniqueKeysWithValues: profiles.map { ($0, base(titles[$0]!)) })
+        let groups = Dictionary(grouping: profiles, by: { bases[$0]! })
+        var out: [String: String] = [:]
+        var taken = Set(groups.filter { $0.value.count == 1 }.keys)
+        for p in profiles where out[p] == nil {
+            guard let group = groups[bases[p]!], group.count > 1 else { out[p] = bases[p]; continue }
+            let letters = group.map { titles[$0]!.filter(isMonogramCharacter).map(upper) }
+            let shared = sharedPrefix(letters)
+            for (member, chars) in zip(group, letters) {
+                let first = chars.first.map(String.init) ?? "?"
+                // Letters after the shared prefix first, then the shared ones (a title that is a prefix of another).
+                let start = max(shared, 1)
+                let picks = Array(chars.indices.dropFirst(start)) + Array(chars.indices.dropFirst().prefix(start - 1))
+                let pick = picks.lazy.map { first + String(chars[$0]) }.first { !taken.contains($0) }
+                    ?? (1...).lazy.map { first + "\($0)" }.first { !taken.contains($0) }!
+                taken.insert(pick)
+                out[member] = pick
+            }
+        }
+        return out
+    }
+
+    private static func sharedPrefix(_ words: [[Character]]) -> Int {
+        guard let shortest = words.map(\.count).min() else { return 0 }
+        var i = 0
+        while i < shortest, Set(words.map { $0[i] }).count == 1 { i += 1 }
+        return i
     }
 }
 
@@ -65,10 +116,15 @@ final class AvatarStore: ObservableObject {
     static let shared = AvatarStore()
     @Published private(set) var images: [String: NSImage] = [:]
     @Published private(set) var slots: [String: Int] = [:]
+    @Published private(set) var monograms: [String: String] = [:]
     private var requested: Set<String> = []
+
+    /// New connection: forget which avatars were requested, so the next `load` retries failed ones.
+    func reset() { requested = [] }
 
     func load(bots: [Bot], backend: Backend?) {
         slots = IdentityPalette.assign(bots.map(\.name))
+        monograms = Monogram.assign(bots.map { (profile: $0.name, title: $0.title) })
         guard let backend else { return }
         for bot in bots where !requested.contains(bot.name) {
             requested.insert(bot.name)
@@ -77,7 +133,7 @@ final class AvatarStore: ObservableObject {
                     let r = try await backend.client.call("profiles.get_asset", ["name": .string(bot.name), "asset": "avatar"])
                     guard r["found"]?.bool == true, let url = r["data"]?.string, let comma = url.firstIndex(of: ","),
                           let data = Data(base64Encoded: String(url[url.index(after: comma)...])),
-                          let image = NSImage(data: data) else { return }
+                          ProfileAvatar.isSafeToDecode(data), let image = NSImage(data: data) else { return }
                     images[bot.name] = image
                 } catch {
                     AppModel.shared.log("profiles.get_asset \(bot.name) failed: \(Redaction.describe(error))")
@@ -86,8 +142,14 @@ final class AvatarStore: ObservableObject {
         }
     }
 
+    /// A saved avatar (Edit sheet) shows at once; nil forgets it (removed, or the bot was deleted).
+    func replace(_ profile: String, data: Data?) {
+        images[profile] = data.flatMap(NSImage.init(data:))
+    }
+
     func identity(profile: String, title: String? = nil) -> BotIdentity {
-        BotIdentity(profile: profile, title: title ?? profile, slot: slots[profile] ?? IdentityPalette.hashSlot(profile))
+        BotIdentity(profile: profile, title: title ?? profile, slot: slots[profile] ?? IdentityPalette.hashSlot(profile),
+                    uniqueMonogram: monograms[profile])
     }
 }
 

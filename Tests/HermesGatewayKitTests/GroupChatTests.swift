@@ -9,7 +9,7 @@ final class GroupChatTests: XCTestCase {
 
     private let room = RoomSummary([
         "room_id": "hba-x", "name": "Test", "revision": 1, "latest_seq": 0, "created_at": 1, "updated_at": 1,
-        "members": [["member_id": "thief", "profile": "thief", "handle": "thief", "display_name": "Thief"],
+        "members": [["member_id": "translator", "profile": "translator", "handle": "translator", "display_name": "Translator"],
                     ["member_id": "code-reviewer", "profile": "code-reviewer", "handle": "code-reviewer"]],
     ])!
 
@@ -42,9 +42,9 @@ final class GroupChatTests: XCTestCase {
 
     func testApplyIsIdempotentAndTracksCursor() {
         var t = RoomTimeline()
-        XCTAssertEqual(t.apply(page([user(1), member(2, "thief")])), 2)
-        XCTAssertEqual(t.apply(page([member(2, "thief")])), 0, "a re-delivered page adds nothing")
-        XCTAssertEqual(t.apply(page([member(2, "thief"), turn(3, "turn.settled", "thief")])), 1)
+        XCTAssertEqual(t.apply(page([user(1), member(2, "translator")])), 2)
+        XCTAssertEqual(t.apply(page([member(2, "translator")])), 0, "a re-delivered page adds nothing")
+        XCTAssertEqual(t.apply(page([member(2, "translator"), turn(3, "turn.settled", "translator")])), 1)
         XCTAssertEqual(t.cursor, 3)
         XCTAssertEqual(t.events.map(\.seq), [1, 2, 3])
         XCTAssertFalse(t.gapDetected)
@@ -60,14 +60,14 @@ final class GroupChatTests: XCTestCase {
     func testGapDetected() {
         var t = RoomTimeline()
         t.apply(page([user(1)]))
-        t.apply(page([member(3, "thief")]))
+        t.apply(page([member(3, "translator")]))
         XCTAssertTrue(t.gapDetected)
     }
 
     func testPhasesSettledBoundedStoppedSupersededPending() {
         var t = RoomTimeline()
         let first = user(1, "user:a")
-        t.apply(page([first, member(2, "thief", disc: "user:a"), turn(3, "turn.settled", "thief", disc: "user:a")]))
+        t.apply(page([first, member(2, "translator", disc: "user:a"), turn(3, "turn.settled", "translator", disc: "user:a")]))
         XCTAssertEqual(t.phase(of: first), .pending)
         XCTAssertTrue(t.awaitingDiscussion)
         t.apply(page([activity(4, "settled", "silent_round", disc: "user:a")]))
@@ -102,18 +102,18 @@ final class GroupChatTests: XCTestCase {
     func testLinesUseRosterNamesAndHideOrdinarySettles() {
         var t = RoomTimeline()
         t.apply(page([
-            user(1), member(2, "thief"), turn(3, "turn.settled", "thief", extra: ["passed": false]),
+            user(1), member(2, "translator"), turn(3, "turn.settled", "translator", extra: ["passed": false]),
             turn(4, "turn.settled", "code-reviewer", extra: ["passed": true]),
-            turn(5, "turn.failed", "thief", extra: ["error": "boom"]),
+            turn(5, "turn.failed", "translator", extra: ["error": "boom"]),
             turn(6, "turn.cancelled", "code-reviewer", extra: ["reason": "hba-stop-1"]),
-            turn(7, "turn.deferred", "thief", extra: ["reason": "member_unavailable", "execution_generation": 1]),
+            turn(7, "turn.deferred", "translator", extra: ["reason": "member_unavailable", "execution_generation": 1]),
             activity(8, "settled", "silent_round"), stopFence(9),
             RoomEvent(seq: 10, eventId: "x", kind: "room.renamed", payload: ["name": "New"]),
         ]))
         let lines = t.lines(room: room)
         XCTAssertEqual(lines.map(\.id), [1, 2, 4, 5, 6, 7, 8, 9, 10], "a plain turn.settled adds no row (the reply is the row)")
         XCTAssertEqual(lines[0].kind, .user)
-        XCTAssertEqual(lines[1].author, "Thief", "display name from the roster")
+        XCTAssertEqual(lines[1].author, "Translator", "display name from the roster")
         XCTAssertEqual(lines[1].text, "hello")
         XCTAssertEqual(lines[2].text, "passed (no reply)")
         XCTAssertEqual(lines[2].author, "code-reviewer", "handle when no display name")
@@ -162,11 +162,11 @@ final class GroupChatTests: XCTestCase {
         XCTAssertFalse(t.awaitingDiscussion)
         XCTAssertTrue(RoomPollPolicy.publicationPending(driver: d, timeline: t))
         XCTAssertEqual(RoomPollPolicy.interval(driver: d, timeline: t), RoomPollPolicy.active)
-        t.apply(page([turn(3, "turn.cancelled", "thief")]))
+        t.apply(page([turn(3, "turn.cancelled", "translator")]))
         XCTAssertFalse(RoomPollPolicy.publicationPending(driver: d, timeline: t))
         XCTAssertEqual(RoomPollPolicy.interval(driver: d, timeline: t), RoomPollPolicy.idle)
         // A retried deferred task: two events (deferred, settled) for one task is not "pending".
-        t.apply(page([turn(4, "turn.deferred", "thief"), turn(5, "turn.settled", "thief")]))
+        t.apply(page([turn(4, "turn.deferred", "translator"), turn(5, "turn.settled", "translator")]))
         XCTAssertFalse(RoomPollPolicy.publicationPending(driver: RoomDriverStatus(working: false, counts: ["settled": 1, "cancelled": 1]), timeline: t))
     }
 
@@ -191,7 +191,7 @@ final class GroupChatTests: XCTestCase {
     }
 
     func testRoomAndPageDecoding() {
-        XCTAssertEqual(room.members.map(\.title), ["Thief", "code-reviewer"])
+        XCTAssertEqual(room.members.map(\.title), ["Translator", "code-reviewer"])
         XCTAssertEqual(room.latestSeq, 0)
         let created = RoomSummary(["room_id": "hba-y", "name": "N", "members": [], "idempotent": true])!
         XCTAssertNil(created.latestSeq, "groups.create rows carry no latest_seq")
@@ -204,21 +204,21 @@ final class GroupChatTests: XCTestCase {
     }
 
     func testMemberRules() {
-        XCTAssertTrue(RoomMember.isIdentifier("android-implementer"))
+        XCTAssertTrue(RoomMember.isIdentifier("web-implementer"))
         XCTAssertTrue(RoomMember.isIdentifier("a.b:c_d-1"))
         XCTAssertFalse(RoomMember.isIdentifier("-x"))
         XCTAssertFalse(RoomMember.isIdentifier("has space"))
         XCTAssertFalse(RoomMember.isIdentifier("é"))
         XCTAssertFalse(RoomMember.isIdentifier(String(repeating: "a", count: 129)))
-        XCTAssertEqual(RoomMember.forBot(Bot(["name": "thief", "display_name": "Thief"])!)?.json,
-                       ["member_id": "thief", "profile": "thief", "handle": "thief", "display_name": "Thief"])
+        XCTAssertEqual(RoomMember.forBot(Bot(["name": "translator", "display_name": "Translator"])!)?.json,
+                       ["member_id": "translator", "profile": "translator", "handle": "translator", "display_name": "Translator"])
         XCTAssertNil(RoomMember.forBot(Bot(["name": "all"])!), "reserved handle")
     }
 
     // MARK: RoomSync
 
     func testSyncFollowsHasMoreThenReadsState() async throws {
-        let src = FakeRoomSource(pages: [[user(1), member(2, "thief")], [turn(3, "turn.settled", "thief")], []],
+        let src = FakeRoomSource(pages: [[user(1), member(2, "translator")], [turn(3, "turn.settled", "translator")], []],
                                  latest: 3, room: room)
         let (t, s) = try await RoomSync.refresh(src, roomId: "hba-x", timeline: RoomTimeline())
         XCTAssertEqual(t.cursor, 3)
@@ -232,7 +232,7 @@ final class GroupChatTests: XCTestCase {
     func testSyncReloadsFromZeroOnGap() async throws {
         var t = RoomTimeline()
         t.apply(page([user(1)]))
-        let (u1, m2, m3) = (user(1), member(2, "thief"), member(3, "thief"))
+        let (u1, m2, m3) = (user(1), member(2, "translator"), member(3, "translator"))
         let src = FakeRoomSource(pages: [], latest: 3, room: room, override: { since in
             since == 1 ? [m3] : [u1, m2, m3]
         })

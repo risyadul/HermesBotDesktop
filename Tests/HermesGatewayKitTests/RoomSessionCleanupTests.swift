@@ -2,16 +2,16 @@ import Foundation
 import XCTest
 @testable import HermesGatewayKit
 
-/// Review BLOCK-003: cleanup must find a room's member sessions while their title is still the
+/// Cleanup must find a room's member sessions while their title is still the
 /// transient auto title (or empty), wait for working ones, never touch unrelated sessions, and never
 /// report success with an owned or unprovable session left.
 final class RoomSessionCleanupTests: XCTestCase {
-    static let thief = RoomMember(memberId: "thief", profile: "thief", handle: "thief")
+    static let translator = RoomMember(memberId: "translator", profile: "translator", handle: "translator")
     static let reviewer = RoomMember(memberId: "code-reviewer", profile: "code-reviewer", handle: "code-reviewer")
     static let room = RoomManifestEntry(roomId: "hba-0db4eb2a7e68", name: "hba app hba-0db4eb2a7e68", createdAt: 1_000,
-                                        members: [thief, reviewer])
+                                        members: [translator, reviewer])
     static let other = RoomManifestEntry(roomId: "hba-111111111111", name: "hba app hba-111111111111", createdAt: 1_000,
-                                         members: [thief, reviewer])
+                                         members: [translator, reviewer])
 
     /// Exactly what `session.list` shows: `_shape_preview` = first user message head, newlines → spaces,
     /// `[:60] + "..."` (`hermes_state_common.py:148-157`).
@@ -38,10 +38,10 @@ final class RoomSessionCleanupTests: XCTestCase {
     // MARK: - opening / classification
 
     func testOpeningMatchesDriverPromptShape() {
-        XCTAssertEqual(Self.room.opening(for: Self.thief),
-                       #"[Discussion: "hba app hba-0db4eb2a7e68"] You are @thief, one participant with @code-reviewer and the user."#)
-        let solo = RoomManifestEntry(roomId: "hba-x", name: "n", createdAt: 0, members: [Self.thief])
-        XCTAssertEqual(solo.opening(for: Self.thief), #"[Discussion: "n"] You are @thief, one participant with no other members and the user."#)
+        XCTAssertEqual(Self.room.opening(for: Self.translator),
+                       #"[Discussion: "hba app hba-0db4eb2a7e68"] You are @translator, one participant with @code-reviewer and the user."#)
+        let solo = RoomManifestEntry(roomId: "hba-x", name: "n", createdAt: 0, members: [Self.translator])
+        XCTAssertEqual(solo.opening(for: Self.translator), #"[Discussion: "n"] You are @translator, one participant with no other members and the user."#)
     }
 
     func testManifestRoundTrip() throws {
@@ -56,15 +56,15 @@ final class RoomSessionCleanupTests: XCTestCase {
     /// The reviewer's repro: stored row with the instant derived title + live `working` runtime with the
     /// same key → both owned (the old exact-title / untitled-only filter found neither).
     func testAutoTitledWorkingSessionIsOwned() {
-        let p = Self.prompt(Self.room, Self.thief)
-        let row = StoredSessionRow(profile: "thief", id: "20261103_212222_df3c8f", title: Self.derivedTitle(p),
+        let p = Self.prompt(Self.room, Self.translator)
+        let row = StoredSessionRow(profile: "translator", id: "20261103_212222_df3c8f", title: Self.derivedTitle(p),
                                    preview: Self.preview(p), startedAt: 1_010)
         XCTAssertTrue(row.title.hasPrefix(#"[Discussion: "hba app hba-0db4eb2a7e68"]"#), row.title)
         let live = LiveSessionRow(runtimeId: "bd2fa799", sessionKey: row.id, title: row.title, status: "working")
         let d = RoomSessionClassifier.classify(manifest: [Self.room], stored: [row], live: [live])
         XCTAssertEqual(d.ownedStored.map(\.row.id), [row.id])
         XCTAssertEqual(d.ownedStored.first?.evidence, "opening_preview")
-        XCTAssertEqual(d.ownedStored.first?.memberId, "thief")
+        XCTAssertEqual(d.ownedStored.first?.memberId, "translator")
         XCTAssertEqual(d.ownedLive.map(\.row.runtimeId), ["bd2fa799"])
         XCTAssertTrue(d.unresolved.isEmpty)
     }
@@ -74,7 +74,7 @@ final class RoomSessionCleanupTests: XCTestCase {
         let rows = [
             StoredSessionRow(profile: "code-reviewer", id: "a", title: Self.derivedTitle(p), preview: "", startedAt: 1_005),
             StoredSessionRow(profile: "code-reviewer", id: "b", title: "", preview: Self.preview(p), startedAt: 1_005),
-            StoredSessionRow(profile: "thief", id: "c", title: "Group: hba-0db4eb2a7e68", preview: "", startedAt: 1_005),
+            StoredSessionRow(profile: "translator", id: "c", title: "Group: hba-0db4eb2a7e68", preview: "", startedAt: 1_005),
         ]
         let d = RoomSessionClassifier.classify(manifest: [Self.room], stored: rows, live: [])
         XCTAssertEqual(d.ownedStored.map(\.row.id), ["a", "b", "c"])
@@ -85,19 +85,19 @@ final class RoomSessionCleanupTests: XCTestCase {
     /// Unrelated controls: another room (manifest or not), another source, the user's own sessions,
     /// a Group title of a non-test room, a member/profile mismatch.
     func testUnrelatedSessionsAreNeverOwned() {
-        let pOther = Self.prompt(Self.other, Self.thief)
-        let foreignHba = #"[Discussion: "hba M2 multi 1793708742"] You are @thief, one participant with @code-reviewer"#
+        let pOther = Self.prompt(Self.other, Self.translator)
+        let foreignHba = #"[Discussion: "hba M2 multi 1793708742"] You are @translator, one participant with @code-reviewer"#
         let rows = [
-            StoredSessionRow(profile: "thief", id: "other-room", title: "", preview: Self.preview(pOther), startedAt: 1_005),
-            StoredSessionRow(profile: "thief", id: "other-group", title: "Group: hba-111111111111", startedAt: 1_005),
-            StoredSessionRow(profile: "thief", id: "user-room", title: "Group: my-room", startedAt: 1_005),
-            StoredSessionRow(profile: "thief", id: "foreign-hba", title: "", preview: Self.preview(foreignHba), startedAt: 1_005),
-            StoredSessionRow(profile: "thief", id: "tui", title: "", preview: Self.preview(Self.prompt(Self.room, Self.thief)),
+            StoredSessionRow(profile: "translator", id: "other-room", title: "", preview: Self.preview(pOther), startedAt: 1_005),
+            StoredSessionRow(profile: "translator", id: "other-group", title: "Group: hba-111111111111", startedAt: 1_005),
+            StoredSessionRow(profile: "translator", id: "user-room", title: "Group: my-room", startedAt: 1_005),
+            StoredSessionRow(profile: "translator", id: "foreign-hba", title: "", preview: Self.preview(foreignHba), startedAt: 1_005),
+            StoredSessionRow(profile: "translator", id: "tui", title: "", preview: Self.preview(Self.prompt(Self.room, Self.translator)),
                              source: "tui", startedAt: 1_005),
             // a 1:1 Bot Chat session is not a room session (source != bot_room)
-            StoredSessionRow(profile: "thief", id: "chat", title: "Bot Chat", preview: "hello", source: "tui", startedAt: 1_005),
+            StoredSessionRow(profile: "translator", id: "chat", title: "Bot Chat", preview: "hello", source: "tui", startedAt: 1_005),
             // bot_room rows outside the scope: before the first test room, or in a profile that is no member
-            StoredSessionRow(profile: "thief", id: "old-llm", title: "History of Lighthouses", startedAt: 10),
+            StoredSessionRow(profile: "translator", id: "old-llm", title: "History of Lighthouses", startedAt: 10),
             StoredSessionRow(profile: "default", id: "nonmember-llm", title: "History of Lighthouses", startedAt: 1_005),
         ]
         let live = [LiveSessionRow(runtimeId: "r1", sessionKey: "other-room", title: "", status: "idle"),
@@ -107,18 +107,18 @@ final class RoomSessionCleanupTests: XCTestCase {
         XCTAssertTrue(d.ownedLive.isEmpty)
         XCTAssertTrue(d.unresolved.isEmpty, "\(d.unresolved)")
         // Reported only: the other room's preview + its Group title + the foreign hba preview.
-        XCTAssertEqual(d.foreign.map { String($0.split(separator: " ")[0]) }, ["thief:other-room", "thief:other-group", "thief:foreign-hba"])
+        XCTAssertEqual(d.foreign.map { String($0.split(separator: " ")[0]) }, ["translator:other-room", "translator:other-group", "translator:foreign-hba"])
     }
 
     func testUnprovableRowsAreUnresolvedNotOwned() {
-        let p = Self.prompt(Self.room, Self.thief)
+        let p = Self.prompt(Self.room, Self.translator)
         let rows = [
             // names the room but the row's profile is a member whose handle does not match
             StoredSessionRow(profile: "code-reviewer", id: "mismatch", title: "", preview: Self.preview(p), startedAt: 1_005),
             // started long before the room existed
-            StoredSessionRow(profile: "thief", id: "old", title: "", preview: Self.preview(p), startedAt: 10),
+            StoredSessionRow(profile: "translator", id: "old", title: "", preview: Self.preview(p), startedAt: 10),
             // nothing to attribute, but started after the first test room
-            StoredSessionRow(profile: "thief", id: "empty", title: "", preview: "", startedAt: 1_005),
+            StoredSessionRow(profile: "translator", id: "empty", title: "", preview: "", startedAt: 1_005),
         ]
         let live = [LiveSessionRow(runtimeId: "t1", sessionKey: "unknown", title: "Group: hba-0db4eb2a7e68", status: "idle")]
         let d = RoomSessionClassifier.classify(manifest: [Self.room], stored: rows, live: live)
@@ -127,14 +127,14 @@ final class RoomSessionCleanupTests: XCTestCase {
     }
 
     func testSameNameRoomMakesPreviewAmbiguous() {
-        let p = Self.prompt(Self.room, Self.thief)
-        let row = StoredSessionRow(profile: "thief", id: "x", title: "", preview: Self.preview(p), startedAt: 1_005)
+        let p = Self.prompt(Self.room, Self.translator)
+        let row = StoredSessionRow(profile: "translator", id: "x", title: "", preview: Self.preview(p), startedAt: 1_005)
         let d = RoomSessionClassifier.classify(manifest: [Self.room], stored: [row], live: [], otherRoomNames: [Self.room.name])
         XCTAssertTrue(d.ownedStored.isEmpty)
         XCTAssertEqual(d.unresolved.map(\.kind), ["ambiguous_name"])
         // A long name that the 60-char preview cuts → cannot be proven.
-        let long = RoomManifestEntry(roomId: "hba-long", name: String(repeating: "hba long name ", count: 5), createdAt: 1_000, members: [Self.thief])
-        let r2 = StoredSessionRow(profile: "thief", id: "y", title: "", preview: Self.preview(Self.prompt(long, Self.thief)), startedAt: 1_005)
+        let long = RoomManifestEntry(roomId: "hba-long", name: String(repeating: "hba long name ", count: 5), createdAt: 1_000, members: [Self.translator])
+        let r2 = StoredSessionRow(profile: "translator", id: "y", title: "", preview: Self.preview(Self.prompt(long, Self.translator)), startedAt: 1_005)
         XCTAssertEqual(RoomSessionClassifier.classify(manifest: [long], stored: [r2], live: []).unresolved.map(\.kind), ["truncated_provenance"])
     }
 
@@ -142,20 +142,20 @@ final class RoomSessionCleanupTests: XCTestCase {
 
     func testTransientWorkingThenGroupIdleIsClosedDeletedAndSettles() async {
         let gw = FakeSessionGateway()
-        let p = Self.prompt(Self.room, Self.thief)
+        let p = Self.prompt(Self.room, Self.translator)
         let id = "20261103_212222_df3c8f"
         // Round 1: first turn still working, stored title = instant derived title.
-        gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: id, title: Self.derivedTitle(p), preview: Self.preview(p), startedAt: 1_010)]
+        gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: id, title: Self.derivedTitle(p), preview: Self.preview(p), startedAt: 1_010)]
         gw.live = [LiveSessionRow(runtimeId: "bd2fa799", sessionKey: id, title: Self.derivedTitle(p), status: "working")]
         // Plus unrelated controls that must survive.
-        gw.stored["thief", default: []].append(StoredSessionRow(profile: "thief", id: "user-1", title: "Group: my-room", startedAt: 1_005))
+        gw.stored["translator", default: []].append(StoredSessionRow(profile: "translator", id: "user-1", title: "Group: my-room", startedAt: 1_005))
         gw.stored["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "other",
                                                        preview: Self.preview(Self.prompt(Self.other, Self.reviewer)), startedAt: 1_005)]
         gw.live.append(LiveSessionRow(runtimeId: "u1", sessionKey: "user-1", title: "Group: my-room", status: "idle"))
         // After round 1's sleep: the turn ends, the pending Group title lands, runtime idle.
         gw.onSleep = { n, g in
             if n == 1 {
-                g.stored["thief"] = g.stored["thief"]!.map { $0.id == id ? StoredSessionRow(profile: "thief", id: id, title: "Group: hba-0db4eb2a7e68",
+                g.stored["translator"] = g.stored["translator"]!.map { $0.id == id ? StoredSessionRow(profile: "translator", id: id, title: "Group: hba-0db4eb2a7e68",
                                                                                          preview: $0.preview, startedAt: 1_010) : $0 }
                 g.live = g.live.map { $0.runtimeId == "bd2fa799" ? LiveSessionRow(runtimeId: "bd2fa799", sessionKey: id, title: "Group: hba-0db4eb2a7e68", status: "idle") : $0 }
             }
@@ -163,9 +163,9 @@ final class RoomSessionCleanupTests: XCTestCase {
         let report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 8, every: 0).run(gw)
         XCTAssertTrue(report.ok, report.reason)
         XCTAssertEqual(gw.closeCalls, ["bd2fa799"])        // only once idle
-        XCTAssertEqual(gw.deleteCalls, ["thief:\(id)"])    // only after its runtime was closed
+        XCTAssertEqual(gw.deleteCalls, ["translator:\(id)"])    // only after its runtime was closed
         XCTAssertEqual(gw.firstCloseRound, 2)
-        XCTAssertTrue(gw.stored["thief"]!.contains { $0.id == "user-1" })
+        XCTAssertTrue(gw.stored["translator"]!.contains { $0.id == "user-1" })
         XCTAssertEqual(gw.stored["code-reviewer"]!.map(\.id), ["other"])
         XCTAssertTrue(gw.live.contains { $0.runtimeId == "u1" })
         XCTAssertTrue(report.final.isEmpty)
@@ -175,8 +175,8 @@ final class RoomSessionCleanupTests: XCTestCase {
     /// success from a narrow filter.
     func testStillWorkingAtEndIsNotClean() async {
         let gw = FakeSessionGateway()
-        let p = Self.prompt(Self.room, Self.thief)
-        gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: "s1", title: Self.derivedTitle(p), preview: Self.preview(p), startedAt: 1_010)]
+        let p = Self.prompt(Self.room, Self.translator)
+        gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: "s1", title: Self.derivedTitle(p), preview: Self.preview(p), startedAt: 1_010)]
         gw.live = [LiveSessionRow(runtimeId: "r1", sessionKey: "s1", title: Self.derivedTitle(p), status: "working")]
         let report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 3, every: 0).run(gw)
         XCTAssertFalse(report.ok)
@@ -188,21 +188,21 @@ final class RoomSessionCleanupTests: XCTestCase {
 
     func testDelete4023IsRetriedInLaterRounds() async {
         let gw = FakeSessionGateway()
-        gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: "s1", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
-        gw.deleteFailures["thief:s1"] = 2   // write guard still held for two rounds
+        gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: "s1", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
+        gw.deleteFailures["translator:s1"] = 2   // write guard still held for two rounds
         let report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 8, every: 0).run(gw)
         XCTAssertTrue(report.ok, report.reason)
-        XCTAssertEqual(gw.deleteCalls, ["thief:s1", "thief:s1", "thief:s1"])
+        XCTAssertEqual(gw.deleteCalls, ["translator:s1", "translator:s1", "translator:s1"])
         XCTAssertEqual(report.deleted.count, 1)
     }
 
     func testPersistent4023AndUnresolvedFail() async {
         let gw = FakeSessionGateway()
-        gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: "s1", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
-        gw.deleteFailures["thief:s1"] = 100  // live in another backend
+        gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: "s1", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
+        gw.deleteFailures["translator:s1"] = 100  // live in another backend
         var report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 3, every: 0).run(gw)
         XCTAssertFalse(report.ok)
-        XCTAssertEqual(report.lastErrors["thief:s1"]?.contains("4023"), true)
+        XCTAssertEqual(report.lastErrors["translator:s1"]?.contains("4023"), true)
 
         let gw2 = FakeSessionGateway()
         gw2.live = [LiveSessionRow(runtimeId: "t1", sessionKey: "nope", title: "Group: hba-0db4eb2a7e68", status: "idle")]
@@ -216,23 +216,23 @@ final class RoomSessionCleanupTests: XCTestCase {
         let gw = FakeSessionGateway()
         // Empty in round 1, a session shows up before round 2 (still settling) → must be handled.
         gw.onSleep = { n, g in
-            if n == 1 { g.stored["thief"] = [StoredSessionRow(profile: "thief", id: "late", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)] }
+            if n == 1 { g.stored["translator"] = [StoredSessionRow(profile: "translator", id: "late", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)] }
         }
         let report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 6, every: 0, settleRounds: 2).run(gw)
         XCTAssertTrue(report.ok, report.reason)
-        XCTAssertEqual(gw.deleteCalls, ["thief:late"])
+        XCTAssertEqual(gw.deleteCalls, ["translator:late"])
     }
 
-    // MARK: - review run309 BLOCK-003A: a bare session_key never proves which profile a runtime is
+    // MARK: - a bare session_key never proves which profile a runtime is
 
-    /// The reviewer's probe: `thief:same-key` owned (exact title), `code-reviewer:same-key` foreign
+    /// The reviewer's probe: `translator:same-key` owned (exact title), `code-reviewer:same-key` foreign
     /// (`Group: unrelated-user-room`), two live runtimes with that key and their own titles. Nothing may be
     /// closed (the old join closed both), the owned row's delete waits, and the run fails.
     func testSameKeyInTwoProfilesNeverClosesEitherRuntime() async {
         let probe = RoomManifestEntry(roomId: "hba-cleanup-probe", name: "hba cleanup probe", createdAt: 1_000,
-                                      members: [Self.thief, Self.reviewer])
+                                      members: [Self.translator, Self.reviewer])
         let gw = FakeSessionGateway()
-        gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: "same-key", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
+        gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: "same-key", title: "Group: hba-cleanup-probe", startedAt: 1_010)]
         gw.stored["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "same-key", title: "Group: unrelated-user-room", startedAt: 1_010)]
         gw.live = [LiveSessionRow(runtimeId: "own-runtime", sessionKey: "same-key", title: "Group: hba-cleanup-probe", status: "idle"),
                    LiveSessionRow(runtimeId: "foreign-runtime", sessionKey: "same-key", title: "Group: unrelated-user-room", status: "idle")]
@@ -252,7 +252,7 @@ final class RoomSessionCleanupTests: XCTestCase {
         for foreignRow in [StoredSessionRow(profile: "default", id: "k1", title: "Group: my-room", startedAt: 1_010),
                            StoredSessionRow(profile: "default", id: "k1", title: "Plan trip", preview: "plan", source: "tui", startedAt: 1_010)] {
             let gw = FakeSessionGateway()
-            gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: "k1", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
+            gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: "k1", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
             gw.stored["default"] = [foreignRow]
             gw.live = [LiveSessionRow(runtimeId: "r", sessionKey: "k1", title: "Group: hba-0db4eb2a7e68", status: "idle")]
             let report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 2, every: 0).run(gw)
@@ -268,7 +268,7 @@ final class RoomSessionCleanupTests: XCTestCase {
     /// profile, e.g. not flushed yet or another home), both with this room's title → neither is closed.
     func testTwoRuntimesOnAUniqueIdAreUnresolved() async {
         let gw = FakeSessionGateway()
-        gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: "k2", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
+        gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: "k2", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
         gw.live = [LiveSessionRow(runtimeId: "a", sessionKey: "k2", title: "Group: hba-0db4eb2a7e68", status: "idle"),
                    LiveSessionRow(runtimeId: "b", sessionKey: "k2", title: "Group: hba-0db4eb2a7e68", status: "idle")]
         let report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 2, every: 0).run(gw)
@@ -282,10 +282,10 @@ final class RoomSessionCleanupTests: XCTestCase {
     /// not closed. Controls: empty live title, the same stored title, and the room's Group title over a
     /// derived stored title (phase change between the two reads) are all owned.
     func testLiveTitleMustAgreeWithTheOwnedRow() {
-        let p = Self.prompt(Self.room, Self.thief)
-        let row = StoredSessionRow(profile: "thief", id: "k", title: Self.derivedTitle(p), preview: Self.preview(p), startedAt: 1_010)
+        let p = Self.prompt(Self.room, Self.translator)
+        let row = StoredSessionRow(profile: "translator", id: "k", title: Self.derivedTitle(p), preview: Self.preview(p), startedAt: 1_010)
         for (title, owned) in [("Group: unrelated-user-room", false), ("Group: hba-111111111111", false),
-                               (Self.derivedTitle(Self.prompt(Self.other, Self.thief)), false),
+                               (Self.derivedTitle(Self.prompt(Self.other, Self.translator)), false),
                                ("", true), (row.title, true), ("Group: hba-0db4eb2a7e68", true)] {
             let live = LiveSessionRow(runtimeId: "r", sessionKey: "k", title: title, status: "idle")
             let d = RoomSessionClassifier.classify(manifest: [Self.room, Self.other], stored: [row], live: [live])
@@ -299,7 +299,7 @@ final class RoomSessionCleanupTests: XCTestCase {
     /// or deleted; once no runtime holds it, both rows are deleted (each delete is profile-scoped).
     func testDuplicateOwnedIdsAcrossProfiles() async {
         let gw = FakeSessionGateway()
-        gw.stored["thief"] = [StoredSessionRow(profile: "thief", id: "dup", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
+        gw.stored["translator"] = [StoredSessionRow(profile: "translator", id: "dup", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
         gw.stored["code-reviewer"] = [StoredSessionRow(profile: "code-reviewer", id: "dup", title: "Group: hba-0db4eb2a7e68", startedAt: 1_010)]
         gw.live = [LiveSessionRow(runtimeId: "r", sessionKey: "dup", title: "Group: hba-0db4eb2a7e68", status: "idle")]
         var report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 2, every: 0).run(gw)
@@ -311,22 +311,22 @@ final class RoomSessionCleanupTests: XCTestCase {
         gw.live = []
         report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 4, every: 0).run(gw)
         XCTAssertTrue(report.ok, report.reason)
-        XCTAssertEqual(Set(gw.deleteCalls), ["thief:dup", "code-reviewer:dup"])
+        XCTAssertEqual(Set(gw.deleteCalls), ["translator:dup", "code-reviewer:dup"])
     }
 
-    // MARK: - review run309 BLOCK-003B: no proof either way is not "absent"
+    // MARK: - no proof either way is not "absent"
 
     /// bot_room row of a member profile, in the test window, with an llm title and an empty preview: it
     /// names no room and has no positive foreign proof → unresolved, never closed/deleted, run fails —
     /// also while its runtime is working with that title.
     func testLlmTitleWithEmptyPreviewInWindowIsUnresolved() async {
-        let row = StoredSessionRow(profile: "thief", id: "llm", title: "History of Lighthouses", preview: "", startedAt: 1_010)
+        let row = StoredSessionRow(profile: "translator", id: "llm", title: "History of Lighthouses", preview: "", startedAt: 1_010)
         let d = RoomSessionClassifier.classify(manifest: [Self.room], stored: [row], live: [])
         XCTAssertEqual(d.unresolved.map(\.kind), ["unattributed"])
         XCTAssertTrue(d.ownedStored.isEmpty)
 
         let gw = FakeSessionGateway()
-        gw.stored["thief"] = [row]
+        gw.stored["translator"] = [row]
         gw.live = [LiveSessionRow(runtimeId: "w", sessionKey: "llm", title: "History of Lighthouses", status: "working")]
         let report = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 3, every: 0).run(gw)
         XCTAssertFalse(report.ok)
@@ -336,7 +336,7 @@ final class RoomSessionCleanupTests: XCTestCase {
 
         // Same row with no runtime at all: still not ok.
         let gw2 = FakeSessionGateway()
-        gw2.stored["thief"] = [row]
+        gw2.stored["translator"] = [row]
         let r2 = await RoomSessionCleaner(manifest: [Self.room], maxRounds: 3, every: 0).run(gw2)
         XCTAssertFalse(r2.ok)
         XCTAssertEqual(r2.final.unresolved.map(\.kind), ["unattributed"])
@@ -346,19 +346,19 @@ final class RoomSessionCleanupTests: XCTestCase {
     /// no room opening is unresolved; positive foreign proof (another room's Group title or opening) is
     /// reported and left alone; an opening of this room with another room's Group title is a conflict.
     func testProvenanceControlsAroundUnattributedRows() {
-        let p = Self.prompt(Self.room, Self.thief)
+        let p = Self.prompt(Self.room, Self.translator)
         let rows = [
-            StoredSessionRow(profile: "thief", id: "llm-opening", title: "History of Lighthouses", preview: Self.preview(p), startedAt: 1_010),
-            StoredSessionRow(profile: "thief", id: "odd-preview", title: "", preview: "please summarise this", startedAt: 1_010),
-            StoredSessionRow(profile: "thief", id: "llm-foreign", title: "History of Lighthouses",
-                             preview: Self.preview(#"[Discussion: "Lighthouse club"] You are @thief, one participant with @x"#), startedAt: 1_010),
-            StoredSessionRow(profile: "thief", id: "user-group", title: "Group: my-room", startedAt: 1_010),
-            StoredSessionRow(profile: "thief", id: "conflict", title: "Group: my-room", preview: Self.preview(p), startedAt: 1_010),
+            StoredSessionRow(profile: "translator", id: "llm-opening", title: "History of Lighthouses", preview: Self.preview(p), startedAt: 1_010),
+            StoredSessionRow(profile: "translator", id: "odd-preview", title: "", preview: "please summarise this", startedAt: 1_010),
+            StoredSessionRow(profile: "translator", id: "llm-foreign", title: "History of Lighthouses",
+                             preview: Self.preview(#"[Discussion: "Lighthouse club"] You are @translator, one participant with @x"#), startedAt: 1_010),
+            StoredSessionRow(profile: "translator", id: "user-group", title: "Group: my-room", startedAt: 1_010),
+            StoredSessionRow(profile: "translator", id: "conflict", title: "Group: my-room", preview: Self.preview(p), startedAt: 1_010),
         ]
         let d = RoomSessionClassifier.classify(manifest: [Self.room], stored: rows, live: [])
         XCTAssertEqual(d.ownedStored.map(\.row.id), ["llm-opening"])
         XCTAssertEqual(d.ownedStored.first?.evidence, "opening_preview")
-        XCTAssertEqual(d.unresolved.map { "\($0.kind) \($0.ref)" }, ["unattributed thief:odd-preview", "conflicting_provenance thief:conflict"])
+        XCTAssertEqual(d.unresolved.map { "\($0.kind) \($0.ref)" }, ["unattributed translator:odd-preview", "conflicting_provenance translator:conflict"])
         XCTAssertTrue(d.foreign.isEmpty, "non-hba foreign rows are skipped silently: \(d.foreign)")
     }
 

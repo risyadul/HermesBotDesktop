@@ -13,11 +13,11 @@ import XCTest
 /// column and its text, the sidebar rows and the composer lie inside the window.
 @MainActor
 final class InspectorLayoutTests: XCTestCase {
-    private static let longDescription = "Thief: explorer dan tester yang gesit di semua platform (mobile, web, desktop, "
-        + "backend/API) pada environment DEV/staging; menjalankan login/auth (lp-dev-login atau kredensial DEV), uji "
-        + "runtime, reproduksi bug, dan probe edge case tanpa banyak gate. Batas: bukan production, tanpa aksi "
-        + "destruktif di akun DEV bersama, tanpa commit/push/Jira."
-    private static let botNames = ["default", "android-implementer", "code-reviewer", "generalist", "orchestrator", "hba-layout"]
+    private static let longDescription = "Scout: explorer and tester who moves fast across all platforms (mobile, web, desktop, "
+        + "backend/API) in DEV/staging environments; runs login/auth flows (dev-login or DEV credentials), tests "
+        + "runtime behavior, reproduces bugs, and probes edge cases with few gates. Limits: not production, no "
+        + "destructive actions on shared DEV accounts, no commit/push/tickets."
+    private static let botNames = ["default", "mobile-implementer", "reviewer", "assistant", "planner", "hba-layout"]
     private static let minimum = NSSize(width: DS.Size.windowMinWidth, height: DS.Size.windowMinHeight)
     /// A composer field narrower than this would not show a typed word next to the placeholder.
     private static let composerFieldFloor: CGFloat = 120
@@ -33,6 +33,7 @@ final class InspectorLayoutTests: XCTestCase {
     private var windows: [NSWindow] = []
 
     override func setUp() async throws {
+        try WindowTestGate.requirePixelExactWindows()
         guard NSScreen.main != nil else { throw XCTSkip("no window server session") }
         savedDefaults = defaultsKeys.map { UserDefaults.standard.object(forKey: $0) }
         savedSplitFrames = UserDefaults.standard.dictionaryRepresentation().filter { $0.key.hasPrefix(Self.splitFramesPrefix) }
@@ -98,7 +99,7 @@ final class InspectorLayoutTests: XCTestCase {
         UserDefaults.standard.set(motion, forKey: DS.Motion.settingKey)
         let model = AppModel()
         model.bots = try Self.botNames.map { name in
-            var json: [String: JSONValue] = ["name": .string(name), "model": "gemini-3.8-flash-high",
+            var json: [String: JSONValue] = ["name": .string(name), "model": "example-model-flash",
                                              "provider": "antigravity", "skill_count": 97]
             if name == "hba-layout", let description { json["description"] = .string(description) }
             return try XCTUnwrap(Bot(.object(json)))
@@ -106,12 +107,12 @@ final class InspectorLayoutTests: XCTestCase {
         let bot = try XCTUnwrap(model.bots.last)
         model.selection = .bot(bot.name)
         if transcript {
-            // A never-connected client: the submit adds the user line, the session open fails fast and
-            // adds an error line. Nothing leaves the process.
-            let backend = Backend(mode: .spawned(pid: 0, port: 9), client: GatewayClient(url: URL(string: "ws://127.0.0.1:9")!),
-                                  ready: .null, verdicts: [], owned: nil)
-            XCTAssertTrue(model.chat(for: bot).submit(String(repeating: "A long message that wraps in the chat column. ", count: 6),
-                                                      backend: backend, title: "hba-layout"))
+            // An in-memory Bot Chat whose history holds a long exchange. Nothing leaves the process.
+            let long = String(repeating: "A long message that wraps in the chat column. ", count: 6)
+            model.chats[bot.name] = ChatModel(bot: bot, opener: { _ in
+                FakeChatLink(history: [ChatHistoryMessage(role: .user, text: long),
+                                       ChatHistoryMessage(role: .assistant, text: long)])
+            })
         }
         let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 120, y: 120), size: size),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -243,7 +244,7 @@ final class InspectorLayoutTests: XCTestCase {
         // Inspector: the trailing column of the inner split; its text stays inside it and the window.
         let inner = splits[1]
         let column = try XCTUnwrap(inner.arrangedSubviews.last, file: file, line: line)
-        let about = texts.first { axLabel($0).hasPrefix("Thief: explorer") && !sidebarFrame.contains(frame($0)) }
+        let about = texts.first { axLabel($0).hasPrefix("Scout: explorer") && !sidebarFrame.contains(frame($0)) }
         if inspector {
             XCTAssertFalse(column.isHidden, "\(tag): inspector hidden", file: file, line: line)
             let columnFrame = column.convert(column.bounds, to: nil)
@@ -255,7 +256,7 @@ final class InspectorLayoutTests: XCTestCase {
                 XCTAssertLessThanOrEqual(doc.width, columnFrame.width + 1, "\(tag): inspector content \(doc) wider than its column", file: file, line: line)
             }
             let inspectorTexts = texts.filter { columnFrame.intersects(frame($0)) }
-            for label in ["Thief: explorer", "gemini-3.8-flash-high", "antigravity", "97"] {
+            for label in ["Scout: explorer", "example-model-flash", "antigravity", "97"] {
                 XCTAssertTrue(inspectorTexts.contains { axLabel($0).contains(label) }, "\(tag): inspector field \(label) missing", file: file, line: line)
             }
             for text in inspectorTexts {

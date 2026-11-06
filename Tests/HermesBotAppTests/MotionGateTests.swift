@@ -1,7 +1,7 @@
 import XCTest
 @testable import HermesBotApp
 
-/// BLOCK-003 (review run318): the approval ring kept animating after the motion gate closed, because it
+/// The approval ring kept animating after the motion gate closed, because it
 /// was a scheduled `withAnimation` (0.45 s delay + 1.1 s) checked only on appear. The ring is now drawn
 /// from `ApprovalRipple.progress` on every frame, which must be nil whenever motion is off.
 final class MotionGateTests: XCTestCase {
