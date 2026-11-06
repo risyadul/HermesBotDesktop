@@ -23,6 +23,14 @@ enum WindowTestGate {
         }
     }
 
+    /// A test that renders through `ImageRenderer` (Metal). The Intel CI runner is a VM without a usable GPU:
+    /// Metal aborts the whole test process there ("Target device architecture is nil"), so these skip on it.
+    static func requireMetalRendering() throws {
+        #if arch(x86_64)
+        if onCI { throw XCTSkip("renders through Metal: the Intel CI runner has no usable GPU") }
+        #endif
+    }
+
     /// A window test that pins exact pixel geometry: local opt-in only.
     static func requirePixelExactWindows() throws {
         if onCI { throw XCTSkip("pixel-exact window test: run locally (CI runner screen size and macOS differ)") }
