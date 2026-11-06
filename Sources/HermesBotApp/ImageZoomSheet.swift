@@ -65,14 +65,19 @@ struct ImageZoomSheet: View {
     }
 
     private func load() async {
-        let side = Self.renditionPixels
-        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: side), scale: 1,
-                                                   representationTypes: .thumbnail)
-        if let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
-            image = rep.cgImage
+        if let rendition = await Self.rendition(of: url, side: Self.renditionPixels) {
+            image = rendition
         } else {
             failed = true
         }
+    }
+
+    /// Nonisolated, so the non-Sendable `QLThumbnailRepresentation` never crosses to the main actor (Swift 6.1
+    /// rejects that); only its `CGImage` does.
+    private nonisolated static func rendition(of url: URL, side: CGFloat) async -> CGImage? {
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: side), scale: 1,
+                                                   representationTypes: .thumbnail)
+        return try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).cgImage
     }
 }
 

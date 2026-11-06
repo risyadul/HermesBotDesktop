@@ -58,11 +58,17 @@ final class UserNotificationPoster: NSObject, NotificationPosting {
             c.sound = .default
             c.userInfo = content.userInfo
             if let category = content.category { c.categoryIdentifier = category.rawValue }
-            do {
-                try await center.add(UNNotificationRequest(identifier: content.id, content: c, trigger: nil))
-            } catch {
-                AppModel.shared.log("notifications: post failed: \(error.localizedDescription)")
-            }
+            deliver(UNNotificationRequest(identifier: content.id, content: c, trigger: nil))
+        }
+    }
+
+    /// The completion-handler `add`, from a synchronous method: the async `add` would send `center` off the main
+    /// actor, which Swift 6.1 rejects as a data race.
+    private func deliver(_ request: UNNotificationRequest) {
+        center.add(request) { error in
+            guard let error else { return }
+            let message = error.localizedDescription
+            Task { @MainActor in AppModel.shared.log("notifications: post failed: \(message)") }
         }
     }
 
