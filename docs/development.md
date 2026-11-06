@@ -295,7 +295,8 @@ Tests/HermesBotAppTests/    ChatModel (with FakeChatLink; ChatModelQueue, ChatMo
                             (WindowTestGate: HERMES_BOT_APP_WINDOW_TESTS=1; PaneWindowLiveTests hosts one room in
                             two windows, local opt-in only); E3: UpdateCheckTests (fixture JSON, fake fetch, never
                             the real GitHub API), PackageScriptTests (`bash -n` and `--dry-run` of package-app.sh)
-scripts/package-app.sh       release .app + zip: --universal (lipo), --dry-run, Developer ID + notarization by env
+scripts/package-app.sh       release .app + zip: --universal (lipo), --dry-run, Developer ID + notarization by env;
+                            --debug: a debug build as dist/Herald.app (ad-hoc, no zip, refused with a Developer ID)
 scripts/HermesBot.entitlements  hardened-runtime entitlements for a Developer ID signature (no sandbox)
 scripts/app-icon.swift       draws the app icon (winged speech bubble on graphite) into an .iconset
 scripts/make-icon.sh         app-icon.swift + iconutil -> Resources/AppIcon.icns (committed; rerun after a change)
@@ -318,7 +319,8 @@ Look, tokens and motion: [DESIGN.md](../DESIGN.md), mirrored in `Sources/HermesB
 swift build
 swift test                                                         # headless, no live backend needed
 HERMES_BOT_APP_WINDOW_TESTS=1 swift test                           # also the real-window suites (before UI changes)
-.build/debug/HermesBotApp                                          # attach-first, else spawn
+.build/debug/HermesBotApp                                          # attach-first, else spawn (bare executable)
+scripts/package-app.sh --debug && open dist/Herald.app             # the debug build as the real Herald.app
 .build/debug/bot-chat-harness evidence/<name> [profile] [prompt]   # exit 0 = ≥2 deltas + complete
 .build/debug/bot-chat-harness --delete <profile> <stored_session_id>   # remove a leftover test session
 .build/debug/spike-harness evidence/<name>                         # M0 groups.* round trip

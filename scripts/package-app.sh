@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Build a release Herald.app, sign it and zip it into dist/.
 #
-# Usage: scripts/package-app.sh [version] [--universal] [--dry-run]
+# Usage: scripts/package-app.sh [version] [--universal] [--debug] [--dry-run]
 #   version      1.2.3 (default: the latest git tag, else 0.0.0)
 #   --universal  one binary for Apple silicon and Intel (arm64 + x86_64, joined with lipo). Releases use it.
 #                Without it: the build machine's architecture only.
+#   --debug      a debug build (DEBUG test hooks on) as dist/Herald.app, for trying the real app locally: same
+#                name, icon and Info.plist as a release, ad-hoc signed, no zip. Refused with a Developer ID or
+#                notary profile, so a debug build is never shipped. It replaces a release dist/Herald.app (two
+#                copies with one bundle id would let macOS open either).
 #   --dry-run    print the plan (architectures, zip, signing, notarization) and exit without building
 #   -h, --help   this text
 #
@@ -23,12 +27,14 @@ usage() { awk 'NR > 3 && /^# Usage:/ { on = 1 } on && /^set -euo/ { exit } on { 
 
 version=""
 universal=0
+debug=0
 dry_run=0
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --universal) universal=1 ;;
+      --debug) debug=1 ;;
       --dry-run) dry_run=1 ;;
       -h|--help) usage; exit 0 ;;
       -*) echo "error: unknown option '$1'" >&2; usage >&2; exit 2 ;;
@@ -66,6 +72,7 @@ else
   flavor="$arches"
 fi
 zip="$dist/Herald-$version-macos-$flavor.zip"
+if [[ "$debug" == 1 ]]; then configuration=debug; else configuration=release; fi
 
 # App Intents (D7, Shortcuts actions): Shortcuts finds them through Metadata.appintents, which Xcode generates at
 # build time and SwiftPM does not. So the compiler also writes the intents' constant values
@@ -89,9 +96,10 @@ notarizing() {
 
 print_plan() {
   echo "version: $version"
+  echo "configuration: $configuration"
   echo "architectures: $arches"
   echo "app: $app"
-  echo "zip: $zip"
+  if [[ "$debug" == 1 ]]; then echo "zip: none (debug build)"; else echo "zip: $zip"; fi
   if [[ "$(signing_mode)" == developer-id ]]; then
     echo "signing: Developer ID \"$DEVELOPER_ID_APPLICATION\" (hardened runtime, $entitlements)"
   else
@@ -105,6 +113,10 @@ print_plan() {
 }
 
 check_notary_config() {
+  if [[ "$debug" == 1 && ( -n "${DEVELOPER_ID_APPLICATION:-}" || -n "${NOTARY_PROFILE:-}" ) ]]; then
+    echo "error: --debug builds are for local testing: unset DEVELOPER_ID_APPLICATION and NOTARY_PROFILE" >&2
+    exit 1
+  fi
   if [[ -n "${NOTARY_PROFILE:-}" && -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
     echo "error: NOTARY_PROFILE is set but DEVELOPER_ID_APPLICATION is not: notarization needs a Developer ID signature" >&2
     exit 1
@@ -118,19 +130,19 @@ check_signing_identity() {
   fi
 }
 
-# Builds HermesBotApp for $arches. Sets bin_dir (where SwiftPM resource bundles are) and binary (what ships).
+# Builds HermesBotApp ($configuration) for $arches. Sets bin_dir (where SwiftPM resource bundles are) and binary (what ships).
 build_binary() {
   if [[ "$universal" != 1 ]]; then
-    swift build -c release --product HermesBotApp --scratch-path "$scratch" "${const_flags[@]}"
-    bin_dir="$(swift build -c release --product HermesBotApp --scratch-path "$scratch" "${const_flags[@]}" --show-bin-path)"
+    swift build -c "$configuration" --product HermesBotApp --scratch-path "$scratch" "${const_flags[@]}"
+    bin_dir="$(swift build -c "$configuration" --product HermesBotApp --scratch-path "$scratch" "${const_flags[@]}" --show-bin-path)"
     binary="$bin_dir/HermesBotApp"
     return
   fi
   local slices=() arch dir
   bin_dir=""
   for arch in $arches; do
-    swift build -c release --product HermesBotApp --scratch-path "$scratch" --arch "$arch" "${const_flags[@]}"
-    dir="$(swift build -c release --product HermesBotApp --scratch-path "$scratch" --arch "$arch" "${const_flags[@]}" --show-bin-path)"
+    swift build -c "$configuration" --product HermesBotApp --scratch-path "$scratch" --arch "$arch" "${const_flags[@]}"
+    dir="$(swift build -c "$configuration" --product HermesBotApp --scratch-path "$scratch" --arch "$arch" "${const_flags[@]}" --show-bin-path)"
     slices+=("$dir/HermesBotApp")
     [[ -n "$bin_dir" ]] || bin_dir="$dir"
   done
@@ -196,7 +208,9 @@ fi
 check_signing_identity
 build_binary
 
-rm -rf "$app" "$zip"
+rm -rf "$app"
+# A debug build leaves the last release zip alone.
+[[ "$debug" == 1 ]] || rm -f "$zip"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/HermesBotApp"
 # App icon (scripts/make-icon.sh regenerates it from scripts/app-icon.swift).
@@ -212,7 +226,12 @@ shopt -u nullglob
 # Metadata.appintents for the Shortcuts actions (see above). Needs Xcode (not only the Command Line Tools).
 if processor="$(xcrun --find appintentsmetadataprocessor 2>/dev/null)"; then
   find "$(pwd)/Sources/HermesBotApp" -name '*.swift' | sort > "$intents_dir/sources.txt"
-  echo "$bin_dir/HermesBotApp.build/HermesBotApp.swiftconstvalues" > "$intents_dir/constvalues.txt"
+  # A release (whole-module) build writes one HermesBotApp.swiftconstvalues; a debug build writes one per source file.
+  if [[ -f "$bin_dir/HermesBotApp.build/HermesBotApp.swiftconstvalues" ]]; then
+    echo "$bin_dir/HermesBotApp.build/HermesBotApp.swiftconstvalues" > "$intents_dir/constvalues.txt"
+  else
+    find "$bin_dir/HermesBotApp.build" -name '*.swiftconstvalues' | sort > "$intents_dir/constvalues.txt"
+  fi
   "$processor" --output "$app/Contents/Resources" \
     --toolchain-dir "$(dirname "$(dirname "$(dirname "$processor")")")" \
     --module-name HermesBotApp --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" \
@@ -275,5 +294,9 @@ else
 fi
 verify_architectures "$app/Contents/MacOS/HermesBotApp"
 
+if [[ "$debug" == 1 ]]; then
+  echo "Created $app (debug build, not zipped)"
+  exit 0
+fi
 ditto -c -k --keepParent "$app" "$zip"
 echo "Created $zip"
