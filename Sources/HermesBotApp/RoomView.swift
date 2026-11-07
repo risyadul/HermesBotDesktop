@@ -110,6 +110,8 @@ struct RoomView: View {
             .inspectorColumnWidth(min: DS.Size.inspectorMin, ideal: DS.Size.inspectorWidth, max: DS.Size.inspectorMax)
         }
         .onChange(of: showActivity) { _, shown in storedActivity = shown }
+        // Each room view reports its own window: a detached room stays live while the main window is not.
+        .background(WindowVisibilityObserver { [viewer] in model.setVisible($0, viewer: viewer.id) })
         .onAppear {
             model.start(viewer: viewer.id)
             let model = model

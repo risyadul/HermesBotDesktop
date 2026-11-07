@@ -98,6 +98,7 @@ extension ChatModel {
             do {
                 let status = try await s.redirect(prompt)
                 self.log("session.redirect → status=\(status)")
+                guard self.isLive(s) else { return }
                 switch status {
                 case "redirected": break
                 case "queued": self.transcript.appendSystem(Self.steerQueuedNote(bot: self.bot.title))
@@ -105,6 +106,7 @@ extension ChatModel {
                 }
             } catch {
                 self.log("session.redirect failed: \(Self.message(error, bot: self.bot))")
+                guard self.isLive(s) else { return }
                 self.steerRefused(lineId, text: text)
             }
         }
@@ -150,12 +152,14 @@ extension ChatModel {
         Task {
             do {
                 let r = try await s.submit(prompt, files: files)
+                guard self.isLive(s) else { return self.releaseAfterClose(entry.attachments) }
                 self.bindUserRow(r)
                 self.sent(entry.attachments, status: r["status"]?.string)
             } catch {
                 // Back to the head of the queue, paused, so a failing send cannot loop.
                 let msg = Self.message(error, bot: self.bot)
                 self.log("queued send failed: \(msg)")
+                guard self.isLive(s) else { return self.releaseAfterClose(entry.attachments) }
                 self.transcript.retractUnsent(msg)
                 self.queue.insert(entry, at: 0)
                 self.queueParked = true

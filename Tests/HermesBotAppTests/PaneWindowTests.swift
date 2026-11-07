@@ -130,21 +130,59 @@ final class PaneWindowLiveTests: XCTestCase {
         let api = FakeRoomActions(rooms: [RoomFixtures.room()])
         let model = RoomModel(room: RoomFixtures.room(), api: api)
         defer { model.shutdown() }
-        func host() -> NSWindow {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
+        func host(_ x: CGFloat) -> NSWindow {
+            let w = NSWindow(contentRect: NSRect(x: x, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                              backing: .buffered, defer: false)
             w.isReleasedWhenClosed = false
             w.contentViewController = NSHostingController(rootView: RoomView(model: model, activity: nil))
+            // The hosting controller resizes the window to RoomView's fitting size, zero wide outside a split view; a
+            // zero-area window never gains `.visible` occlusion.
+            w.setContentSize(NSSize(width: 800, height: 600))
+            w.setFrameOrigin(NSPoint(x: x, y: 0))
             w.orderFront(nil)
             return w
         }
-        let first = host(), second = host()
+        // Side by side, so neither window covers the other: the survivor must be on screen in its own right.
+        let first = host(0), second = host(820)
+        // Precondition from NATIVE window state only, independent of WindowVisibilityObserver / RoomModel under test:
+        // polling follows on-screen visibility (finding 1), so it is only owed once the window server shows a window.
+        func nativeOnScreen(_ w: NSWindow) -> Bool { w.occlusionState.contains(.visible) && w.isOnActiveSpace }
+        func diagnostics(_ stage: String) -> String {
+            let w = [("first", first), ("second", second)].map { name, w in
+                "\(name){occlusionVisible=\(w.occlusionState.contains(.visible)) activeSpace=\(w.isOnActiveSpace) visible=\(w.isVisible) frame=\(w.frame)}"
+            }.joined(separator: " ")
+            return "[\(stage)] \(w) appActive=\(NSApp.isActive) appHidden=\(NSApp.isHidden) polling=\(model.isPolling) generation=\(model.pollGeneration) synced=\(model.lastSync != nil) onScreen=\(model.windowOnScreen)"
+        }
+        // XCTest spins the main run loop but never runs NSApp's event loop, so the window server's occlusion change
+        // (an app-kit-defined event) is never dispatched: `occlusionState` and its notification stay stale. Dispatch
+        // pending events the way `NSApplication.run()` would; this drives AppKit, not the observer under test.
+        // Bounded by both a deadline and an event count, so a busy event stream cannot stall the test.
+        func dispatchWindowServerEvents() {
+            let until = Date().addingTimeInterval(0.02)
+            for _ in 0..<64 {
+                guard let event = NSApp.nextEvent(matching: .any, until: until, inMode: .default, dequeue: true) else { return }
+                NSApp.sendEvent(event)
+            }
+        }
+        func bothOnScreen() -> Bool { nativeOnScreen(first) && nativeOnScreen(second) && !NSApp.isHidden }
+        let deadline = Date().addingTimeInterval(5)
+        while !bothOnScreen(), Date() < deadline {
+            dispatchWindowServerEvents()
+            await Task.yield()
+        }
+        guard bothOnScreen() else {
+            let state = diagnostics("skip")
+            [first, second].forEach { $0.contentViewController = nil; $0.close() }
+            throw XCTSkip("the window server did not show both test windows: \(state)")
+        }
         await eventually { model.isPolling && model.lastSync != nil }
         let generation = model.pollGeneration
         first.contentViewController = nil
         first.close()
-        try? await Task.sleep(for: .milliseconds(200))
-        XCTAssertTrue(model.isPolling, "the other window still shows the room")
+        let settle = Date().addingTimeInterval(0.2)
+        while Date() < settle { dispatchWindowServerEvents(); await Task.yield() }
+        XCTAssertTrue(nativeOnScreen(second), "the survivor is still on screen: \(diagnostics("after-close-first"))")
+        XCTAssertTrue(model.isPolling, "the other window still shows the room: \(diagnostics("after-close-first"))")
         XCTAssertEqual(model.pollGeneration, generation, "no restart, no second loop")
         second.contentViewController = nil
         second.close()

@@ -94,7 +94,7 @@ final class BotRosterTests: XCTestCase {
 
     func testOnScreenBotIsMarkedReadOnEveryPass() {
         let h = hub(defaults())
-        h.onScreen = { "a" }
+        h.onScreen = { ["a"] }
         h.apply(["a": activity(100), "b": activity(100)])
         h.apply(["a": activity(200), "b": activity(200)])
         XCTAssertFalse(h.isUnread("a", onScreen: false))

@@ -212,6 +212,17 @@ final class ChatModel: ObservableObject, Identifiable {
         queuedTemporaryFiles = []
     }
 
+    /// A reply to a call made on `s` may still apply: the chat is not closed and `s` is still its session.
+    /// Checked after every `await` whose result writes queue/transcript state, so a late reply cannot
+    /// revive a chat that `close()` already emptied.
+    func isLive(_ s: any ChatSessionLink) -> Bool { !closed && session === s }
+
+    /// A send that finished after `close()`: its pasted images are deleted as `close()` deletes those of
+    /// running sends (nothing in this chat tracks them any more).
+    func releaseAfterClose(_ chips: [PendingAttachment]) {
+        PasteboardAttachments.delete(chips.map(\.url), folder: pasteFolder)
+    }
+
     /// User-facing, token-free text for an open/send failure.
     static func message(_ error: Error, bot: Bot) -> String {
         // 4090 SESSION_NOT_OWNED: another backend process holds the chat's lease (`methods_prompt.py:774-777`).

@@ -187,7 +187,9 @@ Sources/HermesBotApp/       SwiftUI app:
                               MessageJumpTarget (scroll a pane to a found message), search sources
   PaneWindows.swift           D9: WindowGroup(for: SidebarItem) content on the main window's models, SidebarItem
                               Codable token, PaneViewers (RoomModel / RoomActivityModel poll while ANY view shows
-                              them; one poller per room however many windows), connectOnce (first window connects)
+                              them on screen, each view reporting its own window via WindowVisibilityObserver; one
+                              poller per room however many windows; detached Bot Chats feed AppModel.botsOnScreen
+                              for read marks), connectOnce (first window connects)
   QuickLook.swift             D8: QuickLookPolicy (previewable = checked and not reveal-only; Space bar rule),
                               MediaDrag (drag out = file URL re-checked by MediaSafety at drag time),
                               QuickLookController (QLPreviewPanel data source; the app delegate is its controller)

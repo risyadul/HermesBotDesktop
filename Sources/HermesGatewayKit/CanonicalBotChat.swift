@@ -85,18 +85,32 @@ extension BotChatSession {
             let title = row["title"]?.string?.trimmingCharacters(in: .whitespaces) ?? ""
             return root == canonicalTitle || (root.isEmpty && title == canonicalTitle)
         }
-        guard let match, let id = match["id"]?.string, !id.isEmpty else { return nil }
+        guard let match else { return nil }
+        // A row that matches the title but carries no identity is a malformed reply, not an absence.
+        guard let id = match["id"]?.string, !id.isEmpty else {
+            throw BotChatError.lookupFailed("session.list: Bot Chat row without an id")
+        }
         return CanonicalRow(id: id, resolvedId: match["resolved_id"]?.string)
     }
 
-    /// An empty lookup is only "absent" when the roster does not still report a canonical chat.
+    /// An empty lookup is only "absent" when the roster lists the bot and does not still report a canonical
+    /// chat for it. Fails closed: a missing `profiles` array or bot row throws `lookupFailed`, and a
+    /// `canonical_session` that is neither absent/null nor an object with an id is unconfirmed. Only a
+    /// missing or null `canonical_session` (older gateways omit it; Desktop reads `canonical_session?.id`)
+    /// confirms absence.
     private static func confirmAbsent(_ backend: Backend, bot: Bot) async throws {
         let r: JSONValue
         do { r = try await backend.client.call("profiles.list", ["include_sessions": true]) } catch {
             throw BotChatError.lookupFailed(Redaction.describe(error))
         }
-        let row = (r["profiles"]?.array ?? []).first { $0["name"]?.string == bot.name }
-        if let id = row?["canonical_session"]?["id"]?.string, !id.isEmpty {
+        guard let profiles = r["profiles"]?.array else {
+            throw BotChatError.lookupFailed("profiles.list: no profiles array")
+        }
+        guard let row = profiles.first(where: { $0["name"]?.string == bot.name }) else {
+            throw BotChatError.lookupFailed("profiles.list: \(bot.name) is not listed")
+        }
+        // A listed canonical chat (any id) or a malformed entry: either way absence is not confirmed.
+        if let canonical = row["canonical_session"], canonical != .null {
             throw BotChatError.absenceUnconfirmed(bot: bot.title)
         }
     }

@@ -110,6 +110,76 @@ final class CanonicalBotChatTests: XCTestCase {
         XCTAssertFalse(Parity.methods(gw).contains("prompt.submit"), "no kickoff prompt")
     }
 
+    /// Payload anomalous: a canonical-title row without an identity must fail closed, not be read as "no chat".
+    func testCanonicalRowWithoutIdFailsClosed() async throws {
+        for payload: JSONValue in [[["title": "Bot Chat", "root_title": "Bot Chat", "message_count": 3]],
+                                   [["title": "Bot Chat", "root_title": "Bot Chat", "id": ""]]] {
+            let gw = try await FakeGateway.start()
+            gw.responder = { m, _ in
+                switch m {
+                case "session.list": return ["sessions": payload]
+                default: return Parity.defaults(m)
+                }
+            }
+            let backend = try await Parity.backend(gw)
+            do {
+                _ = try await BotChatSession.openCanonical(backend, bot: Parity.bot)
+                XCTFail("opened despite canonical row without an id")
+            } catch BotChatError.lookupFailed { }
+            XCTAssertEqual(afterCapabilities(gw), ["session.list"], "never mint on an identity-less row")
+            backend.client.close()
+            gw.stop()
+        }
+    }
+
+    /// Payload anomalous: a roster that cannot prove the bot's absence must fail closed.
+    func testRosterThatCannotProveAbsenceFailsClosed() async throws {
+        let rosters: [String: JSONValue] = [
+            "no profiles array": [:],
+            "bot not listed": ["profiles": [["name": "someone-else", "canonical_session": nil]]],
+        ]
+        for (name, roster) in rosters {
+            let gw = try await FakeGateway.start()
+            gw.responder = { m, _ in
+                switch m {
+                case "session.list": return ["sessions": []]
+                case "profiles.list": return roster
+                default: return Parity.defaults(m)
+                }
+            }
+            let backend = try await Parity.backend(gw)
+            do {
+                _ = try await BotChatSession.openCanonical(backend, bot: Parity.bot)
+                XCTFail("opened despite roster: \(name)")
+            } catch BotChatError.lookupFailed { }
+            XCTAssertEqual(afterCapabilities(gw), ["session.list", "profiles.list"], "never mint on roster: \(name)")
+            backend.client.close()
+            gw.stop()
+        }
+    }
+
+    /// A non-null canonical_session of any shape means absence is unconfirmed — never a create.
+    func testCanonicalSessionPresentInAnyShapeIsUnconfirmed() async throws {
+        for canonical: JSONValue in [["id": "st-root"], [:], "st-root"] {
+            let gw = try await FakeGateway.start()
+            gw.responder = { m, _ in
+                switch m {
+                case "session.list": return ["sessions": []]
+                case "profiles.list": return ["profiles": [["name": "fake", "canonical_session": canonical]]]
+                default: return Parity.defaults(m)
+                }
+            }
+            let backend = try await Parity.backend(gw)
+            do {
+                _ = try await BotChatSession.openCanonical(backend, bot: Parity.bot)
+                XCTFail("opened despite canonical_session \(canonical)")
+            } catch BotChatError.absenceUnconfirmed { }
+            XCTAssertEqual(afterCapabilities(gw), ["session.list", "profiles.list"])
+            backend.client.close()
+            gw.stop()
+        }
+    }
+
     func testTitleInUseAdoptsTheWinner() async throws {
         let gw = try await FakeGateway.start()
         defer { gw.stop() }

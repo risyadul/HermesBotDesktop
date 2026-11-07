@@ -18,8 +18,8 @@ final class BotActivityHub: ObservableObject {
     @Published private(set) var attention: [String: BotAttention] = [:]
 
     typealias Fetch = @Sendable () async throws -> [String: BotRosterActivity]
-    /// The bot whose Bot Chat is on screen (its activity is seen as it happens).
-    var onScreen: () -> String? = { nil }
+    /// The bots whose Bot Chat is on screen, in the main window or their own (seen as it happens).
+    var onScreen: () -> Set<String> = { [] }
     var log: (String) -> Void = { AppModel.shared.log($0) }
     /// The bot names the app's roster holds (`AppModel.bots`); nil = no roster to compare with.
     var rosterNames: () -> Set<String>? = { nil }
@@ -60,7 +60,9 @@ final class BotActivityHub: ObservableObject {
         for bot in attention.keys where listed[bot] == nil { attention[bot] = nil }
         var marks = listed.isEmpty ? readThrough : readThrough.filter { listed[$0.key] != nil }
         for (bot, a) in listed where marks[bot] == nil && a.lastActive > 0 { marks[bot] = a.lastActive }
-        if let shown = onScreen(), let stamp = listed[shown]?.lastActive, stamp > (marks[shown] ?? 0) { marks[shown] = stamp }
+        for shown in onScreen() {
+            if let stamp = listed[shown]?.lastActive, stamp > (marks[shown] ?? 0) { marks[shown] = stamp }
+        }
         saveMarks(marks)
         checkRoster(Set(listed.keys))
     }

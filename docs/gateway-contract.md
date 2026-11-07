@@ -1027,9 +1027,12 @@ makes it at most one row per profile DB; a hidden "Bot Chat" row cannot be renam
 
 Only an empty lookup leads to create, and only after confirming absence:
 
-1. `profiles.list {include_sessions: true}`: if the bot's row still carries `canonical_session.id`
+1. `profiles.list {include_sessions: true}`: if the bot's row still carries a `canonical_session`
    (`methods_profiles.py:160-193`), the empty lookup is unconfirmed → `BotChatError.absenceUnconfirmed`, no mint
-   (Desktop `canonical-chat.ts:328-338`).
+   (Desktop `canonical-chat.ts:328-338`). Only a missing or `null` `canonical_session` confirms absence; any other
+   value (an object with or without an id, a malformed scalar) is unconfirmed. A reply without a `profiles` array,
+   or one that does not list the bot, fails closed with `lookupFailed`. On the lookup itself, a row that matches
+   the title but has no `id` is `lookupFailed`, never "no chat".
 2. `session.create {profile, title: "Bot Chat", hidden: true, follow_profile_config: true,
    close_on_disconnect: false, source: "desktop", cols}`. `title` goes on create (not only via
    `session.title`) because `pending_title` also feeds the agent's `_session_title_hint`, which turns on the
