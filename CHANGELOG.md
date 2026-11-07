@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A group chat in its own window keeps updating while the main window is hidden, minimised or covered; rooms
+  now follow the windows that show them instead of the main window alone. A Bot Chat in its own window counts
+  as read while that window is on screen.
+- Bot Chat never starts a new chat on a malformed or incomplete answer from Hermes (a Bot Chat row without an
+  id, a roster without the bot): it shows a "try again" error instead.
+- A correction or queued message answered after its Bot Chat was closed no longer reappears in the closed
+  chat's queue.
+
 ## [0.1.0] - 2026-11-06
 
 First public release of Herald.

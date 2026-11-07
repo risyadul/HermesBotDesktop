@@ -53,13 +53,14 @@ final class RoomModel: ObservableObject, Identifiable {
     /// The room was disbanded (here) or found retired: the app drops it from the sidebar.
     var onDisbanded: ((RoomModel) -> Void)?
     private let poller: RoomPoller
-    /// The room views on screen (start/stopPolling; D9: the main window and its own window can both show
-    /// it); a failed disband resumes polling only while one is.
+    /// The room views shown (start/stopPolling; D9: the main window and its own window can both show it) and
+    /// whether their windows are on screen (`setVisible`); a failed disband resumes polling only while one is.
     private var viewers = PaneViewers()
     private var wantsPolling: Bool { !viewers.isEmpty }
-    /// A main window shows on screen (AppModel's one visibility signal): off, the room's poller pauses and
-    /// nothing it shows counts as seen; the sidebar digests keep watching the room for notifications.
-    private(set) var windowOnScreen = true
+    /// Some room view's window is on screen and the app not hidden. Each view reports its OWN window, so a room
+    /// in a detached window keeps polling while the main window is hidden, minimised or covered. Off, the
+    /// poller pauses and nothing shown counts as seen; the sidebar digests keep watching for notifications.
+    var windowOnScreen: Bool { viewers.anyVisible }
     /// App shutdown: polling never restarts.
     private var shutDown = false
     /// The name of a `groups.rename` in flight: polls keep showing it until the call returns.
@@ -104,22 +105,24 @@ final class RoomModel: ObservableObject, Identifiable {
         poller.start()
     }
 
-    /// The app's windows left or came back on screen (`AppModel.setMainWindowOnScreen`).
-    func setWindowOnScreen(_ on: Bool) {
-        guard on != windowOnScreen else { return }
-        windowOnScreen = on
-        if !on {
+    /// A room view's window left or came back on screen (`WindowVisibilityObserver`): polling pauses while no
+    /// view showing this room is on screen, and resumes when one is.
+    func setVisible(_ visible: Bool, viewer: ObjectIdentifier = PaneViewers.anonymous) {
+        let before = windowOnScreen
+        viewers.setVisible(visible, viewer)
+        guard windowOnScreen != before else { return }
+        if !windowOnScreen {
             poller.stop()
         } else if wantsPolling, !shutDown, composer.isOpen {
             poller.start()
         }
     }
 
-    /// A room view went away; polling stops when no other view (another window, D9) still shows the room.
+    /// A room view went away; polling stops unless another view (another window, D9) still shows the room on
+    /// screen.
     func stopPolling(viewer: ObjectIdentifier = PaneViewers.anonymous) {
         viewers.remove(viewer)
-        guard viewers.isEmpty else { return }
-        poller.stop()
+        guard wantsPolling, windowOnScreen else { return poller.stop() }
     }
 
     var isPolling: Bool { poller.isRunning }

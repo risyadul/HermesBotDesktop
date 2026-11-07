@@ -92,7 +92,7 @@ final class AppModel: ObservableObject {
         kanban.onBoardsListed = { [weak self] listed in self?.boardsListed(listed) }
         // K9: a watched card finished or is blocked (AppModel+Kanban.swift).
         kanban.onCardEvent = { [weak self] event in self?.kanbanCardChanged(event) }
-        botActivity.onScreen = { [weak self] in self?.mainWindowOnScreen == true ? self?.selectedBot : nil }
+        botActivity.onScreen = { [weak self] in self?.botsOnScreen ?? [] }
         // A bot created or deleted elsewhere (Hermes Desktop, the CLI) shows up in the activity pass first.
         botActivity.rosterNames = { [weak self] in self.map { Set($0.bots.map(\.name)) } }
         botActivity.onRosterChanged = { [weak self] in Task { await self?.refreshBots() } }
@@ -127,14 +127,48 @@ final class AppModel: ObservableObject {
         setMainWindowOnScreen(KanbanHub.onScreen(appHidden: NSApp.isHidden, windows: windows))
     }
 
-    /// Applies the visibility signal to everything that polls for the screen or marks things seen.
+    /// Applies the main-window signal to what the main window alone shows (Kanban, Routines, the selected
+    /// Bot Chat's read mark). Rooms follow their own views' windows (`RoomModel.setVisible`), so a room in a
+    /// detached window keeps polling while the main window is off screen.
     func setMainWindowOnScreen(_ on: Bool) {
         kanban.setActive(on)
         guard on != mainWindowOnScreen else { return }
         mainWindowOnScreen = on
-        for m in roomModels.values { m.setWindowOnScreen(on) }
         // Back on screen: the bot chat that shows now counts as read.
         if on, let bot = selectedBot { botActivity.markRead(bot) }
+    }
+
+    /// Bot Chats in their own windows (D9), per bot: the panes and whether their windows are on screen.
+    private(set) var botPanes: [String: PaneViewers] = [:]
+
+    /// The Bot Chats on screen: the main window's selected one while it shows, plus every detached one whose
+    /// window is visible. Their activity counts as read as it happens.
+    var botsOnScreen: Set<String> {
+        var shown = Set(botPanes.filter { !$0.value.isEmpty && $0.value.anyVisible }.keys)
+        if mainWindowOnScreen, let bot = selectedBot { shown.insert(bot) }
+        return shown
+    }
+
+    func botPaneAppeared(_ bot: String, viewer: ObjectIdentifier) {
+        updateBotPane(bot) { $0.add(viewer) }
+    }
+
+    func botPaneDisappeared(_ bot: String, viewer: ObjectIdentifier) {
+        updateBotPane(bot) { $0.remove(viewer) }
+    }
+
+    func setBotPaneVisible(_ visible: Bool, bot: String, viewer: ObjectIdentifier) {
+        updateBotPane(bot) { $0.setVisible(visible, viewer) }
+    }
+
+    /// A detached Bot Chat that comes on screen (opened, unminimised, uncovered) is read, as the main
+    /// window's selection is.
+    private func updateBotPane(_ bot: String, _ change: (inout PaneViewers) -> Void) {
+        let wasShown = botsOnScreen.contains(bot)
+        var panes = botPanes[bot] ?? PaneViewers()
+        change(&panes)
+        botPanes[bot] = panes.isEmpty && panes.anyVisible ? nil : panes
+        if !wasShown, botsOnScreen.contains(bot) { botActivity.markRead(bot) }
     }
 
     func log(_ s: String) {
@@ -361,7 +395,6 @@ final class AppModel: ObservableObject {
         m.onDisbanded = { [weak self] model in self?.roomDisbanded(model.id) }
         m.onApplied = { [weak self] model in self?.roomDigests.absorb(model) }
         m.onRoomChanged = { [weak self] room in self?.roomRenamed(room) }
-        m.setWindowOnScreen(mainWindowOnScreen)
         roomModels[id] = m
         return m
     }

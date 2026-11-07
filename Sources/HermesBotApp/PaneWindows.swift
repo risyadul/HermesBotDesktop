@@ -49,6 +49,46 @@ struct PaneViewers: Equatable {
     }
 }
 
+// MARK: - window visibility
+
+/// Reports whether the hosting window is on screen (not fully occluded, app not hidden), on attach and on
+/// every occlusion / hide / unhide change. Observers are selector-based, so they go away with the view.
+struct WindowVisibilityObserver: NSViewRepresentable {
+    let onChange: @MainActor (Bool) -> Void
+
+    func makeNSView(context: Context) -> ObserverView {
+        let v = ObserverView()
+        v.onChange = onChange
+        return v
+    }
+
+    func updateNSView(_ view: ObserverView, context: Context) { view.onChange = onChange }
+
+    final class ObserverView: NSView {
+        var onChange: (@MainActor (Bool) -> Void)?
+        private weak var observed: NSWindow?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let nc = NotificationCenter.default
+            if let observed { nc.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observed) }
+            nc.removeObserver(self, name: NSApplication.didHideNotification, object: nil)
+            nc.removeObserver(self, name: NSApplication.didUnhideNotification, object: nil)
+            observed = window
+            guard let window else { return }
+            nc.addObserver(self, selector: #selector(changed), name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            nc.addObserver(self, selector: #selector(changed), name: NSApplication.didHideNotification, object: nil)
+            nc.addObserver(self, selector: #selector(changed), name: NSApplication.didUnhideNotification, object: nil)
+            changed()
+        }
+
+        @objc private func changed() {
+            guard let window else { return }
+            onChange?(RoomActivityModel.isOnScreen(occlusion: window.occlusionState, appHidden: NSApp.isHidden))
+        }
+    }
+}
+
 // MARK: - scene value
 
 /// The window scene's value: restorable across launches, so it is a plain string (`bot:<name>`,
@@ -128,6 +168,8 @@ enum DetachedPane {
 struct DetachedPaneView: View {
     @ObservedObject var model: AppModel
     let item: SidebarItem?
+    /// This window's Bot Chat pane, so its own visibility marks the bot read (rooms report through RoomView).
+    @State private var viewer = PaneViewer()
 
     var body: some View {
         content
@@ -143,6 +185,11 @@ struct DetachedPaneView: View {
         case .bot(let bot):
             let chat = model.chat(for: bot)
             BotChatView(chat: chat).id(PaneIdentity(bot.name, chat))
+                .background(WindowVisibilityObserver { [viewer, model] in
+                    model.setBotPaneVisible($0, bot: bot.name, viewer: viewer.id)
+                })
+                .onAppear { model.botPaneAppeared(bot.name, viewer: viewer.id) }
+                .onDisappear { model.botPaneDisappeared(bot.name, viewer: viewer.id) }
         case .room(let id):
             if let room = model.roomModel(id) {
                 let activity = model.activityModel(for: room)

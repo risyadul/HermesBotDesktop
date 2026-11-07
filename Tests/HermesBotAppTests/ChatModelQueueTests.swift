@@ -112,6 +112,44 @@ final class ChatModelQueueTests: XCTestCase {
         try await waitUntil { m.queue.map(\.text) == ["keep me"] }
     }
 
+    /// A late redirect reply must not revive a chat `close()` already emptied (rejected and failed alike).
+    func testASteerAnsweredAfterCloseLeavesTheClosedChatEmpty() async throws {
+        let refusals: [@Sendable (String) throws -> String] = [
+            { _ in "rejected" },
+            { _ in throw GatewayClient.RPCError(code: 4010, message: "agent does not support active-turn redirect", data: nil) },
+        ]
+        for refuse in refusals {
+            let link = FakeChatLink()
+            link.redirectDelay = 150_000_000
+            link.redirectResult = refuse
+            let m = try await ready(link)
+            try await running(m, link)
+            m.draft = "correction"
+            XCTAssertTrue(m.steer())
+            m.close()
+            try await waitUntil { link.calls.contains { $0.hasPrefix("redirect:") } }
+            try await Task.sleep(nanoseconds: 100_000_000)
+            XCTAssertTrue(m.queue.isEmpty, "the refused correction is not queued again on a closed chat")
+            XCTAssertEqual(sends(link), ["send:first|"], "and nothing drains")
+        }
+    }
+
+    /// A queued send that fails after `close()` is not put back (nor parked) on the closed chat.
+    func testAQueuedSendFailingAfterCloseIsNotRequeued() async throws {
+        let link = FakeChatLink()
+        let m = try await ready(link)
+        link.submitDelay = 150_000_000
+        link.sendError = GatewayClient.RPCError(code: 5000, message: "socket closed", data: nil)
+        m.draft = "later"
+        XCTAssertTrue(m.enqueueDraft())
+        try await waitUntil { m.queue.isEmpty }
+        m.close()
+        try await waitUntil { self.sends(link) == ["send:later|"] }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(m.queue.isEmpty, "the failed entry is not revived")
+        XCTAssertFalse(m.queueParked)
+    }
+
     func testASteerTheBackendQueuedKeepsTheLineWithANote() async throws {
         let link = FakeChatLink()
         link.redirectResult = { _ in "queued" }

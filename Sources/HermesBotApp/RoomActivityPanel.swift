@@ -100,44 +100,6 @@ extension RoomActivityModel {
     }
 }
 
-/// Reports whether the hosting window is on screen (not fully occluded, app not hidden), on attach and on
-/// every occlusion / hide / unhide change. Observers are selector-based, so they go away with the view.
-private struct WindowVisibilityObserver: NSViewRepresentable {
-    let onChange: @MainActor (Bool) -> Void
-
-    func makeNSView(context: Context) -> ObserverView {
-        let v = ObserverView()
-        v.onChange = onChange
-        return v
-    }
-
-    func updateNSView(_ view: ObserverView, context: Context) { view.onChange = onChange }
-
-    final class ObserverView: NSView {
-        var onChange: (@MainActor (Bool) -> Void)?
-        private weak var observed: NSWindow?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            let nc = NotificationCenter.default
-            if let observed { nc.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observed) }
-            nc.removeObserver(self, name: NSApplication.didHideNotification, object: nil)
-            nc.removeObserver(self, name: NSApplication.didUnhideNotification, object: nil)
-            observed = window
-            guard let window else { return }
-            nc.addObserver(self, selector: #selector(changed), name: NSWindow.didChangeOcclusionStateNotification, object: window)
-            nc.addObserver(self, selector: #selector(changed), name: NSApplication.didHideNotification, object: nil)
-            nc.addObserver(self, selector: #selector(changed), name: NSApplication.didUnhideNotification, object: nil)
-            changed()
-        }
-
-        @objc private func changed() {
-            guard let window else { return }
-            onChange?(RoomActivityModel.isOnScreen(occlusion: window.occlusionState, appHidden: NSApp.isHidden))
-        }
-    }
-}
-
 /// "Activity" title, and the panel menu while tracking is on.
 private struct ActivityPanelHeader: View {
     let menu: (() -> Void)?

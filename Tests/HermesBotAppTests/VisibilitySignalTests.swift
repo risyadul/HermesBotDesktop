@@ -3,9 +3,10 @@ import XCTest
 @testable import HermesBotApp
 @testable import HermesGatewayKit
 
-/// One visibility signal (`AppModel.mainWindowOnScreen`): while no main window shows, the open room's poller
-/// pauses and its pane counts nothing as seen, the shown bot is not marked read, and Kanban pauses; it all
-/// resumes when a window is back. Headless: the signal is driven directly, no window is opened.
+/// Visibility: the main-window signal (`AppModel.mainWindowOnScreen`) pauses what only the main window shows
+/// (Kanban, the selected Bot Chat's read mark); rooms and detached Bot Chats follow their OWN windows, so a
+/// room or bot in a detached window stays live while the main window is hidden. Headless: the signals are
+/// driven directly, no window is opened.
 @MainActor
 final class VisibilitySignalTests: XCTestCase {
     private var models: [RoomModel] = []
@@ -25,41 +26,86 @@ final class VisibilitySignalTests: XCTestCase {
         m.start()
         XCTAssertTrue(m.isPolling)
         XCTAssertTrue(m.isOnScreen)
-        m.setWindowOnScreen(false)
+        m.setVisible(false)
         XCTAssertFalse(m.isPolling, "hidden / minimised / covered: no room polling")
         XCTAssertFalse(m.isOnScreen, "and nothing the pane shows counts as seen")
-        m.start(viewer: ObjectIdentifier(self))
-        XCTAssertFalse(m.isPolling, "a second viewer does not restart it while off screen")
-        m.setWindowOnScreen(true)
+        let other = ObjectIdentifier(self)
+        m.setVisible(false, viewer: other)  // its window reports before the pane appears
+        m.start(viewer: other)
+        XCTAssertFalse(m.isPolling, "a second viewer in a hidden window does not restart it")
+        m.setVisible(true)
         XCTAssertTrue(m.isPolling, "back on screen: polling resumes for the viewers still there")
         XCTAssertTrue(m.isOnScreen)
         m.stopPolling()
-        m.stopPolling(viewer: ObjectIdentifier(self))
-        m.setWindowOnScreen(false)
-        m.setWindowOnScreen(true)
+        XCTAssertFalse(m.isPolling, "the only visible view left: the hidden one does not keep it polling")
+        m.stopPolling(viewer: other)
+        m.setVisible(false)
+        m.setVisible(true)
         XCTAssertFalse(m.isPolling, "no viewer: coming back on screen starts nothing")
     }
 
-    func testAppModelFansTheSignalOut() {
+    /// Review BLOCK-001: a room in its own window keeps polling while the main window is off screen.
+    func testADetachedRoomKeepsPollingWhileTheMainWindowIsHidden() {
+        let m = room()
+        let main = PaneViewer(), detached = PaneViewer()
+        m.start(viewer: main.id)
+        m.start(viewer: detached.id)
+        m.setVisible(false, viewer: main.id)
+        XCTAssertTrue(m.isPolling, "main hidden, detached visible: still polling")
+        XCTAssertTrue(m.isOnScreen)
+        m.setVisible(false, viewer: detached.id)
+        XCTAssertFalse(m.isPolling, "every window showing the room is hidden")
+        XCTAssertFalse(m.isOnScreen)
+        m.setVisible(true, viewer: main.id)
+        XCTAssertTrue(m.isPolling, "main back, detached hidden")
+        m.setVisible(true, viewer: detached.id)
+        m.stopPolling(viewer: detached.id)
+        XCTAssertTrue(m.isPolling, "closing the detached window keeps the main window's view live")
+        m.setVisible(false, viewer: main.id)
+        XCTAssertFalse(m.isPolling)
+        m.start(viewer: detached.id)
+        XCTAssertTrue(m.isPolling, "reopened detached window (not reported hidden): polls again")
+    }
+
+    func testTheMainWindowSignalLeavesRoomsToTheirOwnWindows() {
         let app = AppModel()
         let m = room()
         app.roomModels[m.id] = m
-        m.start()
+        let detached = PaneViewer()
+        m.start(viewer: detached.id)
         app.selection = .bot("alice")
-        XCTAssertEqual(app.botActivity.onScreen(), "alice")
+        XCTAssertEqual(app.botActivity.onScreen(), ["alice"])
         XCTAssertTrue(app.kanban.isActive)
 
         app.setMainWindowOnScreen(false)
         XCTAssertFalse(app.mainWindowOnScreen)
-        XCTAssertFalse(m.isPolling)
-        XCTAssertFalse(m.isOnScreen)
-        XCTAssertNil(app.botActivity.onScreen(), "the selected bot's chat is not on screen: nothing is marked read")
-        XCTAssertFalse(app.kanban.isActive, "Kanban pauses on the same signal")
+        XCTAssertTrue(m.isPolling, "the room's own (detached) window is still on screen")
+        XCTAssertTrue(m.isOnScreen)
+        XCTAssertEqual(app.botActivity.onScreen(), [], "the selected bot's chat is not on screen: nothing is marked read")
+        XCTAssertFalse(app.kanban.isActive, "Kanban pauses on the main-window signal")
 
         app.setMainWindowOnScreen(true)
         XCTAssertTrue(m.isPolling)
-        XCTAssertEqual(app.botActivity.onScreen(), "alice")
+        XCTAssertEqual(app.botActivity.onScreen(), ["alice"])
         XCTAssertTrue(app.kanban.isActive)
+    }
+
+    /// A Bot Chat in its own window counts as on screen (read as it happens) by that window's visibility.
+    func testADetachedBotChatIsOnScreenByItsOwnWindow() {
+        let app = AppModel()
+        let pane = PaneViewer()
+        app.setMainWindowOnScreen(false)
+        app.botPaneAppeared("bob", viewer: pane.id)
+        XCTAssertEqual(app.botsOnScreen, ["bob"], "main hidden, bob's window shows")
+        app.setBotPaneVisible(false, bot: "bob", viewer: pane.id)
+        XCTAssertEqual(app.botsOnScreen, [])
+        app.setBotPaneVisible(true, bot: "bob", viewer: pane.id)
+        app.selection = .bot("alice")
+        app.setMainWindowOnScreen(true)
+        XCTAssertEqual(app.botsOnScreen, ["alice", "bob"])
+        app.botPaneDisappeared("bob", viewer: pane.id)
+        XCTAssertEqual(app.botsOnScreen, ["alice"])
+        XCTAssertNil(app.botPanes["bob"], "a closed window leaves nothing behind")
     }
 
     func testADisbandedRoomModelIsShutDown() {
